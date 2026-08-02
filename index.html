@@ -480,7 +480,19 @@ footer.site a{color:var(--muted);text-decoration:underline}
           <label>画面の最大の幅 <span id="valMaxW" style="color:var(--muted)"></span></label>
           <input type="range" id="rangeMaxW" min="3" max="40" step="1">
         </div>
-        <p class="set-note">これらはVRの中の設定メニュー(標準では左手のXボタン)からもその場で変えられます。背景も即時に切り替わりますが、パススルーとの行き来だけはVRの入り直しで反映されます(対応機のみ)。</p>
+        <div class="set-row">
+          <label>VRの描画解像度</label>
+          <select class="monsel" id="selRScale">
+            <option value="1">標準</option>
+            <option value="1.15">高(推奨)</option>
+            <option value="1.3">最高(電池消費が増えます)</option>
+          </select>
+        </div>
+        <div class="set-row">
+          <label>文字のちらつき低減(ミップマップ)</label>
+          <input type="checkbox" id="chkAniso" style="width:18px;height:18px;accent-color:var(--accent)">
+        </div>
+        <p class="set-note">描画解像度は、次にVRへ入るときに反映されます。これらはVRの中の設定メニュー(標準では左手のXボタン)からもその場で変えられます。背景も即時に切り替わりますが、パススルーとの行き来だけはVRの入り直しで反映されます(対応機のみ)。</p>
       </div>
       <div class="set-row">
         <label>低遅延モード(受信のため込みを最小化)</label>
@@ -1203,7 +1215,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-03h';
+var APP_VER = '2026-08-03i';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1276,6 +1288,8 @@ function loadS(){
   delete s.km;
   s.lowLat = (s.lowLat !== false); /* 低遅延モード: 初期ON */
   s.trig = (s.trig === 'plain') ? 'plain' : 'vd'; /* トリガー: 長押し→移動でスクロール */
+  s.rscale = ([1, 1.15, 1.3].indexOf(+s.rscale) >= 0) ? +s.rscale : 1.15; /* VR描画解像度 */
+  s.aniso = (s.aniso !== false); /* 文字のちらつき低減: 初期ON */
   if (!Array.isArray(s.slots) || s.slots.length !== 3) s.slots = [null, null, null];
   s.slots = s.slots.map(function(x){
     return (x && typeof x === 'object' && Array.isArray(x.scr)) ? x : null;
@@ -1299,7 +1313,7 @@ function hostSend(host, m){
 
 /* ---------- 画質プリセット ---------- */
 var QUALITY = {
-  sharp:   { hint: 'detail', br: 16000000, deg: 'maintain-resolution', fps: 30,
+  sharp:   { hint: 'detail', br: 30000000, deg: 'maintain-resolution', fps: 30,
              name: 'くっきり', desc: '文字を最優先(30fps)。資料や文章の作業向き' },
   balance: { hint: 'detail', br: 10000000, deg: 'balanced', fps: 60,
              name: 'バランス(標準)', desc: '文字と動きの両立(60fps)。まずはこれ' },
@@ -1581,6 +1595,8 @@ function renderEnv(){
   });
   $('chkStats').checked = S.stats;
   $('chkLowLat').checked = S.lowLat;
+  $('selRScale').value = String(S.rscale);
+  $('chkAniso').checked = S.aniso;
   $('rangeMaxD').value = String(S.maxDist);
   $('valMaxD').textContent = S.maxDist + 'm';
   $('rangeMaxW').value = String(S.maxW);
@@ -1631,6 +1647,16 @@ function initSettingsUi(){
     S.stats = $('chkStats').checked;
     saveS();
     questStatsTick();
+  });
+  $('selRScale').addEventListener('change', function(){
+    var v = parseFloat($('selRScale').value);
+    S.rscale = ([1, 1.15, 1.3].indexOf(v) >= 0) ? v : 1.15;
+    saveS();
+  });
+  $('chkAniso').addEventListener('change', function(){
+    S.aniso = $('chkAniso').checked;
+    saveS();
+    if (APP.xrAnisoChanged) APP.xrAnisoChanged();
   });
   $('chkLowLat').addEventListener('change', function(){
     S.lowLat = $('chkLowLat').checked;
@@ -2491,6 +2517,27 @@ function xrSyncScreens(){
   xrDrawHud();
 }
 
+/* 縮小・斜め見でも文字が安定するフィルタ設定(設定でON/OFF) */
+function xrTuneTex(tex){
+  if (S.aniso) {
+    tex.generateMipmaps = true;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    try { tex.anisotropy = xr.renderer.capabilities.getMaxAnisotropy() || 1; } catch (_e) { tex.anisotropy = 1; }
+  } else {
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    tex.anisotropy = 1;
+  }
+}
+
+APP.xrAnisoChanged = function(){
+  if (!xr.built) return;
+  xr.screens.forEach(function(s){
+    xrTuneTex(s.tex);
+    s.tex.needsUpdate = true;
+  });
+};
+
 APP.xrSync = function(){ if (xr.built) xrSyncScreens(); };
 APP.xrHud = function(){ if (xr.built) xrDrawHud(); };
 
@@ -2546,7 +2593,7 @@ function xrMakeScreenGeo(width, aspect, curved){
 
 function xrCreateScreen(d){
   var tex = new THREE.VideoTexture(d.video);
-  tex.minFilter = THREE.LinearFilter;
+  xrTuneTex(tex);
   tex.magFilter = THREE.LinearFilter;
   tex.encoding = THREE.sRGBEncoding;
   var mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
@@ -2852,6 +2899,8 @@ async function xrEnter(){
   });
   var mode = (S.bg === 'pass' && qs.arOk) ? 'immersive-ar' : 'immersive-vr';
   try {
+    /* 描画解像度(スーパーサンプリング)。セッション開始前にのみ設定できる */
+    try { xr.renderer.xr.setFramebufferScaleFactor(S.rscale || 1); } catch (_e2) {}
     var session = await navigator.xr.requestSession(mode, { optionalFeatures: ['local-floor'] });
     xr.mode = mode;
     xr.session = session;
