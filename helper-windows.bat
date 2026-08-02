@@ -9,6 +9,7 @@ exit /b
 # VR Desktop - Control Helper (Windows)
 # Runs a tiny HTTP server on 127.0.0.1:8765 (this computer only).
 # The screen-share page sends mouse events here.
+# Supports multiple monitors: each event carries a monitor index.
 # No installation. Close this window to stop.
 # ----------------------------------------------------------------
 $ErrorActionPreference = 'Stop'
@@ -30,9 +31,27 @@ public static class VRMouse {
 '@
 Add-Type -TypeDefinition $csrc
 
-$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-$W = $bounds.Width
-$H = $bounds.Height
+# Monitors: primary first, the rest ordered left to right
+$allScreens = [System.Windows.Forms.Screen]::AllScreens
+$prim = $null
+$rest = @()
+foreach ($s in $allScreens) {
+    if ($s.Primary) { $prim = $s } else { $rest += $s }
+}
+$rest = @($rest | Sort-Object { $_.Bounds.X })
+$mons = @()
+if ($prim) { $mons += $prim }
+$mons += $rest
+if ($mons.Count -eq 0) { $mons = @($allScreens[0]) }
+
+$monParts = @()
+foreach ($m in $mons) {
+    $b = $m.Bounds
+    $monParts += ('{"x":' + $b.X + ',"y":' + $b.Y + ',"w":' + $b.Width + ',"h":' + $b.Height + '}')
+}
+$monJson = '[' + ($monParts -join ',') + ']'
+$pingBody = '{"ok":1,"os":"win","monitors":' + $monJson + '}'
+
 $port = 8765
 $paired = $null
 
@@ -51,7 +70,13 @@ Write-Host ""
 Write-Host "  ================================================"
 Write-Host "   VR Desktop - Control Helper (Windows)"
 Write-Host "  ================================================"
-Write-Host "   Screen size : $W x $H"
+Write-Host ("   Monitors    : " + $mons.Count)
+for ($mi = 0; $mi -lt $mons.Count; $mi++) {
+    $b = $mons[$mi].Bounds
+    $tag = ""
+    if ($mi -eq 0) { $tag = " (main)" }
+    Write-Host ("     Monitor " + ($mi + 1) + $tag + " : " + $b.Width + " x " + $b.Height)
+}
 Write-Host "   Status      : waiting for your screen-share page"
 Write-Host ""
 Write-Host "   Keep this window open while using VR."
@@ -123,7 +148,7 @@ while ($true) {
                 $paired = $origin
                 Write-Host "   Connected   : $origin"
             }
-            $resBody = '{"ok":1,"os":"win"}'
+            $resBody = $pingBody
         }
         elseif ($path -eq '/input' -and $method -eq 'POST') {
             if ($paired -and $origin -ne '*' -and $origin -ne $paired) {
@@ -135,10 +160,14 @@ while ($true) {
                     foreach ($e in $events) {
                         switch ($e.t) {
                             'mv' {
+                                $si = 0
+                                if ($null -ne $e.s) { $si = [int]$e.s }
+                                if ($si -lt 0 -or $si -ge $mons.Count) { $si = 0 }
+                                $mb = $mons[$si].Bounds
                                 $nx = [Math]::Max(0.0, [Math]::Min(1.0, [double]$e.x))
                                 $ny = [Math]::Max(0.0, [Math]::Min(1.0, [double]$e.y))
-                                $px = [int]($nx * ($W - 1))
-                                $py = [int]($ny * ($H - 1))
+                                $px = $mb.X + [int]($nx * ($mb.Width - 1))
+                                $py = $mb.Y + [int]($ny * ($mb.Height - 1))
                                 $pt = New-Object System.Drawing.Point -ArgumentList $px, $py
                                 [System.Windows.Forms.Cursor]::Position = $pt
                             }

@@ -152,6 +152,24 @@ video.preview{
 .ctl-table td:first-child{color:var(--accent);white-space:nowrap;font-weight:500}
 .ctl-table td:last-child{color:var(--muted)}
 
+.screenrow{margin-top:16px;border-top:1px solid var(--line);padding-top:14px}
+.screenrow:first-child{margin-top:0;border-top:none;padding-top:0}
+.screenrow-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.screenrow-name{font-weight:700;font-size:14px}
+.monsel{
+  background:var(--surface-2);color:var(--ink);border:1px solid var(--line);
+  border-radius:8px;padding:6px 8px;font-family:var(--font-jp);font-size:12px;max-width:100%;
+}
+.btn-sm{padding:6px 14px;font-size:12px}
+.screenrow-head .btn-sm,.hostrow .btn-sm{margin-left:auto}
+.hostrow{
+  display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);
+  padding:8px 0;border-bottom:1px solid var(--line);
+}
+.hostrow:last-child{border-bottom:none}
+.addbox{margin-top:12px}
+.addbox .code-input{font-size:28px;padding:10px 0 10px .35em}
+
 footer.site{margin-top:36px;text-align:center;font-size:12px;color:var(--muted)}
 footer.site a{color:var(--muted);text-decoration:underline}
 
@@ -229,8 +247,10 @@ footer.site a{color:var(--muted);text-decoration:underline}
         Windows: <a href="helper-windows.bat" download>helper-windows.bat</a> / Mac: <a href="helper-mac.py" download>helper-mac.py</a><br>
         はじめての起動手順は<a href="guide.html#helper" target="_blank" rel="noopener">使い方ガイド</a>にあります。起動すると、この欄が自動でONに変わります。
       </div>
-      <video class="preview" id="pcPreview" muted autoplay playsinline></video>
-      <p style="margin-top:16px"><button class="btn-ghost" id="btnStop">共有をやめる</button></p>
+      <div id="pcScreens" style="margin-top:16px"></div>
+      <p style="margin-top:14px"><button class="btn-ghost" id="btnAddScreen">画面を追加(別のモニターを共有)</button></p>
+      <p class="msg-err" id="addErr"></p>
+      <p><button class="btn-ghost" id="btnStop">共有をすべてやめる</button></p>
     </div>
   </div>
 </section>
@@ -253,20 +273,26 @@ footer.site a{color:var(--muted);text-decoration:underline}
 
   <div id="qStepB" class="hidden">
     <div class="panel">
-      <p class="strong" id="qStatus">接続しました。</p>
-      <p class="msg-info hidden" id="qHelperBadge"></p>
-      <button class="btn btn-wide" id="btnEnterVR">VRで見る</button>
+      <p class="strong" id="qStatus">パソコンの画面を受信しています。</p>
+      <div id="qHosts"></div>
+      <p style="margin-top:12px"><button class="btn-ghost btn-sm" id="btnAddPC">別のパソコンを追加</button></p>
+      <div id="qAddBox" class="addbox hidden">
+        <input class="code-input" id="codeInput2" inputmode="numeric" maxlength="6" placeholder="000000">
+        <p class="msg-err" id="qAddErr"></p>
+        <button class="btn btn-wide" id="btnConnect2">このコードに接続する</button>
+      </div>
+      <button class="btn btn-wide" id="btnEnterVR" style="margin-top:14px">VRで見る</button>
       <button class="btn btn-ghost btn-wide hidden" id="btnFullscreen" style="margin-top:10px">全画面で見る</button>
-      <p class="msg-info hidden" id="qMuteNote">音はミュートで開始しました。下の映像を一度タップすると音が出ます。</p>
-      <video class="preview" id="qVideo" autoplay playsinline></video>
+      <p class="msg-info hidden" id="qMuteNote" style="margin-top:10px">音はミュートで開始しました。下の映像を一度タップすると音が出ます。</p>
+      <div id="qVideos"></div>
     </div>
     <div class="panel">
       <h2>VRの中での操作</h2>
       <table class="ctl-table">
-        <tr><td>右手 レーザー</td><td>マウスカーソルを動かす(操作モードON時)</td></tr>
+        <tr><td>右手 レーザー</td><td>当てた画面のカーソルを動かす(操作モードON時)</td></tr>
         <tr><td>右手 トリガー / グリップ</td><td>左クリック / 右クリック</td></tr>
         <tr><td>右手 スティック上下</td><td>スクロール</td></tr>
-        <tr><td>左手 スティック</td><td>上下で画面の遠近、左右で大きさ</td></tr>
+        <tr><td>左手 スティック</td><td>上下で画面全体の遠近、左右で大きさ</td></tr>
         <tr><td>左手 X / Y</td><td>平面と湾曲の切替 / 画面を正面に呼び直す</td></tr>
         <tr><td>左手 トリガー</td><td>操作ガイドの表示切替</td></tr>
       </table>
@@ -305,8 +331,8 @@ window.__libsReady = (function(){
 'use strict';
 /* ================================================================
    VR Desktop - core
-   役割: 画面の役割分岐 / PC側(共有・コード発行・操作ヘルパー中継) /
-         Quest側(コード入力・映像受信)
+   役割: 画面の役割分岐 / PC側(複数画面の共有・コード発行・操作ヘルパー中継) /
+         Quest側(複数パソコンへの接続・映像受信)
    ================================================================ */
 
 var HELPER_URL = 'http://127.0.0.1:8765';
@@ -332,36 +358,138 @@ function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
    PC側(共有する側)
    ================================================================ */
 var pc = {
-  peer: null, conn: null, call: null, stream: null,
-  code: '', helperOn: false, inputQueue: [], timers: []
+  peer: null, conn: null, code: '',
+  screens: [],        /* {slot, stream, call, mon} */
+  nextSlot: 1,
+  helperOn: false, monitors: [], monSig: '',
+  inputQueue: [], timers: []
 };
 
-async function pcStartShare(){
-  $('shareErr').textContent = '';
-  var stream;
+async function pcCapture(errId){
   try {
-    stream = await navigator.mediaDevices.getDisplayMedia({
+    return await navigator.mediaDevices.getDisplayMedia({
       video: { frameRate: { ideal: 60, max: 60 } },
       audio: true
     });
   } catch (e) {
+    var el = $(errId);
     if (e && e.name === 'NotAllowedError') {
-      $('shareErr').textContent = '共有がキャンセルされました。もう一度ボタンを押してください。公開したURL(https)で開いているかも確認してください。';
+      el.textContent = '共有がキャンセルされました。もう一度ボタンを押してください。公開したURL(https)で開いているかも確認してください。';
     } else {
-      $('shareErr').textContent = '画面共有をはじめられませんでした(' + (e && e.name ? e.name : 'エラー') + ')。公開したURLをChromeまたはEdgeで開いてください。';
+      el.textContent = '画面共有をはじめられませんでした(' + (e && e.name ? e.name : 'エラー') + ')。公開したURLをChromeまたはEdgeで開いてください。';
     }
-    return;
+    return null;
   }
-  pc.stream = stream;
-  var vtrack = stream.getVideoTracks()[0];
-  if (vtrack) vtrack.addEventListener('ended', pcStop); /* ブラウザ側の「共有を停止」 */
-  $('pcPreview').srcObject = stream;
+}
+
+async function pcStartShare(){
+  $('shareErr').textContent = '';
+  var stream = await pcCapture('shareErr');
+  if (!stream) return;
   show($('pcStepA'), false);
   show($('pcStepB'), true);
   setDot('dotShare', 'on');
   setDot('dotQuest', 'wait');
+  pcAddScreen(stream);
   pcCreatePeer(0);
   pcStartHelperLoop();
+}
+
+async function pcAddScreenClick(){
+  $('addErr').textContent = '';
+  var stream = await pcCapture('addErr');
+  if (stream) pcAddScreen(stream);
+}
+
+function pcAddScreen(stream){
+  var slot = pc.nextSlot++;
+  var item = { slot: slot, stream: stream, call: null, mon: pc.screens.length };
+  var vt = stream.getVideoTracks()[0];
+  if (vt) vt.addEventListener('ended', function(){ pcRemoveScreen(slot); }); /* ブラウザ側の「共有を停止」 */
+  pc.screens.push(item);
+  pcRenderScreens();
+  if (pc.conn && pc.conn.open) pcCallScreen(item);
+}
+
+function pcCallScreen(item){
+  try {
+    item.call = pc.peer.call(pc.conn.peer, item.stream, { metadata: { slot: item.slot } });
+  } catch (_e) {}
+}
+
+function pcFindScreen(slot){
+  for (var i = 0; i < pc.screens.length; i++) {
+    if (pc.screens[i].slot === slot) return pc.screens[i];
+  }
+  return null;
+}
+
+function pcRemoveScreen(slot){
+  var idx = -1;
+  for (var i = 0; i < pc.screens.length; i++) {
+    if (pc.screens[i].slot === slot) { idx = i; break; }
+  }
+  if (idx < 0) return;
+  var item = pc.screens[idx];
+  item.stream.getTracks().forEach(function(t){ try { t.stop(); } catch (_e) {} });
+  if (item.call) { try { item.call.close(); } catch (_e) {} }
+  pc.screens.splice(idx, 1);
+  if (pc.conn && pc.conn.open) { try { pc.conn.send({ t: 'del', s: slot }); } catch (_e) {} }
+  if (pc.screens.length === 0) { pcStop(); return; }
+  pcRenderScreens();
+}
+
+function pcRenderScreens(){
+  var box = $('pcScreens');
+  if (!box) return;
+  box.innerHTML = '';
+  pc.screens.forEach(function(item, i){
+    var row = document.createElement('div');
+    row.className = 'screenrow';
+
+    var head = document.createElement('div');
+    head.className = 'screenrow-head';
+    var name = document.createElement('span');
+    name.className = 'screenrow-name';
+    name.textContent = '画面' + (i + 1);
+    head.appendChild(name);
+
+    if (pc.helperOn && pc.monitors.length > 1) {
+      var sel = document.createElement('select');
+      sel.className = 'monsel';
+      pc.monitors.forEach(function(m, mi){
+        var op = document.createElement('option');
+        op.value = String(mi);
+        op.textContent = '操作先: モニター' + (mi + 1) + (mi === 0 ? '(メイン)' : '') + ' ' + m.w + '×' + m.h;
+        sel.appendChild(op);
+      });
+      if (item.mon > pc.monitors.length - 1) item.mon = 0;
+      sel.value = String(item.mon);
+      sel.addEventListener('change', function(){
+        item.mon = parseInt(sel.value, 10) || 0;
+      });
+      head.appendChild(sel);
+    }
+
+    var rm = document.createElement('button');
+    rm.className = 'btn-ghost btn-sm';
+    rm.textContent = 'はずす';
+    rm.addEventListener('click', function(){ pcRemoveScreen(item.slot); });
+    head.appendChild(rm);
+
+    row.appendChild(head);
+
+    var v = document.createElement('video');
+    v.className = 'preview';
+    v.muted = true;
+    v.autoplay = true;
+    v.playsInline = true;
+    v.setAttribute('playsinline', '');
+    v.srcObject = item.stream;
+    row.appendChild(v);
+
+    box.appendChild(row);
+  });
 }
 
 function newCode(){ return String(Math.floor(100000 + Math.random() * 900000)); }
@@ -394,19 +522,19 @@ function pcCreatePeer(attempt){
   });
 
   peer.on('connection', function(conn){
-    if (pc.conn) { try { conn.close(); } catch (_e) {} return; } /* 接続は1台まで */
+    if (pc.conn) { try { conn.close(); } catch (_e) {} return; } /* 見る側は1台まで */
     pc.conn = conn;
     conn.on('open', function(){
       setDot('dotQuest', 'on');
       $('lblQuest').textContent = 'Questと接続中';
       pcSendHelperState();
-      if (pc.stream) pc.call = peer.call(conn.peer, pc.stream);
+      pc.screens.forEach(pcCallScreen);
     });
     conn.on('data', pcOnData);
     conn.on('close', function(){
       pc.conn = null;
-      pc.call = null;
-      if (pc.stream) {
+      pc.screens.forEach(function(s){ s.call = null; });
+      if (pc.screens.length) {
         setDot('dotQuest', 'wait');
         $('lblQuest').textContent = 'Questの接続待ち';
       }
@@ -433,21 +561,34 @@ function pcStartHelperLoop(){
 
 async function pcPingHelper(){
   var on = false;
+  var monitors = [];
   try {
     var ctl = new AbortController();
     var t = setTimeout(function(){ ctl.abort(); }, 1200);
     var r = await fetch(HELPER_URL + '/ping', { method: 'GET', signal: ctl.signal });
     clearTimeout(t);
-    if (r.ok) on = true;
+    if (r.ok) {
+      on = true;
+      try {
+        var j = await r.json();
+        if (j && j.monitors && j.monitors.length) monitors = j.monitors;
+      } catch (_e) {}
+    }
   } catch (_e) { on = false; }
-  if (on !== pc.helperOn) {
-    pc.helperOn = on;
+
+  var sig = JSON.stringify(monitors);
+  var changed = (on !== pc.helperOn) || (sig !== pc.monSig);
+  pc.helperOn = on;
+  pc.monitors = monitors;
+  pc.monSig = sig;
+  if (changed) {
     setDot('dotHelper', on ? 'on' : 'off');
     $('helperLabel').textContent = on
       ? '操作モード ON(VRからマウスを動かせます)'
       : '操作モード OFF(見るだけ)';
     show($('helperHint'), !on);
     pcSendHelperState();
+    pcRenderScreens();
   }
 }
 
@@ -460,11 +601,18 @@ function pcSendHelperState(){
 function pcOnData(msg){
   if (!msg || !msg.t) return;
   if (msg.t === 'mv') {
+    var item = pcFindScreen(msg.s);
+    var out = { t: 'mv', x: msg.x, y: msg.y, s: item ? item.mon : 0 };
     var q = pc.inputQueue;
-    if (q.length && q[q.length - 1].t === 'mv') q[q.length - 1] = msg; /* 移動はまとめる */
-    else q.push(msg);
-  } else if (msg.t === 'dn' || msg.t === 'up' || msg.t === 'sc') {
-    pc.inputQueue.push(msg);
+    if (q.length && q[q.length - 1].t === 'mv' && q[q.length - 1].s === out.s) {
+      q[q.length - 1] = out; /* 連続する移動はまとめる */
+    } else {
+      q.push(out);
+    }
+  } else if (msg.t === 'dn' || msg.t === 'up') {
+    pc.inputQueue.push({ t: msg.t, b: msg.b });
+  } else if (msg.t === 'sc') {
+    pc.inputQueue.push({ t: 'sc', d: msg.d });
   }
 }
 
@@ -482,18 +630,21 @@ async function pcFlushInput(){
 }
 
 function pcStop(){
-  if (pc.stream) {
-    pc.stream.getTracks().forEach(function(tr){ try { tr.stop(); } catch (_e) {} });
-    pc.stream = null;
-  }
+  pc.screens.forEach(function(item){
+    item.stream.getTracks().forEach(function(t){ try { t.stop(); } catch (_e) {} });
+    if (item.call) { try { item.call.close(); } catch (_e) {} }
+  });
+  pc.screens = [];
   if (pc.peer) { try { pc.peer.destroy(); } catch (_e) {} pc.peer = null; }
   pc.conn = null;
-  pc.call = null;
   pc.timers.forEach(clearInterval);
   pc.timers = [];
   pc.inputQueue = [];
   pc.helperOn = false;
-  $('pcPreview').srcObject = null;
+  pc.monSig = '';
+  var box = $('pcScreens');
+  if (box) box.innerHTML = '';
+  $('addErr').textContent = '';
   show($('pcStepB'), false);
   show($('pcStepA'), true);
   setDot('dotShare', 'off');
@@ -506,7 +657,14 @@ function pcStop(){
 /* ================================================================
    Quest側(見る側)
    ================================================================ */
-var qs = { peer: null, conn: null, call: null, stream: null, helperOn: false, xrOk: false };
+var qs = {
+  peer: null, peerReady: false,
+  hosts: [],          /* {idx, code, conn, screens:[{slot, stream, video}], helperOn, state} */
+  nextHost: 1,
+  pendingHost: null,
+  anyStream: false,
+  xrOk: false
+};
 
 async function questInit(){
   qs.xrOk = false;
@@ -518,133 +676,223 @@ async function questInit(){
     : 'このブラウザはVR表示に対応していません。接続すると通常の画面で見られます(VR表示はQuest本体のブラウザで開いてください)。';
 }
 
-function questConnect(){
-  var code = $('codeInput').value.replace(/\D/g, '');
-  if (code.length !== 6) {
-    $('qErr').textContent = '6桁のコードを入力してください。';
+function questEnsurePeer(cb){
+  if (qs.peer) {
+    if (qs.peerReady) cb();
+    else qs.peer.on('open', function(){ cb(); });
     return;
   }
-  $('qErr').textContent = '';
-  $('btnConnect').disabled = true;
-  $('btnConnect').textContent = '接続中…';
-
   var peer = new Peer({ debug: 1 });
   qs.peer = peer;
+  peer.on('open', function(){ qs.peerReady = true; cb(); });
+  peer.on('call', questOnCall);
+  peer.on('error', questOnPeerError);
+}
 
-  peer.on('open', function(){
-    var conn = peer.connect(PEER_PREFIX + code, { serialization: 'json' });
-    qs.conn = conn;
-    conn.on('open', function(){
-      $('qErr').textContent = '';
-      $('btnConnect').textContent = 'パソコンに接続しました。映像を待っています…';
-    });
+function questHostByPeerId(pid){
+  for (var i = 0; i < qs.hosts.length; i++) {
+    if (PEER_PREFIX + qs.hosts[i].code === pid) return qs.hosts[i];
+  }
+  return null;
+}
+
+function questAddHost(codeRaw, errEl){
+  var code = String(codeRaw || '').replace(/\D/g, '');
+  if (code.length !== 6) { errEl.textContent = '6桁のコードを入力してください。'; return false; }
+  if (questHostByPeerId(PEER_PREFIX + code)) { errEl.textContent = 'そのコードにはすでに接続しています。'; return false; }
+  errEl.textContent = '';
+  var host = { idx: qs.nextHost++, code: code, conn: null, screens: [], helperOn: false, state: 'connecting' };
+  qs.hosts.push(host);
+  qs.pendingHost = host;
+  questUiSync();
+  questEnsurePeer(function(){
+    var conn = qs.peer.connect(PEER_PREFIX + code, { serialization: 'json' });
+    host.conn = conn;
+    conn.on('open', function(){ host.state = 'open'; questUiSync(); });
     conn.on('data', function(m){
-      if (m && m.t === 'helper') {
-        qs.helperOn = !!m.on;
-        questHelperBadge();
-        if (APP.xrUpdateHelper) APP.xrUpdateHelper(qs.helperOn);
+      if (!m) return;
+      if (m.t === 'helper') {
+        host.helperOn = !!m.on;
+        questUiSync();
+        if (APP.xrHud) APP.xrHud();
+      } else if (m.t === 'del') {
+        questRemoveScreen(host, m.s);
       }
     });
-    conn.on('close', questDisconnected);
+    conn.on('close', function(){ questDropHost(host, 'パソコンとの接続が切れました。共有中か確認して、もう一度接続してください。'); });
   });
+  return true;
+}
 
-  peer.on('call', function(call){
-    qs.call = call;
-    call.answer();
-    call.on('stream', function(stream){
-      qs.stream = stream;
-      var v = $('qVideo');
-      v.srcObject = stream;
-      v.muted = false;
-      v.play().catch(function(){
-        v.muted = true;
-        v.play().catch(function(){});
-        show($('qMuteNote'), true);
-      });
-      questConnected();
-    });
-    call.on('close', questDisconnected);
+function questOnCall(call){
+  var host = questHostByPeerId(call.peer);
+  if (!host) { try { call.close(); } catch (_e) {} return; }
+  var slot = (call.metadata && call.metadata.slot != null) ? call.metadata.slot : 0;
+  call.answer();
+  call.on('stream', function(stream){ questAddScreen(host, slot, stream); });
+  call.on('close', function(){ questRemoveScreen(host, slot); });
+}
+
+function questAddScreen(host, slot, stream){
+  questRemoveScreen(host, slot, true); /* 同じ番号の作り直しに備える */
+  var v = document.createElement('video');
+  v.className = 'preview';
+  v.autoplay = true;
+  v.playsInline = true;
+  v.setAttribute('playsinline', '');
+  v.srcObject = stream;
+  v.muted = false;
+  v.play().catch(function(){
+    v.muted = true;
+    v.play().catch(function(){});
+    show($('qMuteNote'), true);
   });
+  v.addEventListener('click', function(){
+    v.muted = false;
+    v.play().catch(function(){});
+    show($('qMuteNote'), false);
+  });
+  $('qVideos').appendChild(v);
+  host.screens.push({ slot: slot, stream: stream, video: v });
+  if (!qs.anyStream) { qs.anyStream = true; questConnectedUi(); }
+  questUiSync();
+  if (APP.xrSync) APP.xrSync();
+}
 
-  peer.on('error', function(err){
-    var t = err && err.type;
-    if (t === 'peer-unavailable') {
-      questFail('このコードのパソコンが見つかりません。コードと、パソコン側で共有中かを確認してください。');
-    } else if (t === 'network' || t === 'server-error' || t === 'socket-error') {
-      questFail('接続サービスにつながりません。QuestがWi-Fiにつながっているか確認してください。');
+function questRemoveScreen(host, slot, silent){
+  var idx = -1;
+  for (var i = 0; i < host.screens.length; i++) {
+    if (host.screens[i].slot === slot) { idx = i; break; }
+  }
+  if (idx < 0) return;
+  var sc = host.screens[idx];
+  try {
+    if (sc.video) { sc.video.srcObject = null; sc.video.remove(); }
+  } catch (_e) {}
+  host.screens.splice(idx, 1);
+  if (!silent) {
+    questUiSync();
+    if (APP.xrSync) APP.xrSync();
+  }
+}
+
+function questDropHost(host, msg){
+  var i = qs.hosts.indexOf(host);
+  if (i < 0) return;
+  host.screens.slice().forEach(function(sc){ questRemoveScreen(host, sc.slot, true); });
+  if (host.conn) { try { host.conn.close(); } catch (_e) {} }
+  qs.hosts.splice(i, 1);
+  questUiSync();
+  if (APP.xrSync) APP.xrSync();
+  if (qs.hosts.length === 0) {
+    qs.anyStream = false;
+    if (APP.xrEnd) APP.xrEnd();
+    show($('qStepB'), false);
+    show($('qStepA'), true);
+    $('btnConnect').disabled = false;
+    $('btnConnect').textContent = '接続する';
+    if (msg) $('qErr').textContent = msg;
+  }
+}
+
+function questOnPeerError(err){
+  var t = err && err.type;
+  if (t === 'peer-unavailable') {
+    var host = qs.pendingHost;
+    var m = /vrdd-(\d{6})/.exec(err.message || '');
+    if (m) {
+      var h2 = questHostByPeerId(PEER_PREFIX + m[1]);
+      if (h2) host = h2;
     }
-  });
+    if (host) {
+      var i = qs.hosts.indexOf(host);
+      if (i >= 0) qs.hosts.splice(i, 1);
+      questUiSync();
+    }
+    questShowErr('このコードのパソコンが見つかりません。コードと、パソコン側で共有中かを確認してください。');
+  } else if (t === 'network' || t === 'server-error' || t === 'socket-error') {
+    questShowErr('接続サービスにつながりません。QuestがWi-Fiにつながっているか確認してください。');
+  }
 }
 
-function questFail(msg){
-  $('qErr').textContent = msg;
-  $('btnConnect').disabled = false;
-  $('btnConnect').textContent = '接続する';
-  if (qs.peer) { try { qs.peer.destroy(); } catch (_e) {} qs.peer = null; }
-  qs.conn = null;
+function questShowErr(msg){
+  if (!$('qStepA').classList.contains('hidden')) {
+    $('qErr').textContent = msg;
+    $('btnConnect').disabled = false;
+    $('btnConnect').textContent = '接続する';
+  } else {
+    $('qAddErr').textContent = msg;
+    show($('qAddBox'), true);
+  }
 }
 
-function questConnected(){
+function questConnectedUi(){
   show($('qStepA'), false);
   show($('qStepB'), true);
-  $('qStatus').textContent = 'パソコンの画面を受信しています。';
   show($('btnEnterVR'), qs.xrOk);
   show($('btnFullscreen'), !qs.xrOk);
-  questHelperBadge();
-}
-
-function questHelperBadge(){
-  var b = $('qHelperBadge');
-  show(b, true);
-  b.textContent = qs.helperOn
-    ? '操作モード ON: VRの中からマウスを動かせます。'
-    : '操作モード OFF: 見るだけです。パソコン側で操作ヘルパーを起動するとONになります。';
-}
-
-function questDisconnected(){
-  if (APP.xrEnd) APP.xrEnd();
-  if (qs.peer) { try { qs.peer.destroy(); } catch (_e) {} qs.peer = null; }
-  qs.conn = null;
-  qs.call = null;
-  qs.stream = null;
-  $('qVideo').srcObject = null;
-  show($('qStepB'), false);
-  show($('qStepA'), true);
   $('btnConnect').disabled = false;
   $('btnConnect').textContent = '接続する';
-  $('qErr').textContent = 'パソコンとの接続が切れました。共有中か確認して、もう一度接続してください。';
+}
+
+function questUiSync(){
+  var box = $('qHosts');
+  if (!box) return;
+  box.innerHTML = '';
+  qs.hosts.forEach(function(h, i){
+    var row = document.createElement('div');
+    row.className = 'hostrow';
+    var label = document.createElement('span');
+    var st;
+    if (h.state === 'connecting') st = '接続中…';
+    else if (h.screens.length === 0) st = '映像待ち';
+    else st = '画面 ' + h.screens.length + '枚';
+    label.textContent = 'パソコン' + (i + 1) + ' [' + h.code + '] ' + st + ' / 操作 ' + (h.helperOn ? 'ON' : 'OFF');
+    row.appendChild(label);
+    var btn = document.createElement('button');
+    btn.className = 'btn-ghost btn-sm';
+    btn.textContent = '切断';
+    btn.addEventListener('click', function(){ questDropHost(h, ''); });
+    row.appendChild(btn);
+    box.appendChild(row);
+  });
 }
 
 function questReset(){
-  if (qs.peer) { try { qs.peer.destroy(); } catch (_e) {} qs.peer = null; }
-  qs.conn = null;
-  qs.call = null;
-  qs.stream = null;
-  $('qVideo').srcObject = null;
+  qs.hosts.slice().forEach(function(h){ questDropHost(h, ''); });
+  if (qs.peer) { try { qs.peer.destroy(); } catch (_e) {} qs.peer = null; qs.peerReady = false; }
+  qs.anyStream = false;
+  var box = $('qVideos');
+  if (box) box.innerHTML = '';
   show($('qStepB'), false);
   show($('qStepA'), true);
   $('btnConnect').disabled = false;
   $('btnConnect').textContent = '接続する';
   $('qErr').textContent = '';
+  $('qAddErr').textContent = '';
+  show($('qAddBox'), false);
 }
 /* ================================================================
    VR Desktop - XRビューア
-   役割: VR空間に画面を表示し、コントローラーで画面調整とマウス操作を行う
+   役割: すべての画面をVR空間の弧の上に並べ、コントローラーで
+         配置調整とマウス操作を行う
    ================================================================ */
 
 var xr = {
   built: false,
   renderer: null, scene: null, camera: null, clock: null,
-  group: null, screen: null, texture: null, screenMat: null,
+  root: null,
+  screens: [],   /* {key, host, slot, video, tex, mat, mesh, aspect} */
   hud: null, hudCanvas: null, hudCtx: null, hudTex: null,
   controllers: [], raycaster: null, laser: null, dotMesh: null,
   session: null,
-  params: { dist: 2.4, width: 3.0, yOff: -0.10, curved: true },
-  aspect: 16 / 9,
-  forward: null,
-  helperOn: false, mouseEnabled: true,
-  hover: null, pressed: {},
-  lastSent: { x: -1, y: -1, tm: 0 },
+  params: { dist: 2.4, width: 2.7, yOff: -0.10, curved: true, gap: 0.07 },
+  anchorPos: null, forward: null,
+  mouseEnabled: true,
+  hover: null,               /* {scr, uv} */
+  lastHost: null,
+  pressed: { 0: null, 2: null },
+  lastSent: { key: '', x: -1, y: -1, tm: 0 },
   buttons: {}, lastScroll: 0,
   geoDirty: false, lastGeoRebuild: 0,
   hudPinned: false, hudUntil: 0,
@@ -675,29 +923,14 @@ function xrBuildScene(){
   xr.tmpMat = new THREE.Matrix4();
   xr.tmpV1 = new THREE.Vector3();
   xr.tmpV2 = new THREE.Vector3();
+  xr.anchorPos = new THREE.Vector3(0, 0, 0);
   xr.forward = new THREE.Vector3(0, 0, -1);
 
-  /* 映像テクスチャ */
-  var video = $('qVideo');
-  var tex = new THREE.VideoTexture(video);
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  tex.encoding = THREE.sRGBEncoding;
-  xr.texture = tex;
-  xrUpdateAspect();
-  video.addEventListener('resize', function(){ xrUpdateAspect(); xr.geoDirty = true; });
+  xr.root = new THREE.Group();
+  scene.add(xr.root);
 
-  /* スクリーン本体 */
-  xr.group = new THREE.Group();
-  scene.add(xr.group);
-  xr.screenMat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
-  xr.screen = new THREE.Mesh(xrMakeScreenGeo(), xr.screenMat);
-  xr.group.add(xr.screen);
-
-  /* 操作ガイド(HUD) */
   xrBuildHud();
 
-  /* コントローラー */
   for (var i = 0; i < 2; i++) {
     (function(idx){
       var c = renderer.xr.getController(idx);
@@ -709,7 +942,6 @@ function xrBuildScene(){
     })(i);
   }
 
-  /* レーザーと着地点 */
   var laserGeo = new THREE.BufferGeometry().setFromPoints([
     new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)
   ]);
@@ -724,18 +956,78 @@ function xrBuildScene(){
   scene.add(xr.dotMesh);
 
   xr.raycaster = new THREE.Raycaster();
+
+  xrSyncScreens();
 }
 
-function xrUpdateAspect(){
-  var v = $('qVideo');
-  if (v.videoWidth > 0 && v.videoHeight > 0) xr.aspect = v.videoWidth / v.videoHeight;
+/* ---------- 画面一覧の同期 ---------- */
+function xrSyncScreens(){
+  var desired = [];
+  qs.hosts.forEach(function(h){
+    var list = h.screens.slice().sort(function(a, b){ return a.slot - b.slot; });
+    list.forEach(function(sc){
+      desired.push({ key: h.idx + ':' + sc.slot, host: h, slot: sc.slot, video: sc.video });
+    });
+  });
+
+  var existing = {};
+  xr.screens.forEach(function(s){ existing[s.key] = s; });
+
+  var next = [];
+  desired.forEach(function(d){
+    var s = existing[d.key];
+    if (s) {
+      delete existing[d.key];
+      s.host = d.host;
+    } else {
+      s = xrCreateScreen(d);
+    }
+    next.push(s);
+  });
+
+  Object.keys(existing).forEach(function(k){
+    var s = existing[k];
+    xr.root.remove(s.mesh);
+    try {
+      s.mesh.geometry.dispose();
+      s.mat.dispose();
+      s.tex.dispose();
+    } catch (_e) {}
+  });
+
+  xr.screens = next;
+  xrLayout();
 }
 
-/* 湾曲スクリーンの形状。angle=0で平面、正の値で視聴者側に凹む円弧 */
-function xrMakeScreenGeo(){
+function xrCreateScreen(d){
+  var tex = new THREE.VideoTexture(d.video);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.encoding = THREE.sRGBEncoding;
+  var mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
+  var s = { key: d.key, host: d.host, slot: d.slot, video: d.video, tex: tex, mat: mat, mesh: null, aspect: 16 / 9 };
+  if (d.video.videoWidth > 0) s.aspect = d.video.videoWidth / d.video.videoHeight;
+  s.mesh = new THREE.Mesh(xrMakeScreenGeo(s.aspect), mat);
+  s.mesh.userData.ref = s;
+  d.video.addEventListener('resize', function(){
+    if (d.video.videoWidth > 0) {
+      s.aspect = d.video.videoWidth / d.video.videoHeight;
+      xr.geoDirty = true;
+    }
+  });
+  xr.root.add(s.mesh);
+  return s;
+}
+
+APP.xrSync = function(){ if (xr.built) xrSyncScreens(); };
+APP.xrHud = function(){ if (xr.built) xrDrawHud(); };
+
+/* ---------- 形状 ---------- */
+/* 湾曲スクリーン。angle=0で平面、正の値で視聴者側に凹む円弧 */
+function xrMakeScreenGeo(aspect){
   var width = xr.params.width;
-  var height = width / xr.aspect;
-  var angle = xr.params.curved ? 1.0 : 0;
+  var height = width / aspect;
+  var angle = xr.params.curved ? 0.85 : 0;
   var segX = 48, segY = 8;
   var pos = [], uv = [], idx = [];
   var iy, ix;
@@ -772,10 +1064,35 @@ function xrMakeScreenGeo(){
   return g;
 }
 
-function xrRebuildGeo(){
-  var old = xr.screen.geometry;
-  xr.screen.geometry = xrMakeScreenGeo();
-  if (old) old.dispose();
+function xrRebuildGeos(){
+  xr.screens.forEach(function(s){
+    var old = s.mesh.geometry;
+    s.mesh.geometry = xrMakeScreenGeo(s.aspect);
+    if (old) old.dispose();
+  });
+  xrLayout();
+}
+
+/* ---------- 配置: すべての画面を弧の上に並べる ---------- */
+function xrLayout(){
+  var p = xr.params;
+  var n = xr.screens.length;
+  if (!xr.built || n === 0) { xrPlaceHud(); return; }
+  var unit = p.width / p.dist;           /* 1画面が占める角度 */
+  var total = unit * n + p.gap * (n - 1);
+  var az = -total / 2;
+  var up = xr.tmpV2.set(0, 1, 0);
+  xr.screens.forEach(function(s){
+    var center = az + unit / 2;
+    az += unit + p.gap;
+    var dir = xr.forward.clone().applyAxisAngle(up, -center);
+    s.mesh.position.set(
+      xr.anchorPos.x + dir.x * p.dist,
+      xr.anchorPos.y + p.yOff,
+      xr.anchorPos.z + dir.z * p.dist
+    );
+    s.mesh.lookAt(xr.anchorPos.x, s.mesh.position.y, xr.anchorPos.z);
+  });
   xrPlaceHud();
 }
 
@@ -789,16 +1106,27 @@ function xrBuildHud(){
   xr.hudTex = new THREE.CanvasTexture(c);
   var mat = new THREE.MeshBasicMaterial({ map: xr.hudTex, transparent: true });
   xr.hud = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 0.817), mat);
-  xr.group.add(xr.hud);
-  xrPlaceHud();
+  xr.scene.add(xr.hud);
   xrDrawHud();
 }
 
 function xrPlaceHud(){
   if (!xr.hud) return;
-  var h = xr.params.width / xr.aspect;
-  xr.hud.position.set(0, -(h / 2) - 0.52, 0.12);
-  xr.hud.rotation.x = -0.35;
+  var p = xr.params;
+  var h = p.width / (xr.screens.length ? xr.screens[0].aspect : (16 / 9));
+  var pos = xr.tmpV1.copy(xr.anchorPos).addScaledVector(xr.forward, p.dist * 0.96);
+  xr.hud.position.set(pos.x, xr.anchorPos.y + p.yOff - (h / 2) - 0.50, pos.z);
+  xr.hud.lookAt(xr.anchorPos.x, xr.hud.position.y, xr.anchorPos.z);
+  xr.hud.rotateX(-0.35);
+}
+
+function xrHelperStatusText(){
+  var n = qs.hosts.length;
+  var on = 0;
+  qs.hosts.forEach(function(h){ if (h.helperOn) on++; });
+  if (n === 0 || on === 0) return ['● 操作モード OFF(見るだけ)', '#ffb86b'];
+  if (on === n) return ['● 操作モード ON', '#3ddc97'];
+  return ['● 操作モード ON(' + on + '/' + n + '台)', '#3ddc97'];
 }
 
 function xrDrawHud(){
@@ -810,28 +1138,29 @@ function xrDrawHud(){
   ctx.lineWidth = 3;
   ctx.strokeRect(4, 4, W - 8, H - 8);
 
-  ctx.fillStyle = xr.helperOn ? '#3ddc97' : '#ffb86b';
+  var st = xrHelperStatusText();
+  ctx.fillStyle = st[1];
   ctx.font = 'bold 40px sans-serif';
-  ctx.fillText(xr.helperOn ? '● 操作モード ON' : '● 操作モード OFF(見るだけ)', 40, 74);
+  ctx.fillText(st[0], 40, 74);
 
   var lines = [
-    ['右トリガー', '左クリック(押したままでドラッグ)'],
-    ['右グリップ', '右クリック'],
+    ['右レーザー', '当てた画面のカーソルを動かす'],
+    ['右トリガー / グリップ', '左クリック(押したままでドラッグ) / 右クリック'],
     ['右スティック 上下', 'スクロール'],
     ['右 Aボタン', 'ポインターの表示切替'],
-    ['左スティック 上下 / 左右', '画面の遠近 / 大きさ'],
-    ['左グリップ + スティック上下', '画面の高さ'],
+    ['左スティック 上下 / 左右', '画面全体の遠近 / 大きさ'],
+    ['左グリップ + スティック上下', '画面全体の高さ'],
     ['左 Xボタン / Yボタン', '平面と湾曲の切替 / 正面に呼び直す'],
     ['左トリガー', 'このガイドの表示切替']
   ];
   var y = 148;
   for (var i = 0; i < lines.length; i++) {
     ctx.fillStyle = '#b8a9ff';
-    ctx.font = 'bold 32px sans-serif';
+    ctx.font = 'bold 30px sans-serif';
     ctx.fillText(lines[i][0], 40, y);
     ctx.fillStyle = '#d8d5ea';
-    ctx.font = '30px sans-serif';
-    ctx.fillText(lines[i][1], 470, y);
+    ctx.font = '28px sans-serif';
+    ctx.fillText(lines[i][1], 460, y);
     y += 57;
   }
   xr.hudTex.needsUpdate = true;
@@ -839,12 +1168,14 @@ function xrDrawHud(){
 
 /* ---------- セッション ---------- */
 async function xrEnter(){
-  if (!qs.stream) return;
+  var has = false;
+  qs.hosts.forEach(function(h){ if (h.screens.length) has = true; });
+  if (!has) return;
   xrBuildScene();
-  xrUpdateAspect();
-  xr.helperOn = qs.helperOn;
-  var v = $('qVideo');
-  v.play().catch(function(){});
+  xrSyncScreens();
+  qs.hosts.forEach(function(h){
+    h.screens.forEach(function(sc){ sc.video.play().catch(function(){}); });
+  });
   try {
     var session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] });
     xr.session = session;
@@ -854,6 +1185,7 @@ async function xrEnter(){
     xr.hudPinned = false;
     xr.hudUntil = performance.now() + 12000;
     xr.geoDirty = true;
+    xrDrawHud();
     xr.renderer.setAnimationLoop(xrRender);
   } catch (e) {
     alert('VRを開始できませんでした: ' + (e && e.message ? e.message : e));
@@ -870,16 +1202,10 @@ APP.xrEnd = function(){
   if (xr.session) { try { xr.session.end(); } catch (_e) {} }
 };
 
-APP.xrUpdateHelper = function(on){
-  xr.helperOn = on;
-  if (xr.built) xrDrawHud();
-};
-
 /* 押しっぱなしのままVRが終わったときのための保険 */
 function xrReleaseAllButtons(){
-  if (xr.pressed[0]) xrSend({ t: 'up', b: 0 });
-  if (xr.pressed[2]) xrSend({ t: 'up', b: 2 });
-  xr.pressed = {};
+  if (xr.pressed[0]) { xrSendTo(xr.pressed[0], { t: 'up', b: 0 }); xr.pressed[0] = null; }
+  if (xr.pressed[2]) { xrSendTo(xr.pressed[2], { t: 'up', b: 2 }); xr.pressed[2] = null; }
 }
 
 /* ---------- 位置合わせ ---------- */
@@ -891,38 +1217,9 @@ function xrApplyRecenter(){
   dir.y = 0;
   if (dir.lengthSq() < 1e-4) dir.set(0, 0, -1);
   dir.normalize();
+  xr.anchorPos.copy(camPos);
   xr.forward.copy(dir);
-  var p = xr.params;
-  xr.group.position.set(
-    camPos.x + dir.x * p.dist,
-    camPos.y + p.yOff,
-    camPos.z + dir.z * p.dist
-  );
-  xr.group.lookAt(camPos.x, xr.group.position.y, camPos.z);
-}
-
-function xrAdjustDistance(delta){
-  var p = xr.params;
-  p.dist = clamp(p.dist + delta, 1.0, 6.0);
-  var camPos = xr.tmpV1;
-  xr.camera.getWorldPosition(camPos);
-  var dir = xr.tmpV2.subVectors(xr.group.position, camPos);
-  dir.y = 0;
-  if (dir.lengthSq() < 1e-4) dir.copy(xr.forward);
-  dir.normalize();
-  xr.group.position.x = camPos.x + dir.x * p.dist;
-  xr.group.position.z = camPos.z + dir.z * p.dist;
-  xr.group.lookAt(camPos.x, xr.group.position.y, camPos.z);
-}
-
-function xrAdjustHeight(delta){
-  xr.params.yOff = clamp(xr.params.yOff + delta, -1.2, 1.2);
-  xr.group.position.y += delta;
-}
-
-function xrAdjustSize(delta){
-  xr.params.width = clamp(xr.params.width + delta, 1.0, 8.0);
-  xr.geoDirty = true;
+  xrLayout();
 }
 
 /* ---------- コントローラー入力 ---------- */
@@ -948,21 +1245,23 @@ function xrPollInput(dt){
 }
 
 function xrHandleRight(cur, prev, dt){
-  /* クリック(画面を指しているときだけ押し始めを送る) */
-  if (cur.trg && !prev.trg && xr.hover && xr.mouseEnabled) { xrSend({ t: 'dn', b: 0 }); xr.pressed[0] = true; }
-  if (!cur.trg && prev.trg && xr.pressed[0]) { xrSend({ t: 'up', b: 0 }); xr.pressed[0] = false; }
-  if (cur.sqz && !prev.sqz && xr.hover && xr.mouseEnabled) { xrSend({ t: 'dn', b: 2 }); xr.pressed[2] = true; }
-  if (!cur.sqz && prev.sqz && xr.pressed[2]) { xrSend({ t: 'up', b: 2 }); xr.pressed[2] = false; }
+  var canClick = xr.hover && xr.mouseEnabled && xr.hover.scr.host.helperOn;
 
-  /* スクロール */
+  if (cur.trg && !prev.trg && canClick) { xrSendTo(xr.hover.scr.host, { t: 'dn', b: 0 }); xr.pressed[0] = xr.hover.scr.host; }
+  if (!cur.trg && prev.trg && xr.pressed[0]) { xrSendTo(xr.pressed[0], { t: 'up', b: 0 }); xr.pressed[0] = null; }
+  if (cur.sqz && !prev.sqz && canClick) { xrSendTo(xr.hover.scr.host, { t: 'dn', b: 2 }); xr.pressed[2] = xr.hover.scr.host; }
+  if (!cur.sqz && prev.sqz && xr.pressed[2]) { xrSendTo(xr.pressed[2], { t: 'up', b: 2 }); xr.pressed[2] = null; }
+
   var up = -cur.ay;
   var now = performance.now();
   if (Math.abs(up) > 0.5 && now - xr.lastScroll > 90 && xr.mouseEnabled) {
-    xrSend({ t: 'sc', d: up > 0 ? 1 : -1 });
-    xr.lastScroll = now;
+    var target = xr.hover ? xr.hover.scr.host : xr.lastHost;
+    if (target && target.helperOn) {
+      xrSendTo(target, { t: 'sc', d: up > 0 ? 1 : -1 });
+      xr.lastScroll = now;
+    }
   }
 
-  /* ポインター表示の切替 */
   if (cur.a && !prev.a) {
     xr.mouseEnabled = !xr.mouseEnabled;
     xrReleaseAllButtons();
@@ -973,10 +1272,18 @@ function xrHandleLeft(cur, prev, dt){
   var dz = 0.25;
   var upv = -cur.ay;
   if (Math.abs(upv) > dz) {
-    if (cur.sqz) xrAdjustHeight(upv * dt * 0.55);
-    else xrAdjustDistance(upv * dt * 1.7);
+    if (cur.sqz) {
+      xr.params.yOff = clamp(xr.params.yOff + upv * dt * 0.55, -1.2, 1.2);
+      xrLayout();
+    } else {
+      xr.params.dist = clamp(xr.params.dist + upv * dt * 1.7, 1.0, 6.0);
+      xrLayout();
+    }
   }
-  if (Math.abs(cur.ax) > dz) xrAdjustSize(cur.ax * dt * 1.9);
+  if (Math.abs(cur.ax) > dz) {
+    xr.params.width = clamp(xr.params.width + cur.ax * dt * 1.9, 1.0, 8.0);
+    xr.geoDirty = true;
+  }
 
   if (cur.a && !prev.a) { xr.params.curved = !xr.params.curved; xr.geoDirty = true; }
   if (cur.b && !prev.b) xr.needsRecenter = true;
@@ -992,7 +1299,7 @@ function xrUpdatePointer(){
   for (var i = 0; i < xr.controllers.length; i++) {
     if (xr.controllers[i].userData.hand === 'right') { rc = xr.controllers[i]; break; }
   }
-  var showLaser = !!rc && xr.mouseEnabled;
+  var showLaser = !!rc && xr.mouseEnabled && xr.screens.length > 0;
   xr.laser.visible = showLaser;
   xr.dotMesh.visible = false;
   if (!showLaser) return null;
@@ -1001,34 +1308,51 @@ function xrUpdatePointer(){
   var origin = xr.tmpV1.setFromMatrixPosition(rc.matrixWorld);
   var dir = xr.tmpV2.set(0, 0, -1).applyMatrix4(xr.tmpMat).normalize();
   xr.raycaster.set(origin, dir);
-  var hits = xr.raycaster.intersectObject(xr.screen);
-  var len = 4, uv = null;
+
+  var meshes = [];
+  for (var k = 0; k < xr.screens.length; k++) meshes.push(xr.screens[k].mesh);
+  var hits = xr.raycaster.intersectObjects(meshes);
+
+  var len = 4, result = null;
   if (hits.length) {
     len = hits[0].distance;
-    uv = hits[0].uv;
+    var ref = hits[0].object.userData.ref;
+    if (ref && hits[0].uv) {
+      result = { scr: ref, uv: hits[0].uv };
+      xr.lastHost = ref.host;
+    }
     xr.dotMesh.position.copy(hits[0].point);
     xr.dotMesh.visible = true;
   }
   xr.laser.position.copy(origin);
   xr.laser.quaternion.setFromRotationMatrix(xr.tmpMat);
   xr.laser.scale.set(1, 1, len);
-  return uv;
+  return result;
 }
 
-function xrMaybeSendMove(uv){
-  if (!uv || !xr.helperOn || !xr.mouseEnabled) return;
-  var x = clamp(uv.x, 0, 1);
-  var y = clamp(1 - uv.y, 0, 1);
+function xrMaybeSendMove(){
+  var h = xr.hover;
+  if (!h || !xr.mouseEnabled) return;
+  if (!h.scr.host.helperOn) return;
+  var x = clamp(h.uv.x, 0, 1);
+  var y = clamp(1 - h.uv.y, 0, 1);
   var now = performance.now();
+  var moved = Math.hypot(x - xr.lastSent.x, y - xr.lastSent.y) >= 0.0012;
+  var switched = h.scr.key !== xr.lastSent.key;
   if (now - xr.lastSent.tm < 20) return;
-  if (Math.hypot(x - xr.lastSent.x, y - xr.lastSent.y) < 0.0012) return;
-  xrSend({ t: 'mv', x: Math.round(x * 10000) / 10000, y: Math.round(y * 10000) / 10000 });
-  xr.lastSent = { x: x, y: y, tm: now };
+  if (!moved && !switched) return;
+  xrSendTo(h.scr.host, {
+    t: 'mv',
+    x: Math.round(x * 10000) / 10000,
+    y: Math.round(y * 10000) / 10000,
+    s: h.scr.slot
+  });
+  xr.lastSent = { key: h.scr.key, x: x, y: y, tm: now };
 }
 
-function xrSend(m){
-  if (qs.conn && qs.conn.open) {
-    try { qs.conn.send(m); } catch (_e) {}
+function xrSendTo(host, m){
+  if (host && host.conn && host.conn.open) {
+    try { host.conn.send(m); } catch (_e) {}
   }
 }
 
@@ -1036,15 +1360,14 @@ function xrSend(m){
 function xrRender(){
   var dt = Math.min(0.05, xr.clock.getDelta());
   xrPollInput(dt);
-  var uv = xrUpdatePointer();
-  xr.hover = uv;
-  xrMaybeSendMove(uv);
+  xr.hover = xrUpdatePointer();
+  xrMaybeSendMove();
 
   var now = performance.now();
   if (xr.geoDirty && now - xr.lastGeoRebuild > 100) {
     xr.geoDirty = false;
     xr.lastGeoRebuild = now;
-    xrRebuildGeo();
+    xrRebuildGeos();
   }
   if (xr.hud) xr.hud.visible = xr.hudPinned || now < xr.hudUntil;
 
@@ -1065,29 +1388,50 @@ function bootApp(){
   $('btnBackPC').addEventListener('click', function(){ pcStop(); setView('viewHome'); });
   $('btnBackQ').addEventListener('click', function(){ APP.xrEnd(); questReset(); setView('viewHome'); });
   $('btnShare').addEventListener('click', pcStartShare);
+  $('btnAddScreen').addEventListener('click', pcAddScreenClick);
   $('btnStop').addEventListener('click', pcStop);
-  $('btnConnect').addEventListener('click', questConnect);
+
+  $('btnConnect').addEventListener('click', function(){
+    if (questAddHost($('codeInput').value, $('qErr'))) {
+      $('btnConnect').disabled = true;
+      $('btnConnect').textContent = '接続中…';
+    }
+  });
+  $('btnAddPC').addEventListener('click', function(){
+    var box = $('qAddBox');
+    show(box, box.classList.contains('hidden'));
+  });
+  $('btnConnect2').addEventListener('click', function(){
+    if (questAddHost($('codeInput2').value, $('qAddErr'))) {
+      $('codeInput2').value = '';
+      show($('qAddBox'), false);
+    }
+  });
   $('btnEnterVR').addEventListener('click', xrEnter);
   $('btnFullscreen').addEventListener('click', function(){
-    var v = $('qVideo');
+    var v = null;
+    if (qs.hosts.length && qs.hosts[0].screens.length) v = qs.hosts[0].screens[0].video;
+    if (!v) return;
     try {
       var fp = v.requestFullscreen ? v.requestFullscreen() : null;
       if (fp && fp.catch) fp.catch(function(){});
     } catch (_e) {}
   });
-  $('codeInput').addEventListener('input', function(){
-    this.value = this.value.replace(/\D/g, '').slice(0, 6);
-  });
-  $('codeInput').addEventListener('keydown', function(e){
-    if (e.key === 'Enter') questConnect();
-  });
-  $('qVideo').addEventListener('click', function(){
-    this.muted = false;
-    this.play().catch(function(){});
-    show($('qMuteNote'), false);
-  });
+
+  function wireCodeInput(inputId, onEnter){
+    var el = $(inputId);
+    el.addEventListener('input', function(){
+      this.value = this.value.replace(/\D/g, '').slice(0, 6);
+    });
+    el.addEventListener('keydown', function(e){
+      if (e.key === 'Enter') onEnter();
+    });
+  }
+  wireCodeInput('codeInput', function(){ $('btnConnect').click(); });
+  wireCodeInput('codeInput2', function(){ $('btnConnect2').click(); });
+
   window.addEventListener('beforeunload', function(){
-    if (pc.stream) pcStop();
+    if (pc.screens.length) pcStop();
   });
 }
 
