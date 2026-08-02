@@ -362,7 +362,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
       <h2>VRの中での操作(標準設定)</h2>
       <table class="ctl-table">
         <tr><td>レーザー(両手)</td><td>当てた画面のカーソルを動かす(操作モードON時)</td></tr>
-        <tr><td>トリガー(左右) / 右Aボタン(下)</td><td>クリック(押したままドラッグ)</td></tr>
+        <tr><td>トリガー(左右) / 右Aボタン(下)</td><td>クリック。すぐ動かす=ドラッグ、長押しして動かす=スクロール</td></tr>
         <tr><td>右手 Bボタン(上)</td><td>右クリック</td></tr>
         <tr><td>グリップ(両手)</td><td>指した画面をつかんで移動(設定・ガイドのパネルもつかめます)</td></tr>
         <tr><td>右手 スティック上下</td><td>スクロール</td></tr>
@@ -410,6 +410,13 @@ footer.site a{color:var(--muted);text-decoration:underline}
     </div>
     <div id="setPaneCtl" class="hidden">
       <div id="kmRows"></div>
+      <div class="set-row">
+        <label>トリガーのドラッグ</label>
+        <select class="monsel" id="selTrig">
+          <option value="vd">スクロール対応(長押し→動かすとスクロール)</option>
+          <option value="plain">標準(押した瞬間からドラッグ)</option>
+        </select>
+      </div>
       <div class="set-row">
         <label>スティックの役割</label>
         <select class="monsel" id="selStick">
@@ -803,7 +810,7 @@ function pcOnData(msg){
       q.push(out);
     }
   } else if (msg.t === 'dn' || msg.t === 'up') {
-    if (pc.ctlBlock) return;
+    if (pc.ctlBlock && msg.t === 'dn') return; /* 離す信号は絶対に落とさない */
     pc.inputQueue.push({ t: msg.t, b: msg.b });
   } else if (msg.t === 'sc') {
     if (pc.ctlBlock) return;
@@ -1092,7 +1099,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-03c';
+var APP_VER = '2026-08-03d';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1164,6 +1171,7 @@ function loadS(){
   if (!kmValid(s.km2) || kmIsOldDefault(s.km2)) s.km2 = kmDefault();
   delete s.km;
   s.lowLat = (s.lowLat !== false); /* 低遅延モード: 初期ON */
+  s.trig = (s.trig === 'plain') ? 'plain' : 'vd'; /* トリガー: 長押し→移動でスクロール */
   s.maxDist = (typeof s.maxDist === 'number') ? clamp(Math.round(s.maxDist), 3, 30) : 12;
   s.maxW = (typeof s.maxW === 'number') ? clamp(Math.round(s.maxW), 3, 40) : 16;
   if (!s.layout || typeof s.layout.dist !== 'number') s.layout = null;
@@ -1407,6 +1415,7 @@ function renderKm(){
     row.appendChild(sel);
     box.appendChild(row);
   });
+  $('selTrig').value = S.trig;
   $('selStick').value = S.stick;
   $('selScrollDir').value = String(S.scrollDir);
   $('selScrollSpd').value = String(S.scrollSpd);
@@ -1485,6 +1494,11 @@ function initSettingsUi(){
       setTab = t.getAttribute('data-tab');
       renderSettings();
     });
+  });
+  $('selTrig').addEventListener('change', function(){
+    S.trig = ($('selTrig').value === 'plain') ? 'plain' : 'vd';
+    saveS();
+    if (APP.xrKmChanged) APP.xrKmChanged();
   });
   $('selStick').addEventListener('change', function(){
     S.stick = ($('selStick').value === 'right') ? 'right' : 'left';
@@ -1916,7 +1930,8 @@ var xr = {
   controllers: [], raycaster: null,
   lasers: { right: null, left: null }, /* {line, dot} */
   session: null, mode: 'immersive-vr',
-  params: { dist: 2.4, width: 2.7, yOff: -0.10, curved: true, gap: 0.07 },
+  params: { dist: 2.4, width: 2.7, yOff: -0.15, curved: true, gap: 0.07 },
+  press: null, /* トリガーの押し分け(クリック/ドラッグ/スクロール)の状態 */
   anchorPos: null, forward: null,
   mouseEnabled: true,
   ph: { right: null, left: null },     /* 手ごとのポインター状態 */
@@ -1952,7 +1967,6 @@ function xrBuildScene(){
   if (S.layout) {
     xr.params.dist = clamp(S.layout.dist, 1.0, S.maxDist);
     xr.params.width = clamp(S.layout.width, 1.0, S.maxW);
-    xr.params.yOff = clamp(S.layout.yOff, -1.2, 1.2);
     xr.params.curved = !!S.layout.curved;
   }
 
@@ -2409,7 +2423,7 @@ function xrPlaceHud(){
   var p = xr.params;
   var h = p.width * 9 / 16;
   var hd = Math.min(p.dist * 0.96, 3.0);
-  var y = xr.anchorPos.y + clamp(p.yOff - h / 2 - 0.55, -1.35, -0.5);
+  var y = xr.anchorPos.y + clamp(p.yOff - h / 2 - 0.6, -1.45, -0.85);
   var pos = xr.tmpV1.copy(xr.anchorPos).addScaledVector(xr.forward, hd);
   xr.hud.position.set(pos.x, y, pos.z);
   xr.hud.lookAt(xr.anchorPos.x, xr.hud.position.y, xr.anchorPos.z);
@@ -2445,10 +2459,14 @@ function xrDrawHud(){
   var lines = [
     ['クリック / ドラッグ', kmButtonsFor('click')],
     ['右クリック', kmButtonsFor('rclick')],
+  ];
+  if (S.trig === 'vd') lines.splice(1, 0, ['トリガーの使い分け', 'すぐ動かす=選択 / 長押し→動かす=スクロール']);
+  lines = lines.concat([
+
     ['画面やパネルをつかんで移動', kmButtonsFor('grab')],
     ['スクロール', scrJp + 'スティック 上下'],
     ['指した画面の遠近 / 大きさ', adjJp + 'スティック 上下 / 左右']
-  ];
+  ]);
   if (kmHas('hmod')) lines.push(['指した画面の高さ', kmButtonsFor('hmod') + ' + ' + adjJp + 'スティック上下']);
   if (kmHas('ptr')) lines.push(['ポインター表示切替', kmButtonsFor('ptr')]);
   lines.push(['整列して正面に呼び直す', kmButtonsFor('recenter')]);
@@ -2539,12 +2557,13 @@ function xrSaveLayout(){
   xr.saveDirty = false;
   S.layout = {
     dist: xr.params.dist, width: xr.params.width,
-    yOff: xr.params.yOff, curved: xr.params.curved
+    curved: xr.params.curved
   };
   saveS();
 }
 
 function xrReleaseAllButtons(){
+  if (xr.press) xrPressFinish(false);
   if (xr.pressed.click) { hostSend(xr.pressed.click, { t: 'up', b: 0 }); xr.pressed.click = null; }
   if (xr.pressed.rclick) { hostSend(xr.pressed.rclick, { t: 'up', b: 2 }); xr.pressed.rclick = null; }
 }
@@ -2657,6 +2676,64 @@ function xrActiveHover(){
   return null;
 }
 
+function kmAnyPressed(action){
+  for (var i = 0; i < KM_BTNS.length; i++) {
+    var b = KM_BTNS[i];
+    if (S.km2[b] === action && xr.phys[b]) return true;
+  }
+  return false;
+}
+
+function xrR4(v){ return Math.round(clamp(v, 0, 1) * 10000) / 10000; }
+
+/* トリガーの押し分け: 短く=クリック / すぐ動かす=ドラッグ / 長押し後に動かす=スクロール */
+function xrPressFinish(byUp){
+  var pr = xr.press;
+  if (!pr) return;
+  xr.press = null;
+  if (pr.mode === 'drag') {
+    hostSend(pr.hostObj, { t: 'up', b: 0 });
+    xr.pressed.click = null;
+    return;
+  }
+  if (pr.mode === '' && byUp && performance.now() - pr.t < 420) {
+    hostSend(pr.hostObj, { t: 'mv', x: xrR4(pr.x0), y: xrR4(pr.y0), s: pr.slot });
+    hostSend(pr.hostObj, { t: 'dn', b: 0 });
+    hostSend(pr.hostObj, { t: 'up', b: 0 });
+  }
+}
+
+function xrPressTick(){
+  var pr = xr.press;
+  if (!pr) return;
+  var hov = xrActiveHover();
+  var cur = null;
+  if (hov && hov.scr.host === pr.hostObj && hov.scr.slot === pr.slot) {
+    cur = { x: clamp(hov.uv.x, 0, 1), y: clamp(1 - hov.uv.y, 0, 1) };
+  }
+  var now = performance.now();
+  if (pr.mode === '') {
+    var moved = cur ? Math.hypot(cur.x - pr.x0, cur.y - pr.y0) : 0;
+    if (moved > 0.006) {
+      if (now - pr.t < 300) {
+        pr.mode = 'drag'; /* すぐ動かした = テキスト選択などのドラッグ */
+        hostSend(pr.hostObj, { t: 'mv', x: xrR4(pr.x0), y: xrR4(pr.y0), s: pr.slot });
+        hostSend(pr.hostObj, { t: 'dn', b: 0 });
+        xr.pressed.click = pr.hostObj;
+      } else {
+        pr.mode = 'scroll'; /* 長押ししてから動かした = ページをつかんでスクロール */
+        pr.py = cur.y;
+      }
+    }
+  } else if (pr.mode === 'scroll' && cur) {
+    pr.acc += cur.y - pr.py;
+    pr.py = cur.y;
+    var step = [0.017, 0.011, 0.007][S.scrollSpd];
+    while (pr.acc >= step) { hostSend(pr.hostObj, { t: 'sc', d: 1 * S.scrollDir }); pr.acc -= step; }
+    while (pr.acc <= -step) { hostSend(pr.hostObj, { t: 'sc', d: -1 * S.scrollDir }); pr.acc += step; }
+  }
+}
+
 function xrActDown(action, hand){
   if (!action) return;
   var p = xr.ph[hand];
@@ -2667,8 +2744,19 @@ function xrActDown(action, hand){
     var hov = xrPickHover(hand);
     if (hov) {
       if (xr.mouseEnabled && hov.scr.host.helperOn) {
-        hostSend(hov.scr.host, { t: 'dn', b: 0 });
-        xr.pressed.click = hov.scr.host;
+        if (S.trig === 'plain') {
+          hostSend(hov.scr.host, { t: 'dn', b: 0 });
+          xr.pressed.click = hov.scr.host;
+        } else if (xr.press) {
+          xr.press.count++;
+        } else {
+          xr.press = {
+            hostObj: hov.scr.host, slot: hov.scr.slot,
+            x0: clamp(hov.uv.x, 0, 1), y0: clamp(1 - hov.uv.y, 0, 1),
+            py: clamp(1 - hov.uv.y, 0, 1),
+            t: performance.now(), mode: '', count: 1, acc: 0
+          };
+        }
       }
     } else {
       /* 何もない所をクリック → 操作ガイドの表示/非表示 */
@@ -2699,9 +2787,17 @@ function xrActDown(action, hand){
 }
 
 function xrActUp(action, hand){
-  if (action === 'click' && xr.pressed.click) {
-    hostSend(xr.pressed.click, { t: 'up', b: 0 });
-    xr.pressed.click = null;
+  if (action === 'click') {
+    if (xr.press) {
+      xr.press.count--;
+      if (xr.press.count > 0) return;
+      xrPressFinish(true);
+      return;
+    }
+    if (xr.pressed.click) {
+      hostSend(xr.pressed.click, { t: 'up', b: 0 });
+      xr.pressed.click = null;
+    }
   } else if (action === 'rclick' && xr.pressed.rclick) {
     hostSend(xr.pressed.rclick, { t: 'up', b: 2 });
     xr.pressed.rclick = null;
@@ -2744,6 +2840,17 @@ function xrPollInput(dt){
   });
   xr.phys = newPhys;
   xr.prevPhys = newPhys;
+
+  /* 押しっぱなし検知: 離す信号が欠けても自動で復帰する */
+  if (xr.pressed.click && !kmAnyPressed('click')) {
+    hostSend(xr.pressed.click, { t: 'up', b: 0 });
+    xr.pressed.click = null;
+  }
+  if (xr.pressed.rclick && !kmAnyPressed('rclick')) {
+    hostSend(xr.pressed.rclick, { t: 'up', b: 2 });
+    xr.pressed.rclick = null;
+  }
+  if (xr.press && !kmAnyPressed('click')) xrPressFinish(false);
 
   var adjHand = (S.stick === 'right') ? 'right' : 'left';
   var scrHand = (adjHand === 'right') ? 'left' : 'right';
@@ -2820,11 +2927,12 @@ function xrUpdatePointerFor(hand){
   var dir = xr.tmpV2.set(0, 0, -1).applyMatrix4(xr.tmpMat).normalize();
   xr.raycaster.set(origin, dir);
 
+  var busyDrag = !!(xr.press || xr.pressed.click || xr.pressed.rclick);
   var meshes = [];
-  if (xr.menu.open && xr.menu.mesh) meshes.push(xr.menu.mesh);
-  if (xr.hud && xr.hud.visible) meshes.push(xr.hud);
+  if (!busyDrag && xr.menu.open && xr.menu.mesh) meshes.push(xr.menu.mesh);
+  if (!busyDrag && xr.hud && xr.hud.visible) meshes.push(xr.hud);
   xr.screens.forEach(function(s){
-    if (s.bar) meshes.push(s.bar.mesh); /* 透明でも当たり判定は生きている */
+    if (s.bar && !busyDrag) meshes.push(s.bar.mesh); /* 透明でも当たり判定は生きている */
     meshes.push(s.mesh);
   });
   var hits = xr.raycaster.intersectObjects(meshes);
@@ -2872,6 +2980,7 @@ function xrUpdatePointers(){
 }
 
 function xrMaybeSendMove(){
+  if (xr.press && xr.press.mode !== 'drag') return; /* 判定中とスクロール中はカーソルを止める */
   var h = xrActiveHover();
   if (!h || !xr.mouseEnabled) return;
   if (!h.scr.host.helperOn) return;
@@ -3085,6 +3194,7 @@ function xrRender(){
   xr.camera.getWorldPosition(xr.camPos);
   xrPollInput(dt);
   xrUpdatePointers();
+  xrPressTick();
   xrUpdateGrabs();
   xrMaybeSendMove();
 
