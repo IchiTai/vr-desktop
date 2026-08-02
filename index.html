@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VR Desktop | 画面をVRの大画面で</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥽</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#131120;
+  --surface:#1c1930;
+  --surface-2:#252142;
+  --line:#332e58;
+  --ink:#eceaf6;
+  --muted:#9a94b8;
+  --accent:#8f7bff;
+  --accent-soft:rgba(143,123,255,.16);
+  --ok:#3ddc97;
+  --warn:#ffb86b;
+  --err:#ff7a8a;
+  --radius:14px;
+  --font-jp:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+  --font-disp:"Space Grotesk","Zen Kaku Gothic New",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--font-jp);
+  font-size:16px;
+  line-height:1.75;
+  min-height:100vh;
+}
+/* 上端のホライズンライン: VR空間の地平線をなぞる細いグラデーション */
+.horizon{
+  height:3px;
+  background:linear-gradient(90deg,transparent 0%,var(--accent) 30%,#5ad0ff 55%,var(--accent) 75%,transparent 100%);
+  opacity:.85;
+}
+.wrap{max-width:680px;margin:0 auto;padding:28px 20px 64px}
+header.site{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:30px}
+.brand{font-family:var(--font-disp);font-weight:700;font-size:20px;letter-spacing:.04em}
+.brand .goggle{margin-right:8px}
+.brand small{display:block;font-family:var(--font-jp);font-weight:400;font-size:12px;color:var(--muted);letter-spacing:.08em;margin-top:2px}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.hidden{display:none !important}
+
+.notice{
+  background:#2c2413;border:1px solid #6b5620;color:#ffdf9e;
+  border-radius:var(--radius);padding:12px 16px;font-size:14px;margin-bottom:22px;
+}
+.notice a{color:#ffd066}
+
+h1{font-size:26px;font-weight:700;letter-spacing:.02em;line-height:1.4;margin-bottom:8px}
+.lead{color:var(--muted);font-size:15px;margin-bottom:28px}
+h2{font-size:17px;font-weight:700;margin-bottom:14px}
+.eyebrow{
+  font-family:var(--font-disp);font-size:12px;font-weight:500;letter-spacing:.22em;
+  color:var(--accent);text-transform:uppercase;margin-bottom:6px;
+}
+
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:540px){.cards{grid-template-columns:1fr}}
+.card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:22px 20px;text-align:left;cursor:pointer;color:var(--ink);
+  font-family:var(--font-jp);width:100%;
+  transition:border-color .18s ease, transform .18s ease;
+}
+.card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.card .icon{font-size:30px;display:block;margin-bottom:10px}
+.card .title{font-size:16px;font-weight:700;display:block;margin-bottom:6px}
+.card .desc{font-size:13px;color:var(--muted);line-height:1.7;display:block}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:24px 22px;margin-bottom:18px}
+.panel p{font-size:14px;color:var(--muted);margin-bottom:14px}
+.panel p.strong{color:var(--ink)}
+.steps{font-size:14px;color:var(--muted);padding-left:1.4em;margin-bottom:16px}
+.steps li{margin-bottom:6px}
+
+.btn{
+  display:inline-block;border:none;border-radius:12px;cursor:pointer;
+  font-family:var(--font-jp);font-weight:700;font-size:16px;
+  padding:14px 26px;color:#0f0d1c;background:var(--accent);
+  transition:filter .15s ease, transform .15s ease;
+}
+.btn:hover{filter:brightness(1.12)}
+.btn:active{transform:scale(.98)}
+.btn:disabled{opacity:.5;cursor:default;transform:none}
+.btn-wide{width:100%;text-align:center}
+.btn-ghost{
+  background:transparent;color:var(--ink);border:1px solid var(--line);font-weight:500;font-size:14px;padding:10px 18px;
+}
+.btn-ghost:hover{border-color:var(--accent);filter:none}
+.btn-back{
+  background:transparent;border:none;color:var(--muted);cursor:pointer;
+  font-family:var(--font-jp);font-size:14px;padding:4px 0;margin-bottom:18px;
+}
+.btn-back:hover{color:var(--ink)}
+
+/* 接続コード: このページの主役 */
+.codebox{display:flex;gap:8px;justify-content:center;margin:10px 0 14px}
+.digit{
+  font-family:var(--font-disp);font-weight:700;font-size:40px;line-height:1;
+  min-width:52px;padding:16px 0;text-align:center;
+  background:var(--surface-2);border:1px solid var(--line);border-radius:10px;
+  color:var(--ink);
+  box-shadow:inset 0 0 18px rgba(143,123,255,.14), 0 0 22px rgba(143,123,255,.10);
+}
+@media(max-width:420px){.digit{min-width:42px;font-size:32px;padding:13px 0}}
+.code-hint{text-align:center;font-size:13px;color:var(--muted);margin-bottom:4px}
+
+.statusrow{display:flex;align-items:center;gap:10px;font-size:14px;padding:7px 0}
+.dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.dot-off{background:#4a4568}
+.dot-wait{background:var(--warn);animation:pulse 1.4s ease-in-out infinite}
+.dot-on{background:var(--ok)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.statusrow .lbl{color:var(--ink)}
+.statusrow .sub{color:var(--muted);font-size:12px}
+
+.hint{
+  background:var(--accent-soft);border:1px solid var(--line);border-radius:10px;
+  font-size:13px;color:var(--muted);padding:12px 14px;margin-top:12px;line-height:1.8;
+}
+.hint b{color:var(--ink)}
+
+video.preview{
+  width:100%;border-radius:10px;border:1px solid var(--line);background:#000;
+  margin-top:16px;display:block;
+}
+
+.code-input{
+  font-family:var(--font-disp);font-weight:700;font-size:40px;letter-spacing:.35em;
+  text-align:center;width:100%;padding:16px 0 16px .35em;
+  background:var(--surface-2);border:1px solid var(--line);border-radius:12px;color:var(--ink);
+  margin-bottom:16px;
+}
+.code-input::placeholder{color:#4a4568;letter-spacing:.35em}
+
+.msg-err{color:var(--err);font-size:14px;min-height:1.6em;margin-bottom:8px}
+.msg-info{color:var(--muted);font-size:14px;min-height:1.6em;margin-bottom:8px}
+
+.ctl-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+.ctl-table td{padding:6px 8px;border-top:1px solid var(--line);vertical-align:top}
+.ctl-table td:first-child{color:var(--accent);white-space:nowrap;font-weight:500}
+.ctl-table td:last-child{color:var(--muted)}
+
+footer.site{margin-top:36px;text-align:center;font-size:12px;color:var(--muted)}
+footer.site a{color:var(--muted);text-decoration:underline}
+
+@media(prefers-reduced-motion:reduce){
+  *{animation:none !important;transition:none !important}
+}
+</style>
+</head>
+<body>
+<div class="horizon"></div>
+<div class="wrap">
+
+<header class="site">
+  <div class="brand"><span class="goggle">🥽</span>VR Desktop<small>パソコンの画面を、VRの大画面で</small></div>
+  <a href="guide.html" target="_blank" rel="noopener">使い方ガイド</a>
+</header>
+
+<div id="noticeSetup" class="notice hidden">
+  このページはまだインターネットに公開されていません。画面共有とVR表示は「https://」で始まる公開後のURLでだけ動きます。無料での公開のやり方は<a href="guide.html" target="_blank" rel="noopener">使い方ガイド</a>にあります。
+</div>
+<div id="libError" class="notice hidden">
+  必要な部品を読み込めませんでした。インターネット接続を確認して、ページを再読み込みしてください。
+</div>
+
+<!-- ホーム: 役割を選ぶ -->
+<section id="viewHome">
+  <h1>どちらの機器で開いていますか?</h1>
+  <p class="lead">パソコン側で共有をはじめてから、Quest側でコードを入力します。</p>
+  <div class="cards">
+    <button class="card" id="cardPC">
+      <span class="icon">🖥️</span>
+      <span class="title">パソコン(共有する側)</span>
+      <span class="desc">Windows / Mac のブラウザで画面を共有して、6桁の接続コードを発行します。</span>
+    </button>
+    <button class="card" id="cardQuest">
+      <span class="icon">🥽</span>
+      <span class="title">Quest(見る側)</span>
+      <span class="desc">Quest本体のブラウザで接続コードを入力して、VRの大画面で見ます。</span>
+    </button>
+  </div>
+  <footer class="site">映像は2台の機器の間で直接やり取りされ、外部のサーバーには保存されません。詳しくは<a href="guide.html" target="_blank" rel="noopener">使い方ガイド</a>へ。</footer>
+</section>
+
+<!-- パソコン側 -->
+<section id="viewPC" class="hidden">
+  <button class="btn-back" id="btnBackPC">← もどる</button>
+  <div class="eyebrow">PC / Mac</div>
+  <h1>画面を共有する</h1>
+
+  <div id="pcStepA">
+    <div class="panel">
+      <p class="strong">ボタンを押すと、どの画面を共有するか選ぶウィンドウが開きます。</p>
+      <ol class="steps">
+        <li>「<b>画面全体</b>」を選ぶ(VRからの操作が正しく動きます)</li>
+        <li>音も聞きたいときは「<b>音声を共有</b>」にチェック</li>
+        <li>「共有」を押す</li>
+      </ol>
+      <button class="btn btn-wide" id="btnShare">画面の共有をはじめる</button>
+      <p class="msg-err" id="shareErr"></p>
+    </div>
+  </div>
+
+  <div id="pcStepB" class="hidden">
+    <div class="panel">
+      <p class="code-hint">接続コード</p>
+      <div class="codebox" id="codeBox"></div>
+      <p class="code-hint" id="pcCodeHint">コードを発行しています…</p>
+    </div>
+    <div class="panel">
+      <div class="statusrow"><span class="dot dot-off" id="dotShare"></span><span class="lbl">画面の共有</span></div>
+      <div class="statusrow"><span class="dot dot-off" id="dotQuest"></span><span class="lbl" id="lblQuest">Questの接続待ち</span></div>
+      <div class="statusrow"><span class="dot dot-off" id="dotHelper"></span><span class="lbl" id="helperLabel">操作モード OFF(見るだけ)</span></div>
+      <div class="hint" id="helperHint">
+        VRからマウスを動かしたいときは、<b>操作ヘルパー</b>をこのパソコンで起動しておきます。<br>
+        Windows: <a href="helper-windows.bat" download>helper-windows.bat</a> / Mac: <a href="helper-mac.py" download>helper-mac.py</a><br>
+        はじめての起動手順は<a href="guide.html#helper" target="_blank" rel="noopener">使い方ガイド</a>にあります。起動すると、この欄が自動でONに変わります。
+      </div>
+      <video class="preview" id="pcPreview" muted autoplay playsinline></video>
+      <p style="margin-top:16px"><button class="btn-ghost" id="btnStop">共有をやめる</button></p>
+    </div>
+  </div>
+</section>
+
+<!-- Quest側 -->
+<section id="viewQuest" class="hidden">
+  <button class="btn-back" id="btnBackQ">← もどる</button>
+  <div class="eyebrow">Meta Quest</div>
+  <h1>コードを入力して接続する</h1>
+
+  <div id="qStepA">
+    <div class="panel">
+      <p>パソコンの画面に表示されている6桁のコードを入力してください。</p>
+      <input class="code-input" id="codeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
+      <p class="msg-err" id="qErr"></p>
+      <button class="btn btn-wide" id="btnConnect">接続する</button>
+      <p class="msg-info" id="xrNote" style="margin-top:10px"></p>
+    </div>
+  </div>
+
+  <div id="qStepB" class="hidden">
+    <div class="panel">
+      <p class="strong" id="qStatus">接続しました。</p>
+      <p class="msg-info hidden" id="qHelperBadge"></p>
+      <button class="btn btn-wide" id="btnEnterVR">VRで見る</button>
+      <button class="btn btn-ghost btn-wide hidden" id="btnFullscreen" style="margin-top:10px">全画面で見る</button>
+      <p class="msg-info hidden" id="qMuteNote">音はミュートで開始しました。下の映像を一度タップすると音が出ます。</p>
+      <video class="preview" id="qVideo" autoplay playsinline></video>
+    </div>
+    <div class="panel">
+      <h2>VRの中での操作</h2>
+      <table class="ctl-table">
+        <tr><td>右手 レーザー</td><td>マウスカーソルを動かす(操作モードON時)</td></tr>
+        <tr><td>右手 トリガー / グリップ</td><td>左クリック / 右クリック</td></tr>
+        <tr><td>右手 スティック上下</td><td>スクロール</td></tr>
+        <tr><td>左手 スティック</td><td>上下で画面の遠近、左右で大きさ</td></tr>
+        <tr><td>左手 X / Y</td><td>平面と湾曲の切替 / 画面を正面に呼び直す</td></tr>
+        <tr><td>左手 トリガー</td><td>操作ガイドの表示切替</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+</div>
+<script>
+/* 外部ライブラリの読み込み(予備の読み込み先つき) */
+window.__libsReady = (function(){
+  function load(list){
+    return new Promise(function(resolve, reject){
+      (function next(i){
+        if(i >= list.length){ reject(new Error('load failed')); return; }
+        var s = document.createElement('script');
+        s.src = list[i];
+        s.onload = function(){ resolve(); };
+        s.onerror = function(){ next(i + 1); };
+        document.head.appendChild(s);
+      })(0);
+    });
+  }
+  return load([
+    'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
+    'https://unpkg.com/three@0.128.0/build/three.min.js'
+  ]).then(function(){
+    return load([
+      'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js',
+      'https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js'
+    ]);
+  });
+})();
+</script>
+<script>
+'use strict';
+/* ================================================================
+   VR Desktop - core
+   役割: 画面の役割分岐 / PC側(共有・コード発行・操作ヘルパー中継) /
+         Quest側(コード入力・映像受信)
+   ================================================================ */
+
+var HELPER_URL = 'http://127.0.0.1:8765';
+var PEER_PREFIX = 'vrdd-';
+
+var APP = {};
+
+/* ---------- 小道具 ---------- */
+function $(id){ return document.getElementById(id); }
+function show(el, on){ if(el) el.classList.toggle('hidden', !on); }
+function setView(name){
+  ['viewHome', 'viewPC', 'viewQuest'].forEach(function(v){ show($(v), v === name); });
+  window.scrollTo(0, 0);
+}
+function setDot(id, state){
+  var el = $(id);
+  el.classList.remove('dot-off', 'dot-wait', 'dot-on');
+  el.classList.add('dot-' + state);
+}
+function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+
+/* ================================================================
+   PC側(共有する側)
+   ================================================================ */
+var pc = {
+  peer: null, conn: null, call: null, stream: null,
+  code: '', helperOn: false, inputQueue: [], timers: []
+};
+
+async function pcStartShare(){
+  $('shareErr').textContent = '';
+  var stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 60, max: 60 } },
+      audio: true
+    });
+  } catch (e) {
+    if (e && e.name === 'NotAllowedError') {
+      $('shareErr').textContent = '共有がキャンセルされました。もう一度ボタンを押してください。公開したURL(https)で開いているかも確認してください。';
+    } else {
+      $('shareErr').textContent = '画面共有をはじめられませんでした(' + (e && e.name ? e.name : 'エラー') + ')。公開したURLをChromeまたはEdgeで開いてください。';
+    }
+    return;
+  }
+  pc.stream = stream;
+  var vtrack = stream.getVideoTracks()[0];
+  if (vtrack) vtrack.addEventListener('ended', pcStop); /* ブラウザ側の「共有を停止」 */
+  $('pcPreview').srcObject = stream;
+  show($('pcStepA'), false);
+  show($('pcStepB'), true);
+  setDot('dotShare', 'on');
+  setDot('dotQuest', 'wait');
+  pcCreatePeer(0);
+  pcStartHelperLoop();
+}
+
+function newCode(){ return String(Math.floor(100000 + Math.random() * 900000)); }
+
+function renderCode(code){
+  var box = $('codeBox');
+  box.innerHTML = '';
+  for (var i = 0; i < code.length; i++) {
+    var d = document.createElement('span');
+    d.className = 'digit';
+    d.textContent = code[i];
+    box.appendChild(d);
+  }
+}
+
+function pcCreatePeer(attempt){
+  if (attempt > 4) {
+    $('pcCodeHint').textContent = '接続コードを発行できませんでした。ページを再読み込みして、もう一度試してください。';
+    return;
+  }
+  pc.code = newCode();
+  renderCode(pc.code);
+  $('pcCodeHint').textContent = 'コードを発行しています…';
+
+  var peer = new Peer(PEER_PREFIX + pc.code, { debug: 1 });
+  pc.peer = peer;
+
+  peer.on('open', function(){
+    $('pcCodeHint').textContent = 'Questのブラウザでこのページを開き、上のコードを入力してください。';
+  });
+
+  peer.on('connection', function(conn){
+    if (pc.conn) { try { conn.close(); } catch (_e) {} return; } /* 接続は1台まで */
+    pc.conn = conn;
+    conn.on('open', function(){
+      setDot('dotQuest', 'on');
+      $('lblQuest').textContent = 'Questと接続中';
+      pcSendHelperState();
+      if (pc.stream) pc.call = peer.call(conn.peer, pc.stream);
+    });
+    conn.on('data', pcOnData);
+    conn.on('close', function(){
+      pc.conn = null;
+      pc.call = null;
+      if (pc.stream) {
+        setDot('dotQuest', 'wait');
+        $('lblQuest').textContent = 'Questの接続待ち';
+      }
+    });
+  });
+
+  peer.on('error', function(err){
+    var t = err && err.type;
+    if (t === 'unavailable-id') {
+      try { peer.destroy(); } catch (_e) {}
+      pcCreatePeer(attempt + 1); /* コードが偶然かぶった場合は再発行 */
+    } else if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') {
+      $('pcCodeHint').textContent = '接続サービスにつながりません。インターネット接続を確認して、ページを再読み込みしてください。';
+    }
+  });
+}
+
+/* --- 操作ヘルパー(同じパソコンで動く小さなプログラム)との橋渡し --- */
+function pcStartHelperLoop(){
+  pcPingHelper();
+  pc.timers.push(setInterval(pcPingHelper, 3000));
+  pc.timers.push(setInterval(pcFlushInput, 33));
+}
+
+async function pcPingHelper(){
+  var on = false;
+  try {
+    var ctl = new AbortController();
+    var t = setTimeout(function(){ ctl.abort(); }, 1200);
+    var r = await fetch(HELPER_URL + '/ping', { method: 'GET', signal: ctl.signal });
+    clearTimeout(t);
+    if (r.ok) on = true;
+  } catch (_e) { on = false; }
+  if (on !== pc.helperOn) {
+    pc.helperOn = on;
+    setDot('dotHelper', on ? 'on' : 'off');
+    $('helperLabel').textContent = on
+      ? '操作モード ON(VRからマウスを動かせます)'
+      : '操作モード OFF(見るだけ)';
+    show($('helperHint'), !on);
+    pcSendHelperState();
+  }
+}
+
+function pcSendHelperState(){
+  if (pc.conn && pc.conn.open) {
+    try { pc.conn.send({ t: 'helper', on: pc.helperOn }); } catch (_e) {}
+  }
+}
+
+function pcOnData(msg){
+  if (!msg || !msg.t) return;
+  if (msg.t === 'mv') {
+    var q = pc.inputQueue;
+    if (q.length && q[q.length - 1].t === 'mv') q[q.length - 1] = msg; /* 移動はまとめる */
+    else q.push(msg);
+  } else if (msg.t === 'dn' || msg.t === 'up' || msg.t === 'sc') {
+    pc.inputQueue.push(msg);
+  }
+}
+
+async function pcFlushInput(){
+  if (!pc.helperOn || pc.inputQueue.length === 0) return;
+  var batch = pc.inputQueue;
+  pc.inputQueue = [];
+  try {
+    await fetch(HELPER_URL + '/input', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(batch)
+    });
+  } catch (_e) {}
+}
+
+function pcStop(){
+  if (pc.stream) {
+    pc.stream.getTracks().forEach(function(tr){ try { tr.stop(); } catch (_e) {} });
+    pc.stream = null;
+  }
+  if (pc.peer) { try { pc.peer.destroy(); } catch (_e) {} pc.peer = null; }
+  pc.conn = null;
+  pc.call = null;
+  pc.timers.forEach(clearInterval);
+  pc.timers = [];
+  pc.inputQueue = [];
+  pc.helperOn = false;
+  $('pcPreview').srcObject = null;
+  show($('pcStepB'), false);
+  show($('pcStepA'), true);
+  setDot('dotShare', 'off');
+  setDot('dotQuest', 'off');
+  setDot('dotHelper', 'off');
+  $('lblQuest').textContent = 'Questの接続待ち';
+  $('helperLabel').textContent = '操作モード OFF(見るだけ)';
+}
+
+/* ================================================================
+   Quest側(見る側)
+   ================================================================ */
+var qs = { peer: null, conn: null, call: null, stream: null, helperOn: false, xrOk: false };
+
+async function questInit(){
+  qs.xrOk = false;
+  if (navigator.xr && navigator.xr.isSessionSupported) {
+    try { qs.xrOk = await navigator.xr.isSessionSupported('immersive-vr'); } catch (_e) {}
+  }
+  $('xrNote').textContent = qs.xrOk
+    ? ''
+    : 'このブラウザはVR表示に対応していません。接続すると通常の画面で見られます(VR表示はQuest本体のブラウザで開いてください)。';
+}
+
+function questConnect(){
+  var code = $('codeInput').value.replace(/\D/g, '');
+  if (code.length !== 6) {
+    $('qErr').textContent = '6桁のコードを入力してください。';
+    return;
+  }
+  $('qErr').textContent = '';
+  $('btnConnect').disabled = true;
+  $('btnConnect').textContent = '接続中…';
+
+  var peer = new Peer({ debug: 1 });
+  qs.peer = peer;
+
+  peer.on('open', function(){
+    var conn = peer.connect(PEER_PREFIX + code, { serialization: 'json' });
+    qs.conn = conn;
+    conn.on('open', function(){
+      $('qErr').textContent = '';
+      $('btnConnect').textContent = 'パソコンに接続しました。映像を待っています…';
+    });
+    conn.on('data', function(m){
+      if (m && m.t === 'helper') {
+        qs.helperOn = !!m.on;
+        questHelperBadge();
+        if (APP.xrUpdateHelper) APP.xrUpdateHelper(qs.helperOn);
+      }
+    });
+    conn.on('close', questDisconnected);
+  });
+
+  peer.on('call', function(call){
+    qs.call = call;
+    call.answer();
+    call.on('stream', function(stream){
+      qs.stream = stream;
+      var v = $('qVideo');
+      v.srcObject = stream;
+      v.muted = false;
+      v.play().catch(function(){
+        v.muted = true;
+        v.play().catch(function(){});
+        show($('qMuteNote'), true);
+      });
+      questConnected();
+    });
+    call.on('close', questDisconnected);
+  });
+
+  peer.on('error', function(err){
+    var t = err && err.type;
+    if (t === 'peer-unavailable') {
+      questFail('このコードのパソコンが見つかりません。コードと、パソコン側で共有中かを確認してください。');
+    } else if (t === 'network' || t === 'server-error' || t === 'socket-error') {
+      questFail('接続サービスにつながりません。QuestがWi-Fiにつながっているか確認してください。');
+    }
+  });
+}
+
+function questFail(msg){
+  $('qErr').textContent = msg;
+  $('btnConnect').disabled = false;
+  $('btnConnect').textContent = '接続する';
+  if (qs.peer) { try { qs.peer.destroy(); } catch (_e) {} qs.peer = null; }
+  qs.conn = null;
+}
+
+function questConnected(){
+  show($('qStepA'), false);
+  show($('qStepB'), true);
+  $('qStatus').textContent = 'パソコンの画面を受信しています。';
+  show($('btnEnterVR'), qs.xrOk);
+  show($('btnFullscreen'), !qs.xrOk);
+  questHelperBadge();
+}
+
+function questHelperBadge(){
+  var b = $('qHelperBadge');
+  show(b, true);
+  b.textContent = qs.helperOn
+    ? '操作モード ON: VRの中からマウスを動かせます。'
+    : '操作モード OFF: 見るだけです。パソコン側で操作ヘルパーを起動するとONになります。';
+}
+
+function questDisconnected(){
+  if (APP.xrEnd) APP.xrEnd();
+  if (qs.peer) { try { qs.peer.destroy(); } catch (_e) {} qs.peer = null; }
+  qs.conn = null;
+  qs.call = null;
+  qs.stream = null;
+  $('qVideo').srcObject = null;
+  show($('qStepB'), false);
+  show($('qStepA'), true);
+  $('btnConnect').disabled = false;
+  $('btnConnect').textContent = '接続する';
+  $('qErr').textContent = 'パソコンとの接続が切れました。共有中か確認して、もう一度接続してください。';
+}
+
+function questReset(){
+  if (qs.peer) { try { qs.peer.destroy(); } catch (_e) {} qs.peer = null; }
+  qs.conn = null;
+  qs.call = null;
+  qs.stream = null;
+  $('qVideo').srcObject = null;
+  show($('qStepB'), false);
+  show($('qStepA'), true);
+  $('btnConnect').disabled = false;
+  $('btnConnect').textContent = '接続する';
+  $('qErr').textContent = '';
+}
+/* ================================================================
+   VR Desktop - XRビューア
+   役割: VR空間に画面を表示し、コントローラーで画面調整とマウス操作を行う
+   ================================================================ */
+
+var xr = {
+  built: false,
+  renderer: null, scene: null, camera: null, clock: null,
+  group: null, screen: null, texture: null, screenMat: null,
+  hud: null, hudCanvas: null, hudCtx: null, hudTex: null,
+  controllers: [], raycaster: null, laser: null, dotMesh: null,
+  session: null,
+  params: { dist: 2.4, width: 3.0, yOff: -0.10, curved: true },
+  aspect: 16 / 9,
+  forward: null,
+  helperOn: false, mouseEnabled: true,
+  hover: null, pressed: {},
+  lastSent: { x: -1, y: -1, tm: 0 },
+  buttons: {}, lastScroll: 0,
+  geoDirty: false, lastGeoRebuild: 0,
+  hudPinned: false, hudUntil: 0,
+  needsRecenter: false,
+  tmpMat: null, tmpV1: null, tmpV2: null
+};
+
+function xrBuildScene(){
+  if (xr.built) return;
+  xr.built = true;
+
+  var renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(1);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.xr.enabled = true;
+  renderer.xr.setReferenceSpaceType('local');
+  xr.renderer = renderer;
+
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0b0a14);
+  var grid = new THREE.GridHelper(30, 30, 0x2a2650, 0x1b1930);
+  grid.position.y = -1.5;
+  scene.add(grid);
+  xr.scene = scene;
+
+  xr.camera = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
+  xr.clock = new THREE.Clock();
+  xr.tmpMat = new THREE.Matrix4();
+  xr.tmpV1 = new THREE.Vector3();
+  xr.tmpV2 = new THREE.Vector3();
+  xr.forward = new THREE.Vector3(0, 0, -1);
+
+  /* 映像テクスチャ */
+  var video = $('qVideo');
+  var tex = new THREE.VideoTexture(video);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.encoding = THREE.sRGBEncoding;
+  xr.texture = tex;
+  xrUpdateAspect();
+  video.addEventListener('resize', function(){ xrUpdateAspect(); xr.geoDirty = true; });
+
+  /* スクリーン本体 */
+  xr.group = new THREE.Group();
+  scene.add(xr.group);
+  xr.screenMat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
+  xr.screen = new THREE.Mesh(xrMakeScreenGeo(), xr.screenMat);
+  xr.group.add(xr.screen);
+
+  /* 操作ガイド(HUD) */
+  xrBuildHud();
+
+  /* コントローラー */
+  for (var i = 0; i < 2; i++) {
+    (function(idx){
+      var c = renderer.xr.getController(idx);
+      c.userData.hand = null;
+      c.addEventListener('connected', function(e){ c.userData.hand = e.data.handedness; });
+      c.addEventListener('disconnected', function(){ c.userData.hand = null; });
+      scene.add(c);
+      xr.controllers.push(c);
+    })(i);
+  }
+
+  /* レーザーと着地点 */
+  var laserGeo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)
+  ]);
+  xr.laser = new THREE.Line(laserGeo, new THREE.LineBasicMaterial({ color: 0x8f7bff, transparent: true, opacity: 0.85 }));
+  xr.laser.visible = false;
+  scene.add(xr.laser);
+  xr.dotMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.008, 12, 12),
+    new THREE.MeshBasicMaterial({ color: 0xffffff })
+  );
+  xr.dotMesh.visible = false;
+  scene.add(xr.dotMesh);
+
+  xr.raycaster = new THREE.Raycaster();
+}
+
+function xrUpdateAspect(){
+  var v = $('qVideo');
+  if (v.videoWidth > 0 && v.videoHeight > 0) xr.aspect = v.videoWidth / v.videoHeight;
+}
+
+/* 湾曲スクリーンの形状。angle=0で平面、正の値で視聴者側に凹む円弧 */
+function xrMakeScreenGeo(){
+  var width = xr.params.width;
+  var height = width / xr.aspect;
+  var angle = xr.params.curved ? 1.0 : 0;
+  var segX = 48, segY = 8;
+  var pos = [], uv = [], idx = [];
+  var iy, ix;
+  for (iy = 0; iy <= segY; iy++) {
+    var v = iy / segY;
+    var y = (v - 0.5) * height;
+    for (ix = 0; ix <= segX; ix++) {
+      var u = ix / segX;
+      var x, z;
+      if (angle > 0.001) {
+        var R = width / angle;
+        var th = (u - 0.5) * angle;
+        x = Math.sin(th) * R;
+        z = (1 - Math.cos(th)) * R;
+      } else {
+        x = (u - 0.5) * width;
+        z = 0;
+      }
+      pos.push(x, y, z);
+      uv.push(u, v);
+    }
+  }
+  for (iy = 0; iy < segY; iy++) {
+    for (ix = 0; ix < segX; ix++) {
+      var a = iy * (segX + 1) + ix, b = a + 1, c = a + (segX + 1), d = c + 1;
+      idx.push(a, b, d, a, d, c);
+    }
+  }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+function xrRebuildGeo(){
+  var old = xr.screen.geometry;
+  xr.screen.geometry = xrMakeScreenGeo();
+  if (old) old.dispose();
+  xrPlaceHud();
+}
+
+/* ---------- HUD ---------- */
+function xrBuildHud(){
+  var c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = 620;
+  xr.hudCanvas = c;
+  xr.hudCtx = c.getContext('2d');
+  xr.hudTex = new THREE.CanvasTexture(c);
+  var mat = new THREE.MeshBasicMaterial({ map: xr.hudTex, transparent: true });
+  xr.hud = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 0.817), mat);
+  xr.group.add(xr.hud);
+  xrPlaceHud();
+  xrDrawHud();
+}
+
+function xrPlaceHud(){
+  if (!xr.hud) return;
+  var h = xr.params.width / xr.aspect;
+  xr.hud.position.set(0, -(h / 2) - 0.52, 0.12);
+  xr.hud.rotation.x = -0.35;
+}
+
+function xrDrawHud(){
+  var ctx = xr.hudCtx, W = 1024, H = 620;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(17,15,28,0.92)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#8f7bff';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(4, 4, W - 8, H - 8);
+
+  ctx.fillStyle = xr.helperOn ? '#3ddc97' : '#ffb86b';
+  ctx.font = 'bold 40px sans-serif';
+  ctx.fillText(xr.helperOn ? '● 操作モード ON' : '● 操作モード OFF(見るだけ)', 40, 74);
+
+  var lines = [
+    ['右トリガー', '左クリック(押したままでドラッグ)'],
+    ['右グリップ', '右クリック'],
+    ['右スティック 上下', 'スクロール'],
+    ['右 Aボタン', 'ポインターの表示切替'],
+    ['左スティック 上下 / 左右', '画面の遠近 / 大きさ'],
+    ['左グリップ + スティック上下', '画面の高さ'],
+    ['左 Xボタン / Yボタン', '平面と湾曲の切替 / 正面に呼び直す'],
+    ['左トリガー', 'このガイドの表示切替']
+  ];
+  var y = 148;
+  for (var i = 0; i < lines.length; i++) {
+    ctx.fillStyle = '#b8a9ff';
+    ctx.font = 'bold 32px sans-serif';
+    ctx.fillText(lines[i][0], 40, y);
+    ctx.fillStyle = '#d8d5ea';
+    ctx.font = '30px sans-serif';
+    ctx.fillText(lines[i][1], 470, y);
+    y += 57;
+  }
+  xr.hudTex.needsUpdate = true;
+}
+
+/* ---------- セッション ---------- */
+async function xrEnter(){
+  if (!qs.stream) return;
+  xrBuildScene();
+  xrUpdateAspect();
+  xr.helperOn = qs.helperOn;
+  var v = $('qVideo');
+  v.play().catch(function(){});
+  try {
+    var session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] });
+    xr.session = session;
+    session.addEventListener('end', xrOnSessionEnd);
+    await xr.renderer.xr.setSession(session);
+    xr.needsRecenter = true;
+    xr.hudPinned = false;
+    xr.hudUntil = performance.now() + 12000;
+    xr.geoDirty = true;
+    xr.renderer.setAnimationLoop(xrRender);
+  } catch (e) {
+    alert('VRを開始できませんでした: ' + (e && e.message ? e.message : e));
+  }
+}
+
+function xrOnSessionEnd(){
+  xr.session = null;
+  if (xr.renderer) xr.renderer.setAnimationLoop(null);
+  xrReleaseAllButtons();
+}
+
+APP.xrEnd = function(){
+  if (xr.session) { try { xr.session.end(); } catch (_e) {} }
+};
+
+APP.xrUpdateHelper = function(on){
+  xr.helperOn = on;
+  if (xr.built) xrDrawHud();
+};
+
+/* 押しっぱなしのままVRが終わったときのための保険 */
+function xrReleaseAllButtons(){
+  if (xr.pressed[0]) xrSend({ t: 'up', b: 0 });
+  if (xr.pressed[2]) xrSend({ t: 'up', b: 2 });
+  xr.pressed = {};
+}
+
+/* ---------- 位置合わせ ---------- */
+function xrApplyRecenter(){
+  var camPos = xr.tmpV1;
+  xr.camera.getWorldPosition(camPos);
+  var dir = xr.tmpV2;
+  xr.camera.getWorldDirection(dir);
+  dir.y = 0;
+  if (dir.lengthSq() < 1e-4) dir.set(0, 0, -1);
+  dir.normalize();
+  xr.forward.copy(dir);
+  var p = xr.params;
+  xr.group.position.set(
+    camPos.x + dir.x * p.dist,
+    camPos.y + p.yOff,
+    camPos.z + dir.z * p.dist
+  );
+  xr.group.lookAt(camPos.x, xr.group.position.y, camPos.z);
+}
+
+function xrAdjustDistance(delta){
+  var p = xr.params;
+  p.dist = clamp(p.dist + delta, 1.0, 6.0);
+  var camPos = xr.tmpV1;
+  xr.camera.getWorldPosition(camPos);
+  var dir = xr.tmpV2.subVectors(xr.group.position, camPos);
+  dir.y = 0;
+  if (dir.lengthSq() < 1e-4) dir.copy(xr.forward);
+  dir.normalize();
+  xr.group.position.x = camPos.x + dir.x * p.dist;
+  xr.group.position.z = camPos.z + dir.z * p.dist;
+  xr.group.lookAt(camPos.x, xr.group.position.y, camPos.z);
+}
+
+function xrAdjustHeight(delta){
+  xr.params.yOff = clamp(xr.params.yOff + delta, -1.2, 1.2);
+  xr.group.position.y += delta;
+}
+
+function xrAdjustSize(delta){
+  xr.params.width = clamp(xr.params.width + delta, 1.0, 8.0);
+  xr.geoDirty = true;
+}
+
+/* ---------- コントローラー入力 ---------- */
+function xrPollInput(dt){
+  var session = xr.renderer.xr.getSession();
+  if (!session) return;
+  var sources = session.inputSources;
+  for (var i = 0; i < sources.length; i++) {
+    var src = sources[i];
+    if (!src.gamepad || !src.handedness) continue;
+    var gp = src.gamepad;
+    var btn = function(k){ return !!(gp.buttons[k] && gp.buttons[k].pressed); };
+    var cur = {
+      trg: btn(0), sqz: btn(1), a: btn(4), b: btn(5),
+      ax: gp.axes.length > 2 ? gp.axes[2] : 0,
+      ay: gp.axes.length > 3 ? gp.axes[3] : 0
+    };
+    var prev = xr.buttons[src.handedness] || {};
+    if (src.handedness === 'right') xrHandleRight(cur, prev, dt);
+    else if (src.handedness === 'left') xrHandleLeft(cur, prev, dt);
+    xr.buttons[src.handedness] = cur;
+  }
+}
+
+function xrHandleRight(cur, prev, dt){
+  /* クリック(画面を指しているときだけ押し始めを送る) */
+  if (cur.trg && !prev.trg && xr.hover && xr.mouseEnabled) { xrSend({ t: 'dn', b: 0 }); xr.pressed[0] = true; }
+  if (!cur.trg && prev.trg && xr.pressed[0]) { xrSend({ t: 'up', b: 0 }); xr.pressed[0] = false; }
+  if (cur.sqz && !prev.sqz && xr.hover && xr.mouseEnabled) { xrSend({ t: 'dn', b: 2 }); xr.pressed[2] = true; }
+  if (!cur.sqz && prev.sqz && xr.pressed[2]) { xrSend({ t: 'up', b: 2 }); xr.pressed[2] = false; }
+
+  /* スクロール */
+  var up = -cur.ay;
+  var now = performance.now();
+  if (Math.abs(up) > 0.5 && now - xr.lastScroll > 90 && xr.mouseEnabled) {
+    xrSend({ t: 'sc', d: up > 0 ? 1 : -1 });
+    xr.lastScroll = now;
+  }
+
+  /* ポインター表示の切替 */
+  if (cur.a && !prev.a) {
+    xr.mouseEnabled = !xr.mouseEnabled;
+    xrReleaseAllButtons();
+  }
+}
+
+function xrHandleLeft(cur, prev, dt){
+  var dz = 0.25;
+  var upv = -cur.ay;
+  if (Math.abs(upv) > dz) {
+    if (cur.sqz) xrAdjustHeight(upv * dt * 0.55);
+    else xrAdjustDistance(upv * dt * 1.7);
+  }
+  if (Math.abs(cur.ax) > dz) xrAdjustSize(cur.ax * dt * 1.9);
+
+  if (cur.a && !prev.a) { xr.params.curved = !xr.params.curved; xr.geoDirty = true; }
+  if (cur.b && !prev.b) xr.needsRecenter = true;
+  if (cur.trg && !prev.trg) {
+    xr.hudPinned = !(xr.hudPinned || performance.now() < xr.hudUntil);
+    xr.hudUntil = 0;
+  }
+}
+
+/* ---------- ポインター ---------- */
+function xrUpdatePointer(){
+  var rc = null;
+  for (var i = 0; i < xr.controllers.length; i++) {
+    if (xr.controllers[i].userData.hand === 'right') { rc = xr.controllers[i]; break; }
+  }
+  var showLaser = !!rc && xr.mouseEnabled;
+  xr.laser.visible = showLaser;
+  xr.dotMesh.visible = false;
+  if (!showLaser) return null;
+
+  xr.tmpMat.identity().extractRotation(rc.matrixWorld);
+  var origin = xr.tmpV1.setFromMatrixPosition(rc.matrixWorld);
+  var dir = xr.tmpV2.set(0, 0, -1).applyMatrix4(xr.tmpMat).normalize();
+  xr.raycaster.set(origin, dir);
+  var hits = xr.raycaster.intersectObject(xr.screen);
+  var len = 4, uv = null;
+  if (hits.length) {
+    len = hits[0].distance;
+    uv = hits[0].uv;
+    xr.dotMesh.position.copy(hits[0].point);
+    xr.dotMesh.visible = true;
+  }
+  xr.laser.position.copy(origin);
+  xr.laser.quaternion.setFromRotationMatrix(xr.tmpMat);
+  xr.laser.scale.set(1, 1, len);
+  return uv;
+}
+
+function xrMaybeSendMove(uv){
+  if (!uv || !xr.helperOn || !xr.mouseEnabled) return;
+  var x = clamp(uv.x, 0, 1);
+  var y = clamp(1 - uv.y, 0, 1);
+  var now = performance.now();
+  if (now - xr.lastSent.tm < 20) return;
+  if (Math.hypot(x - xr.lastSent.x, y - xr.lastSent.y) < 0.0012) return;
+  xrSend({ t: 'mv', x: Math.round(x * 10000) / 10000, y: Math.round(y * 10000) / 10000 });
+  xr.lastSent = { x: x, y: y, tm: now };
+}
+
+function xrSend(m){
+  if (qs.conn && qs.conn.open) {
+    try { qs.conn.send(m); } catch (_e) {}
+  }
+}
+
+/* ---------- 毎フレーム ---------- */
+function xrRender(){
+  var dt = Math.min(0.05, xr.clock.getDelta());
+  xrPollInput(dt);
+  var uv = xrUpdatePointer();
+  xr.hover = uv;
+  xrMaybeSendMove(uv);
+
+  var now = performance.now();
+  if (xr.geoDirty && now - xr.lastGeoRebuild > 100) {
+    xr.geoDirty = false;
+    xr.lastGeoRebuild = now;
+    xrRebuildGeo();
+  }
+  if (xr.hud) xr.hud.visible = xr.hudPinned || now < xr.hudUntil;
+
+  xr.renderer.render(xr.scene, xr.camera);
+
+  if (xr.needsRecenter) {
+    xr.needsRecenter = false;
+    xrApplyRecenter();
+  }
+}
+
+/* ================================================================
+   起動
+   ================================================================ */
+function bootApp(){
+  $('cardPC').addEventListener('click', function(){ setView('viewPC'); });
+  $('cardQuest').addEventListener('click', function(){ setView('viewQuest'); questInit(); });
+  $('btnBackPC').addEventListener('click', function(){ pcStop(); setView('viewHome'); });
+  $('btnBackQ').addEventListener('click', function(){ APP.xrEnd(); questReset(); setView('viewHome'); });
+  $('btnShare').addEventListener('click', pcStartShare);
+  $('btnStop').addEventListener('click', pcStop);
+  $('btnConnect').addEventListener('click', questConnect);
+  $('btnEnterVR').addEventListener('click', xrEnter);
+  $('btnFullscreen').addEventListener('click', function(){
+    var v = $('qVideo');
+    try {
+      var fp = v.requestFullscreen ? v.requestFullscreen() : null;
+      if (fp && fp.catch) fp.catch(function(){});
+    } catch (_e) {}
+  });
+  $('codeInput').addEventListener('input', function(){
+    this.value = this.value.replace(/\D/g, '').slice(0, 6);
+  });
+  $('codeInput').addEventListener('keydown', function(e){
+    if (e.key === 'Enter') questConnect();
+  });
+  $('qVideo').addEventListener('click', function(){
+    this.muted = false;
+    this.play().catch(function(){});
+    show($('qMuteNote'), false);
+  });
+  window.addEventListener('beforeunload', function(){
+    if (pc.stream) pcStop();
+  });
+}
+
+/* 公開前(https以外)の案内 */
+(function(){
+  var local = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  if (location.protocol !== 'https:' && !local) show($('noticeSetup'), true);
+})();
+
+window.__libsReady.then(bootApp).catch(function(){ show($('libError'), true); });
+</script>
+</body>
+</html>

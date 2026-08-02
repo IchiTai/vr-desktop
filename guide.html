@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VR Desktop 使い方ガイド</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥽</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f7f6fb;
+  --ink:#26233a;
+  --muted:#6b6683;
+  --accent:#6a55e0;
+  --line:#dcd8ec;
+  --panel:#ffffff;
+  --code:#efecfa;
+  --warn-bg:#fff6e8;
+  --warn-line:#e8cfa0;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+  font-size:16px;
+  line-height:1.9;
+}
+.horizon{height:3px;background:linear-gradient(90deg,transparent,#8f7bff 30%,#5ad0ff 55%,#8f7bff 75%,transparent)}
+.wrap{max-width:760px;margin:0 auto;padding:36px 22px 80px}
+header{margin-bottom:36px}
+.brand{font-family:"Space Grotesk",sans-serif;font-weight:700;font-size:22px}
+.brand span{margin-right:8px}
+.subtitle{color:var(--muted);font-size:14px;margin-top:4px}
+h1{font-size:24px;margin:0 0 10px}
+h2{font-size:20px;margin:48px 0 14px;padding-top:24px;border-top:1px solid var(--line)}
+h3{font-size:16px;margin:26px 0 10px;color:var(--accent)}
+p{margin-bottom:14px}
+ol,ul{margin:0 0 16px 1.5em}
+li{margin-bottom:8px}
+b{font-weight:700}
+a{color:var(--accent)}
+code{
+  background:var(--code);border-radius:6px;padding:2px 8px;
+  font-family:"Space Grotesk","Zen Kaku Gothic New",monospace;font-size:14px;
+}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:18px}
+.note{background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:12px;padding:14px 18px;font-size:14px;margin:16px 0}
+table{width:100%;border-collapse:collapse;font-size:14px;margin:10px 0 20px;background:var(--panel);border-radius:12px;overflow:hidden;border:1px solid var(--line)}
+th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--code);font-size:13px}
+tr:last-child td{border-bottom:none}
+td:first-child{white-space:nowrap;color:var(--accent);font-weight:500}
+dt{font-weight:700;margin-top:18px}
+dd{margin-left:0;color:var(--muted);font-size:15px}
+.toc{font-size:14px}
+.toc a{text-decoration:none}
+.toc a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="horizon"></div>
+<div class="wrap">
+
+<header>
+  <div class="brand"><span>🥽</span>VR Desktop</div>
+  <div class="subtitle">使い方ガイド</div>
+</header>
+
+<h1>これは何?</h1>
+<p>VR Desktopは、WindowsやMacの画面をMeta Quest 3の大画面で見て、そのままVRの中から操作するための自分専用ページです。パソコンにもQuestにも、アプリのインストールは必要ありません。パソコンはブラウザで画面を共有し、QuestはQuest本体のブラウザ(Meta Quest Browser)で受け取ります。</p>
+<p>用意するものは、Chromeが入ったパソコン(Edgeでも動きます。Safariは対象外です)、Meta Quest 3、そして両方のインターネット接続です。文字を打つときは、パソコンの前のキーボードをそのまま使います。</p>
+
+<div class="panel toc">
+  <b>このガイドの内容</b><br>
+  <a href="#setup">1. 準備(最初の1回だけ)</a><br>
+  <a href="#daily">2. 毎日の使い方</a><br>
+  <a href="#controls">3. VRの中での操作</a><br>
+  <a href="#helper">4. VRからパソコンを操作する(操作モード)</a><br>
+  <a href="#trouble">5. 困ったときは</a><br>
+  <a href="#safety">6. 通信のしくみと安全性</a>
+</div>
+
+<h2 id="setup">1. 準備(最初の1回だけ)</h2>
+<p>このページ一式をインターネットに公開すると、パソコンとQuestの両方から同じURLで開けるようになります。画面共有とVR表示は、ブラウザの決まりで「https://」で始まるURLでしか動きません。ファイルをダブルクリックして開くだけでは使えないのは、このためです。</p>
+<p>手元にあるのは次の4つのファイルです。まず、パソコンに「vr-desktop」という名前の新しいフォルダを作り、4つ全部をその中に入れてください。</p>
+<ul>
+  <li><code>index.html</code>:本体のページ</li>
+  <li><code>guide.html</code>:このガイド</li>
+  <li><code>helper-windows.bat</code>:Windows用の操作ヘルパー</li>
+  <li><code>helper-mac.py</code>:Mac用の操作ヘルパー</li>
+</ul>
+<p>公開には、フォルダを置くだけで使える無料サービスを利用します。どれか1つを選んでください。中身の動きは、どれを選んでも同じです。</p>
+<table>
+  <tr><th>サービス</th><th>手間</th><th>向き不向き</th></tr>
+  <tr><td>Netlify</td><td>フォルダをドラッグするだけ</td><td>いちばん簡単。まず試すならこれ</td></tr>
+  <tr><td>Cloudflare Pages</td><td>ドラッグ+最初の設定が少し</td><td>通信量の制限がなく、動画のやり取りが多い使い方に安心</td></tr>
+  <tr><td>GitHub Pages</td><td>最初だけ手順が10ステップ</td><td>一度作れば更新も簡単。ずっと同じURLで使える</td></tr>
+</table>
+<p>迷ったらNetlifyで始めてください。あとから乗り換えても、フォルダをドラッグし直すだけです。</p>
+
+<h3>選択肢A: Netlifyで公開する</h3>
+<ol>
+  <li>パソコンのブラウザで <a href="https://app.netlify.com/drop" target="_blank" rel="noopener">https://app.netlify.com/drop</a> を開く</li>
+  <li>無料アカウントを作る(メールアドレスがあれば作れます。登録せずに公開すると1時間ほどで消えます)</li>
+  <li>「vr-desktop」フォルダを、ページの点線の枠へドラッグする</li>
+  <li>しばらく待つと「https://〇〇〇.netlify.app」のようなURLが表示される。これがあなた専用のURLです</li>
+  <li>そのURLを、パソコンとQuestの両方のブラウザでブックマークしておく</li>
+</ol>
+<p>ファイルを作り直したときは、Netlifyのサイト画面にある「Deploys」にフォルダをもう一度ドラッグすると、同じURLのまま中身が入れ替わります。</p>
+
+<h3>選択肢B: Cloudflare Pagesで公開する</h3>
+<ol>
+  <li>パソコンのブラウザで <a href="https://pages.cloudflare.com/" target="_blank" rel="noopener">https://pages.cloudflare.com/</a> を開き、無料アカウントを作る</li>
+  <li>管理画面で「Pages」を選び、「Upload assets」(ファイルを直接アップロードする方)を選ぶ</li>
+  <li>プロジェクト名を決める(<code>vr-desktop</code> など。この名前がURLになります)</li>
+  <li>「vr-desktop」フォルダをドラッグして、デプロイを実行する</li>
+  <li>「https://vr-desktop.pages.dev」のようなURLが発行される。これをパソコンとQuestの両方でブックマークする</li>
+</ol>
+<p>更新するときは、同じプロジェクトの「Create new deployment」からフォルダをドラッグし直します。</p>
+
+<h3>選択肢C: GitHub Pagesで公開する</h3>
+<p>GitHubの操作はすべてブラウザだけで完結します。専用ソフトのインストールは必要ありません。</p>
+<ol>
+  <li><a href="https://github.com/" target="_blank" rel="noopener">https://github.com/</a> で無料アカウントを作る</li>
+  <li>右上の「+」から「New repository」を選ぶ</li>
+  <li>「Repository name」に <code>vr-desktop</code> と入れ、「Public」のまま「Create repository」を押す</li>
+  <li>次の画面にある「uploading an existing file」のリンクを押す</li>
+  <li>4つのファイルをまとめてドラッグする(フォルダごとではなく、<b>中の4ファイルを選んで</b>ドラッグします)</li>
+  <li>下の「Commit changes」を押す</li>
+  <li>上の「Settings」タブ → 左の「Pages」を開く</li>
+  <li>「Source」を「Deploy from a branch」にして、「Branch」で <code>main</code> と <code>/(root)</code> を選び、「Save」を押す</li>
+  <li>1〜3分待ってからページを再読み込みすると、上部に <code>https://ユーザー名.github.io/vr-desktop/</code> というURLが表示される</li>
+  <li>そのURLを、パソコンとQuestの両方のブラウザでブックマークしておく</li>
+</ol>
+<p>ファイルを更新するときは、リポジトリの画面で「Add file」→「Upload files」から同じ名前のファイルをドラッグし、「Commit changes」を押します。反映まで1〜2分かかります。表示が古いままのときは、ブラウザで再読み込みしてください。</p>
+<div class="note">無料のGitHub Pagesでは、リポジトリを「Public」にする必要があります。ファイルの中身は誰でも見られる状態になりますが、この4ファイルにはパスワードも個人情報も入っていません。URLを知られても、6桁の接続コードがなければ画面には接続できません。</div>
+
+<div class="note">どのサービスでも、最初に開くファイルの名前は <code>index.html</code> である必要があります。中身は4つのファイルだけにして、フォルダの階層を作らないでください。</div>
+
+<h2 id="daily">2. 毎日の使い方</h2>
+<h3>パソコン側</h3>
+<ol>
+  <li>ブックマークしたURLをChromeで開き、「パソコン(共有する側)」を選ぶ</li>
+  <li>「画面の共有をはじめる」を押す</li>
+  <li>選択画面で「画面全体」を選ぶ。音も聞きたいときは「音声を共有」にチェックを入れて、「共有」を押す</li>
+  <li>6桁の接続コードが表示される</li>
+</ol>
+<h3>Quest側</h3>
+<ol>
+  <li>Questをかぶり、ブラウザ(Meta Quest Browser)でブックマークした同じURLを開く</li>
+  <li>「Quest(見る側)」を選び、パソコンに表示されている6桁のコードを入力して「接続する」を押す</li>
+  <li>映像が届いたら「VRで見る」を押す。目の前に大画面が現れます</li>
+</ol>
+<p>やめるときは、Questはコントローラーのメニューボタンでブラウザに戻り、パソコンは「共有をやめる」を押します(ブラウザ上部の「共有を停止」でもかまいません)。</p>
+
+<h2 id="controls">3. VRの中での操作</h2>
+<p>VRに入った直後は、操作の一覧が画面の下にしばらく表示されます。左手のトリガーで、いつでも出し直せます。</p>
+<table>
+  <tr><th>操作</th><th>はたらき</th></tr>
+  <tr><td>右手のレーザー</td><td>マウスカーソルを動かす(操作モードがONのとき)</td></tr>
+  <tr><td>右手 トリガー</td><td>左クリック。押したまま動かすとドラッグ</td></tr>
+  <tr><td>右手 グリップ</td><td>右クリック</td></tr>
+  <tr><td>右手 スティック上下</td><td>スクロール</td></tr>
+  <tr><td>右手 Aボタン</td><td>レーザーの表示を消す/出す</td></tr>
+  <tr><td>左手 スティック上下</td><td>画面を遠くへ/近くへ</td></tr>
+  <tr><td>左手 スティック左右</td><td>画面を大きく/小さく</td></tr>
+  <tr><td>左手 グリップを握りながらスティック上下</td><td>画面の高さを変える</td></tr>
+  <tr><td>左手 Xボタン</td><td>平面スクリーンと湾曲スクリーンの切り替え</td></tr>
+  <tr><td>左手 Yボタン</td><td>画面をいまの正面に呼び直す</td></tr>
+  <tr><td>左手 トリガー</td><td>操作一覧の表示/非表示</td></tr>
+</table>
+
+<h2 id="helper">4. VRからパソコンを操作する(操作モード)</h2>
+<p>ブラウザには、ウェブページがパソコンのマウスを動かすことを禁止する決まりがあります。見るだけならページだけで足りますが、VRから操作するには、この禁止の外側で動く小さなプログラムがパソコン側に必要です。それが<b>操作ヘルパー</b>です。インストールは不要で、使うときに起動しておくだけです。起動していないあいだは、いままで通り「見るだけ」で使えます。</p>
+<p>ヘルパーが動き出すと、パソコン側のページの「操作モード」の欄がおよそ3秒以内に自動でONに変わります。やめるときはヘルパーのウィンドウを閉じるだけ、いらなくなったらファイルをゴミ箱に入れるだけです。</p>
+
+<h3>Windowsでの起動</h3>
+<ol>
+  <li><code>helper-windows.bat</code> をダブルクリックする(公開したページの「操作モード」の欄からもダウンロードできます)</li>
+  <li>青い画面で「WindowsによってPCが保護されました」と出たら、「詳細情報」を押してから「実行」を押す。自分で用意したファイルなので実行して問題ありません</li>
+  <li>黒いウィンドウが開いて「waiting for your screen-share page」と表示されたら準備完了。VRを使い終わるまで開いたままにする</li>
+</ol>
+<div class="note">ダウンロード時にChromeが「このファイルは危険な可能性があります」と警告することがあります。ダウンロード一覧からそのファイルを選び、「保存」(または「継続」)を選んでください。</div>
+
+<h3>Macでの起動</h3>
+<ol>
+  <li>Launchpadで「ターミナル」を検索して開く</li>
+  <li>ターミナルに半角で <code>python3 </code> と入力する(最後に半角スペースを1つ入れる)</li>
+  <li>Finderから <code>helper-mac.py</code> をターミナルの画面へドラッグして、Enterキーを押す</li>
+  <li>「画面共有ページからの接続を待っています」と表示されたら準備完了。VRを使い終わるまで開いたままにする</li>
+</ol>
+<p>初回だけ、次の2つが起きることがあります。どちらも1回きりです。</p>
+<ul>
+  <li>「コマンドライン デベロッパツール」のインストールを求められたら、「インストール」を押して待つ(無料です。10分ほどかかることがあります)。終わったら手順をやり直す</li>
+  <li>マウス操作の許可を求められたら許可する。表示が出ないままマウスが動かないときは、システム設定の「プライバシーとセキュリティ」にある「アクセシビリティ」で「ターミナル」をオンにして、ヘルパーを起動し直す</li>
+</ul>
+
+<h2 id="trouble">5. 困ったときは</h2>
+<dl>
+  <dt>コードを入れても「見つかりません」と出る</dt>
+  <dd>パソコン側が共有中か、コードが合っているかを確認します。共有をやり直すたびにコードは新しくなります。パソコンとQuestの両方がインターネットにつながっている必要があります。</dd>
+
+  <dt>映像がカクカクする、遅れる</dt>
+  <dd>パソコンとQuestを同じWi-Fiにつなぐと速くなります。ルーターの近くで使う、5GHzのWi-Fiを選ぶ、の2つも効きます。</dd>
+
+  <dt>音が出ない</dt>
+  <dd>共有をはじめるときの選択画面で「音声を共有」にチェックが必要です。WindowsのChromeは「画面全体」でも音を共有できます。Macは画面全体の音を共有できないことが多く、その場合は音なしになります(Chromeの「タブ」共有ならそのタブの音だけ届きますが、操作モードとの相性は悪くなります)。</dd>
+
+  <dt>VRから操作できない</dt>
+  <dd>パソコン側のページで「操作モード」がONになっているかを見ます。OFFのままなら、操作ヘルパーが起動していません。ONなのに動かないときは、「画面全体」を共有しているか、モニターが複数あるならメインの画面を共有しているかを確認します。</dd>
+
+  <dt>クリックの位置がずれる</dt>
+  <dd>「ウィンドウ」や「タブ」ではなく「画面全体」を共有してください。ヘルパーは画面全体を基準にカーソルを動かすためです。モニターが複数あるときは、メインのモニターを共有します。</dd>
+
+  <dt>会社のパソコンで動かない</dt>
+  <dd>管理者の設定でヘルパーの実行が止められている場合があります。その場合は見るだけで使ってください。</dd>
+</dl>
+
+<h2 id="safety">6. 通信のしくみと安全性</h2>
+<p>このアプリの中では、性質の違う3つの通信が動いています。順番に見ていきます。</p>
+
+<h3>1. 待ち合わせ(シグナリング)</h3>
+<p>パソコンとQuestは、最初にお互いの居場所を知る必要があります。6桁のコードは、そのための待ち合わせ番号です。パソコンは共有をはじめた瞬間に、この番号を名札としてPeerJSの公開サーバーに登録します。Questが同じ番号を入力すると、サーバーが両者に相手の接続情報を伝えます。</p>
+<p>ここを通るのは、IPアドレスや利用できる映像形式といった接続の段取りの情報だけです。画面の中身は通りません。相手が見つかった時点で、このサーバーの役目は終わります。</p>
+
+<h3>2. 映像と音声</h3>
+<p>待ち合わせが済むと、パソコンとQuestは<b>直接つながります</b>。WebRTCという、ブラウザに最初から入っているビデオ通話用の規格を使っています。同じWi-Fiにいる場合、映像は家のネットワークの中だけを流れ、インターネットには出ていきません。これが遅れの少なさにつながります。</p>
+<p>途中でSTUNサーバーという道案内役を使いますが、これは自分のアドレスを知るためのもので、映像は経由しません。映像と音声はDTLS-SRTPという方式で自動的に暗号化されます。</p>
+
+<h3>3. 操作の信号</h3>
+<p>VRからのマウス操作は、同じWebRTC接続に用意されたデータ用の通り道(データチャネル)で、Questからパソコンへ送られます。送っているのは「画面のどの位置か」を0から1の割合で表した座標と、クリックやスクロールの種類だけです。1秒あたり最大50回、まとめて送っています。</p>
+<p>受け取ったパソコンのページは、それを <code>127.0.0.1:8765</code> という自分自身の中だけに開かれた受け口へ渡します。操作ヘルパーがそこで受け取り、画面の解像度に合わせて実際のカーソル位置に変換して動かします。この最後の区間は、パソコンの外に一切出ません。</p>
+
+<h3>安全性について</h3>
+<ul>
+  <li>公開したURLを誰かが開いても、そのときの6桁コードを知らなければ画面には接続できません。コードは共有をやり直すたびに変わります</li>
+  <li>接続は1台までです。すでにQuestがつながっているあいだ、他からの接続は拒否されます</li>
+  <li>操作ヘルパーは、同じパソコンの中からの通信しか受け付けません(外部のネットワークからは届きません)。さらに、最初につながった画面共有ページを覚え、それ以外のページからの指示は拒否します</li>
+  <li>ヘルパーが受け付けるのは、カーソル移動、クリック、スクロールだけです。ファイルを読む、送るといった機能は持っていません</li>
+  <li>ヘルパーのウィンドウを閉じれば操作は止まり、パソコン側のページの表示も自動でOFFに戻ります</li>
+</ul>
+
+<div class="note">まれに、ネットワークの構成によっては直接つながれないことがあります(会社や学校の回線に多い構成です)。パソコンとQuestを同じWi-Fiにつなぐと、ほとんどの場合これを避けられます。</div>
+
+</div>
+</body>
+</html>
