@@ -151,6 +151,61 @@ def do_button(down, right):
     STATE["r" if right else "l"] = down
 
 
+import subprocess
+
+# ---- キーボード送信 ----
+KEYCODE = {"enter": 36, "esc": 53, "tab": 48, "left": 123, "right": 124,
+           "down": 125, "up": 126, "backspace": 51, "delete": 117, "space": 49}
+COMBO = {"copy": 8, "paste": 9, "cut": 7, "undo": 6, "selectall": 0,
+         "back": 33, "forward": 30}  # Cmd+英字 / Cmd+[ ]
+PYKEY = {"enter": "enter", "esc": "esc", "tab": "tab", "left": "left",
+         "right": "right", "down": "down", "up": "up",
+         "backspace": "backspace", "delete": "delete", "space": "space"}
+PYCOMBO = {"copy": "c", "paste": "v", "cut": "x", "undo": "z",
+           "selectall": "a", "back": "[", "forward": "]"}
+
+
+def _qz_key(code, flags=0):
+    for down in (True, False):
+        ev = QZ.CGEventCreateKeyboardEvent(None, code, down)
+        if flags:
+            QZ.CGEventSetFlags(ev, flags)
+        qz_post(ev)
+
+
+def do_key(k):
+    try:
+        if QZ is not None:
+            if k in KEYCODE:
+                _qz_key(KEYCODE[k])
+            elif k in COMBO:
+                _qz_key(COMBO[k], QZ.kCGEventFlagMaskCommand)
+            elif k == "apptab":
+                _qz_key(48, QZ.kCGEventFlagMaskCommand)  # Cmd+Tab
+            return
+        if k in PYKEY:
+            pyautogui.press(PYKEY[k], _pause=False)
+        elif k in PYCOMBO:
+            pyautogui.hotkey("command", PYCOMBO[k], _pause=False)
+        elif k == "apptab":
+            pyautogui.hotkey("command", "tab", _pause=False)
+    except Exception:
+        pass
+
+
+def do_txt(s):
+    # 日本語も確実に入るよう、クリップボード経由で貼り付ける
+    try:
+        subprocess.run(["pbcopy"], input=s.encode("utf-8"), check=False)
+        time.sleep(0.06)
+        if QZ is not None:
+            _qz_key(9, QZ.kCGEventFlagMaskCommand)  # Cmd+V
+        else:
+            pyautogui.hotkey("command", "v", _pause=False)
+    except Exception:
+        pass
+
+
 def do_scroll(d):
     if QZ is not None:
         try:
@@ -236,6 +291,10 @@ class Handler(BaseHTTPRequestHandler):
                     do_button(False, e.get("b") == 2)
                 elif t == "sc":
                     do_scroll(e.get("d", 0))
+                elif t == "key":
+                    do_key(str(e.get("k", "")))
+                elif t == "txt":
+                    do_txt(str(e.get("s", "")))
         except Exception:
             pass
         self._reply()

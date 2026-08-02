@@ -22,6 +22,8 @@ using System.Runtime.InteropServices;
 public static class VRMouse {
     [DllImport("user32.dll")]
     public static extern void mouse_event(uint dwFlags, uint dx, uint dy, int dwData, int dwExtraInfo);
+    [DllImport("user32.dll")]
+    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);
     public const uint LEFTDOWN  = 0x0002;
     public const uint LEFTUP    = 0x0004;
     public const uint RIGHTDOWN = 0x0008;
@@ -181,6 +183,43 @@ while ($true) {
                             }
                             'sc' {
                                 [VRMouse]::mouse_event([VRMouse]::WHEEL, 0, 0, ([int]$e.d) * 120, 0)
+                            }
+                            'key' {
+                                $k = [string]$e.k
+                                $VK = @{ enter = 13; esc = 27; tab = 9; left = 37; up = 38; right = 39; down = 40; backspace = 8; delete = 46; space = 32 }
+                                $CB = @{ copy = 67; paste = 86; cut = 88; undo = 90; selectall = 65 }
+                                if ($VK.ContainsKey($k)) {
+                                    [VRMouse]::keybd_event([byte]$VK[$k], 0, 0, 0)
+                                    [VRMouse]::keybd_event([byte]$VK[$k], 0, 2, 0)
+                                } elseif ($CB.ContainsKey($k)) {
+                                    [VRMouse]::keybd_event(17, 0, 0, 0)
+                                    [VRMouse]::keybd_event([byte]$CB[$k], 0, 0, 0)
+                                    [VRMouse]::keybd_event([byte]$CB[$k], 0, 2, 0)
+                                    [VRMouse]::keybd_event(17, 0, 2, 0)
+                                } elseif ($k -eq 'apptab') {
+                                    [VRMouse]::keybd_event(18, 0, 0, 0)
+                                    [VRMouse]::keybd_event(9, 0, 0, 0)
+                                    [VRMouse]::keybd_event(9, 0, 2, 0)
+                                    Start-Sleep -Milliseconds 80
+                                    [VRMouse]::keybd_event(18, 0, 2, 0)
+                                } elseif ($k -eq 'back') {
+                                    [VRMouse]::mouse_event(0x0080, 0, 0, 1, 0)
+                                    [VRMouse]::mouse_event(0x0100, 0, 0, 1, 0)
+                                } elseif ($k -eq 'forward') {
+                                    [VRMouse]::mouse_event(0x0080, 0, 0, 2, 0)
+                                    [VRMouse]::mouse_event(0x0100, 0, 0, 2, 0)
+                                }
+                            }
+                            'txt' {
+                                $s = [string]$e.s
+                                if ($s.Length -gt 0) {
+                                    try { Set-Clipboard -Value $s } catch { }
+                                    Start-Sleep -Milliseconds 80
+                                    [VRMouse]::keybd_event(17, 0, 0, 0)
+                                    [VRMouse]::keybd_event(86, 0, 0, 0)
+                                    [VRMouse]::keybd_event(86, 0, 2, 0)
+                                    [VRMouse]::keybd_event(17, 0, 2, 0)
+                                }
                             }
                         }
                     }

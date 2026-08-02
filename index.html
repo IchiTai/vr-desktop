@@ -232,6 +232,15 @@ video.preview{
   font-size:12px;padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap;
 }
 .tv-float{position:absolute;right:12px;bottom:16px;background:rgba(19,17,32,.92)}
+.tv-keybar{
+  display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:8px 10px;
+  background:rgba(19,17,32,.97);border-bottom:1px solid var(--line);
+}
+.tv-keybar input{
+  flex:1;min-width:150px;background:var(--surface-2);color:var(--ink);
+  border:1px solid var(--line);border-radius:8px;padding:8px 10px;
+  font-family:var(--font-jp);font-size:14px;
+}
 
 footer.site{margin-top:36px;text-align:center;font-size:12px;color:var(--muted)}
 footer.site a{color:var(--muted);text-decoration:underline}
@@ -368,9 +377,10 @@ footer.site a{color:var(--muted);text-decoration:underline}
         <tr><td>右手 スティック上下</td><td>スクロール</td></tr>
         <tr><td>左手 スティック</td><td>上下で指した画面の遠近、左右で大きさ</td></tr>
         <tr><td>左スティック押し込み</td><td>ポインター(レーザー)の表示/非表示</td></tr>
+        <tr><td>右スティック押し込み</td><td>キー送信パレット(Enter・コピー・貼り付けなど)</td></tr>
         <tr><td>左手 X(下) / Y(上)</td><td>設定メニュー / 画面を整列して正面に呼び直す</td></tr>
         <tr><td>何もない所をクリック</td><td>操作ガイドの表示/非表示</td></tr>
-        <tr><td>画面のすぐ上にレーザー</td><td>「平面/湾曲・ミュート・固定」のボタンが現れる</td></tr>
+        <tr><td>画面のすぐ上にレーザー</td><td>「平面/湾曲・ミュート・固定・追従・明るさ」のボタンが現れる</td></tr>
       </table>
       <p class="msg-info" style="margin-top:10px;margin-bottom:0">ボタンごとの機能は「⚙ 設定 → 操作」で変えられます(同じ機能を複数のボタンに割り当ててもOK)。</p>
     </div>
@@ -384,9 +394,21 @@ footer.site a{color:var(--muted);text-decoration:underline}
   <div class="tv-top">
     <div class="tv-tabs" id="tvTabs"></div>
     <span class="tv-stats hidden" id="tvStats"></span>
+    <button class="btn-ghost btn-sm" id="tvKeys">⌨</button>
     <button class="btn-ghost btn-sm" id="tvFull">全画面</button>
     <button class="btn-ghost btn-sm" id="tvSet">設定</button>
     <button class="btn-ghost btn-sm" id="tvClose">閉じる</button>
+  </div>
+  <div class="tv-keybar hidden" id="tvKeybar">
+    <input id="tvText" placeholder="文字を入力してPCへ送る(日本語OK)">
+    <button class="btn-ghost btn-sm" id="tvSend">送信</button>
+    <button class="btn-ghost btn-sm" data-k="enter">Enter</button>
+    <button class="btn-ghost btn-sm" data-k="backspace">⌫</button>
+    <button class="btn-ghost btn-sm" data-k="esc">Esc</button>
+    <button class="btn-ghost btn-sm" data-k="tab">Tab</button>
+    <button class="btn-ghost btn-sm" data-k="copy">コピー</button>
+    <button class="btn-ghost btn-sm" data-k="paste">貼り付け</button>
+    <button class="btn-ghost btn-sm" data-k="apptab">切替</button>
   </div>
   <div class="tv-stage" id="tvStage">
     <div class="tv-zoom" id="tvZoom"><video id="tvVideo" autoplay playsinline muted></video></div>
@@ -719,6 +741,7 @@ function pcCreatePeer(attempt){
     $('pcCodeHint').textContent = 'Questのブラウザでこのページを開き、上のコードを入力してください。';
   });
 
+  peer.on('disconnected', function(){ try { peer.reconnect(); } catch (_e) {} });
   peer.on('connection', function(conn){
     if (pc.conn) { try { conn.close(); } catch (_e) {} return; } /* 見る側は1台まで */
     pc.conn = conn;
@@ -806,6 +829,7 @@ function pcSendHelperState(){
 
 function pcOnData(msg){
   if (!msg || !msg.t) return;
+  if (!pc.helperOn && msg.t !== 'q') return; /* ヘルパーOFF中は操作をためない */
   if (msg.t === 'mv') {
     var item = pcFindScreen(msg.s);
     if (item && item.mon < 0) { pc.ctlBlock = true; return; } /* 「操作しない」画面 */
@@ -825,6 +849,11 @@ function pcOnData(msg){
     pc.inputQueue.push({ t: 'sc', d: msg.d });
   } else if (msg.t === 'q') {
     pcSetQuality(msg.p);
+  } else if (msg.t === 'key') {
+    pc.inputQueue.push({ t: 'key', k: String(msg.k || '').slice(0, 24) });
+  } else if (msg.t === 'txt') {
+    var s2 = String(msg.s || '').slice(0, 1000);
+    if (s2) pc.inputQueue.push({ t: 'txt', s: s2 });
   }
 }
 
@@ -902,6 +931,7 @@ function questEnsurePeer(cb){
   peer.on('open', function(){ qs.peerReady = true; cb(); });
   peer.on('call', questOnCall);
   peer.on('error', questOnPeerError);
+  peer.on('disconnected', function(){ try { peer.reconnect(); } catch (_e) {} });
 }
 
 function questHostByPeerId(pid){
@@ -921,26 +951,66 @@ function questAddHost(codeRaw, errEl){
   qs.pendingHost = host;
   questUiSync();
   questEnsurePeer(function(){
-    var conn = qs.peer.connect(PEER_PREFIX + code, { serialization: 'json' });
-    host.conn = conn;
-    conn.on('open', function(){
-      host.state = 'open';
-      hostSend(host, { t: 'q', p: S.q });
-      questUiSync();
-    });
-    conn.on('data', function(m){
-      if (!m) return;
-      if (m.t === 'helper') {
-        host.helperOn = !!m.on;
-        questUiSync();
-        if (APP.xrHud) APP.xrHud();
-      } else if (m.t === 'del') {
-        questRemoveScreen(host, m.s);
-      }
-    });
-    conn.on('close', function(){ questDropHost(host, 'パソコンとの接続が切れました。共有中か確認して、もう一度接続してください。'); });
+    host.conn = qs.peer.connect(PEER_PREFIX + code, { serialization: 'json' });
+    questWireConn(host);
   });
   return true;
+}
+
+function questWireConn(host){
+  var conn = host.conn;
+  conn.on('open', function(){
+    if (host.gone) { try { conn.close(); } catch (_e) {} return; }
+    if (qs.pendingHost === host) qs.pendingHost = null;
+    host.state = 'open';
+    host.retryUntil = 0;
+    clearTimeout(host.retryWatch);
+    hostSend(host, { t: 'q', p: S.q });
+    questUiSync();
+    if (APP.xrHud) APP.xrHud();
+  });
+  conn.on('data', function(m){
+    if (!m) return;
+    if (m.t === 'helper') {
+      host.helperOn = !!m.on;
+      questUiSync();
+      if (APP.xrHud) APP.xrHud();
+    } else if (m.t === 'del') {
+      questRemoveScreen(host, m.s);
+    }
+  });
+  conn.on('close', function(){ questConnLost(host); });
+}
+
+/* 切断時: 同じコードで約2分間、静かに再接続を試みる */
+function questConnLost(host){
+  if (host.gone) return;
+  if (!host.retryUntil) host.retryUntil = Date.now() + 120000;
+  if (Date.now() > host.retryUntil) {
+    questDropHost(host, '再接続できませんでした。パソコン側の共有を確認して、もう一度コードを入力してください。');
+    return;
+  }
+  host.state = 'retry';
+  host.helperOn = false;
+  questUiSync();
+  if (APP.xrHud) APP.xrHud();
+  clearTimeout(host.retryTimer);
+  host.retryTimer = setTimeout(function(){
+    if (host.gone) return;
+    try {
+      host.conn = qs.peer.connect(PEER_PREFIX + host.code, { serialization: 'json' });
+      questWireConn(host);
+      clearTimeout(host.retryWatch);
+      host.retryWatch = setTimeout(function(){
+        if (!host.gone && host.state === 'retry') {
+          try { host.conn.close(); } catch (_e) {}
+          questConnLost(host);
+        }
+      }, 8000);
+    } catch (_e) {
+      questConnLost(host);
+    }
+  }, 3500);
 }
 
 function questOnCall(call){
@@ -949,7 +1019,12 @@ function questOnCall(call){
   var slot = (call.metadata && call.metadata.slot != null) ? call.metadata.slot : 0;
   call.answer();
   call.on('stream', function(stream){ questAddScreen(host, slot, stream, call); });
-  call.on('close', function(){ questRemoveScreen(host, slot); });
+  call.on('close', function(){
+    /* 再接続で作り直した新しい画面を、古い接続の後始末で消さない */
+    var cur = null;
+    host.screens.forEach(function(x){ if (x.slot === slot) cur = x; });
+    if (cur && cur.call === call) questRemoveScreen(host, slot);
+  });
 }
 
 function questAddScreen(host, slot, stream, call){
@@ -1000,6 +1075,9 @@ function questRemoveScreen(host, slot, silent){
 }
 
 function questDropHost(host, msg){
+  host.gone = true;
+  clearTimeout(host.retryTimer);
+  clearTimeout(host.retryWatch);
   var i = qs.hosts.indexOf(host);
   if (i < 0) return;
   host.screens.slice().forEach(function(sc){ questRemoveScreen(host, sc.slot, true); });
@@ -1028,10 +1106,22 @@ function questOnPeerError(err){
       var h2 = questHostByPeerId(PEER_PREFIX + m[1]);
       if (h2) host = h2;
     }
+    if (host && host.state === 'retry') {
+      /* 自動再接続の途中: エラー表示せず、次の試行にまわす */
+      clearTimeout(host.retryWatch);
+      questConnLost(host);
+      return;
+    }
     if (host) {
+      host.gone = true;
+      clearTimeout(host.retryTimer);
+      clearTimeout(host.retryWatch);
+      if (qs.pendingHost === host) qs.pendingHost = null;
       var i = qs.hosts.indexOf(host);
       if (i >= 0) qs.hosts.splice(i, 1);
       questUiSync();
+      if (APP.xrSync) APP.xrSync();
+      if (APP.tvSync) APP.tvSync();
     }
     questShowErr('このコードのパソコンが見つかりません。コードと、パソコン側で共有中かを確認してください。');
   } else if (t === 'network' || t === 'server-error' || t === 'socket-error') {
@@ -1080,10 +1170,16 @@ function questUiSync(){
     var st = document.createElement('span');
     st.className = 'hstat';
     st.id = 'hstat' + h.idx;
-    st.textContent = h.statText || '';
+    st.textContent = (h.state === 'retry' ? '⟳ 再接続中… ' : '') + (h.statText || '');
     row.appendChild(st);
     box.appendChild(row);
   });
+  var anyRetry = false;
+  qs.hosts.forEach(function(h){ if (h.state === 'retry') anyRetry = true; });
+  var qsEl = $('qStatus');
+  if (qsEl) qsEl.textContent = anyRetry
+    ? '接続が切れました。自動で再接続しています…'
+    : 'パソコンの画面を受信しています。';
 }
 
 function questReset(){
@@ -1107,7 +1203,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-03f';
+var APP_VER = '2026-08-03h';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1125,6 +1221,7 @@ var KM_ACTS = [
   ['ptr',      'ポインター表示の切替'],
   ['recenter', '画面を正面に呼び直す'],
   ['menu',     '設定メニューを開く/閉じる'],
+  ['keys',     'キー送信パレットを開く/閉じる'],
   ['hud',      '操作ガイドの表示切替'],
   ['',         '割り当てない']
 ];
@@ -1132,14 +1229,14 @@ var KM_ACT_LABEL = {};
 KM_ACTS.forEach(function(a){ KM_ACT_LABEL[a[0]] = a[1]; });
 
 function kmDefault(){
-  return { r0: 'click', r1: 'grab', r3: '', r4: 'click', r5: 'rclick',
+  return { r0: 'click', r1: 'grab', r3: 'keys', r4: 'click', r5: 'rclick',
            l0: 'click', l1: 'grab', l3: 'ptr', l4: 'menu', l5: 'recenter' };
 }
 
 /* 前の版の標準のままなら、新しい標準へ自動で置き換える */
 function kmIsOldDefault(km){
   var old = { r0: 'click', r1: 'grab', r3: '', r4: 'click', r5: 'rclick',
-              l0: 'hud', l1: 'grab', l3: 'hmod', l4: 'menu', l5: 'recenter' };
+              l0: 'click', l1: 'grab', l3: 'ptr', l4: 'menu', l5: 'recenter' };
   for (var i = 0; i < KM_BTNS.length; i++) {
     if (km[KM_BTNS[i]] !== old[KM_BTNS[i]]) return false;
   }
@@ -1179,6 +1276,10 @@ function loadS(){
   delete s.km;
   s.lowLat = (s.lowLat !== false); /* 低遅延モード: 初期ON */
   s.trig = (s.trig === 'plain') ? 'plain' : 'vd'; /* トリガー: 長押し→移動でスクロール */
+  if (!Array.isArray(s.slots) || s.slots.length !== 3) s.slots = [null, null, null];
+  s.slots = s.slots.map(function(x){
+    return (x && typeof x === 'object' && Array.isArray(x.scr)) ? x : null;
+  });
   s.maxDist = (typeof s.maxDist === 'number') ? clamp(Math.round(s.maxDist), 3, 30) : 12;
   s.maxW = (typeof s.maxW === 'number') ? clamp(Math.round(s.maxW), 3, 40) : 16;
   if (!s.layout || typeof s.layout.dist !== 'number') s.layout = null;
@@ -1351,7 +1452,7 @@ async function questStatsTick(){
 function statsRefreshUi(){
   qs.hosts.forEach(function(h){
     var el = $('hstat' + h.idx);
-    if (el) el.textContent = h.statText || '';
+    if (el) el.textContent = (h.state === 'retry' ? '⟳ 再接続中… ' : '') + (h.statText || '');
   });
   if (APP.tvStats) APP.tvStats();
   if (APP.xrHud) APP.xrHud();
@@ -1904,6 +2005,25 @@ function initTouchUi(){
   t.addEventListener('pointercancel', tvUp);
   t.addEventListener('contextmenu', function(e){ e.preventDefault(); });
 
+  $('tvKeys').addEventListener('click', function(){
+    var b = $('tvKeybar');
+    show(b, b.classList.contains('hidden'));
+  });
+  $('tvKeybar').querySelectorAll('[data-k]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if (tv.host) hostSend(tv.host, { t: 'key', k: btn.getAttribute('data-k') });
+    });
+  });
+  $('tvSend').addEventListener('click', function(){
+    var v = $('tvText').value;
+    if (v && tv.host) {
+      hostSend(tv.host, { t: 'txt', s: v });
+      $('tvText').value = '';
+    }
+  });
+  $('tvText').addEventListener('keydown', function(e){
+    if (e.key === 'Enter') { e.preventDefault(); $('tvSend').click(); }
+  });
   $('tvClose').addEventListener('click', tvClose);
   $('tvSet').addEventListener('click', function(){ openSettings('q'); });
   $('tvZoomReset').addEventListener('click', tvZoomReset);
@@ -1953,6 +2073,8 @@ var xr = {
   needsRecenter: false,
   saveDirty: false, lastSave: 0,
   menu: { open: false, mesh: null, canvas: null, ctx: null, tex: null, btns: [] },
+  keys: { open: false, mesh: null, canvas: null, ctx: null, tex: null, btns: [] },
+  keysHL: null, keysCustom: false, keysSig: '',
   menuHL: null, menuCustom: false, hudCustom: false,
   camPos: null,
   bg: { grid: null, ring: null, sky: null, spark: null, tex: {} },
@@ -1960,7 +2082,7 @@ var xr = {
 };
 
 function xrEmptyPh(){
-  return { hover: null, menuBtn: null, onMenu: false, onHud: false, bar: null, uiDist: 0 };
+  return { hover: null, menuBtn: null, onMenu: false, onHud: false, bar: null, uiDist: 0, onKeys: false, keysBtn: null };
 }
 
 APP.xrKmChanged = function(){
@@ -2431,7 +2553,7 @@ function xrCreateScreen(d){
   var s = {
     key: d.key, host: d.host, slot: d.slot, video: d.video,
     tex: tex, mat: mat, mesh: null, aspect: 16 / 9, wScale: 1,
-    curved: xr.params.curved, locked: false, custom: false,
+    curved: xr.params.curved, locked: false, custom: false, follow: false, dim: 1, prevScale: 0,
     bar: null, barSig: ''
   };
   if (d.video.videoWidth > 0) s.aspect = d.video.videoWidth / d.video.videoHeight;
@@ -2459,9 +2581,10 @@ function xrRebuildGeos(){
 }
 
 /* ---------- 画面の上のボタン列(平面/湾曲・ミュート・固定) ---------- */
-var BAR_W = 512, BAR_H = 88;
+var BAR_W = 860, BAR_H = 88;
 var BAR_BTNS = [
-  { x: 8, w: 160 }, { x: 176, w: 160 }, { x: 344, w: 160 }
+  { x: 8, w: 160 }, { x: 178, w: 160 }, { x: 348, w: 160 },
+  { x: 518, w: 160 }, { x: 688, w: 160 }
 ];
 
 function xrBuildBar(s){
@@ -2470,7 +2593,7 @@ function xrBuildBar(s){
   c.height = BAR_H;
   var tex = new THREE.CanvasTexture(c);
   var mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide });
-  var mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.98, 0.98 * BAR_H / BAR_W), mat);
+  var mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 1.35 * BAR_H / BAR_W), mat);
   mesh.userData.barOf = s;
   s.bar = { canvas: c, ctx: c.getContext('2d'), tex: tex, mesh: mesh };
   s.mesh.add(mesh);
@@ -2495,7 +2618,9 @@ function xrDrawBar(s, hoverIdx, shown){
   var labels = [
     { t: '平面 / 湾曲', on: false },
     { t: s.video.muted ? 'ミュート中' : 'ミュート', on: s.video.muted },
-    { t: s.locked ? '固定中' : '固定', on: s.locked }
+    { t: s.locked ? '固定中' : '固定', on: s.locked },
+    { t: s.follow ? '追従中' : '追従', on: s.follow },
+    { t: '明るさ' + Math.round(s.dim * 100) + '%', on: s.dim < 0.99 }
   ];
   ctx.clearRect(0, 0, BAR_W, BAR_H);
   ctx.fillStyle = 'rgba(17,15,28,0.94)';
@@ -2503,7 +2628,7 @@ function xrDrawBar(s, hoverIdx, shown){
   ctx.strokeStyle = '#332e58';
   ctx.lineWidth = 2;
   ctx.strokeRect(1, 1, BAR_W - 2, BAR_H - 2);
-  for (var i = 0; i < 3; i++) {
+  for (var i = 0; i < 5; i++) {
     var b = BAR_BTNS[i];
     var on = labels[i].on;
     var hov = hoverIdx === i;
@@ -2525,7 +2650,7 @@ function xrDrawBar(s, hoverIdx, shown){
 
 function xrBarHit(uv){
   var x = uv.x * BAR_W;
-  for (var i = 0; i < 3; i++) {
+  for (var i = 0; i < 5; i++) {
     if (x >= BAR_BTNS[i].x && x <= BAR_BTNS[i].x + BAR_BTNS[i].w) return i;
   }
   return null;
@@ -2548,6 +2673,20 @@ function xrBarActivate(s, idx){
       });
       s.custom = true; /* いまの位置のまま留める */
     }
+  } else if (idx === 3) {
+    if (!s.follow) {
+      if (s.locked) return;
+      s.follow = true;
+      s.custom = true;
+      s.prevScale = s.wScale;
+      if (s.wScale > 0.5) { s.wScale = 0.45; xr.geoDirty = true; }
+    } else {
+      s.follow = false;
+      if (s.prevScale) { s.wScale = s.prevScale; xr.geoDirty = true; }
+    }
+  } else if (idx === 4) {
+    s.dim = (s.dim > 0.85) ? 0.7 : (s.dim > 0.55 ? 0.4 : 1);
+    s.mat.color.setScalar(s.dim);
   }
   s.barSig = '';
 }
@@ -2564,7 +2703,7 @@ function xrUpdateBars(){
         if (p.bar.idx !== null) hovIdx = p.bar.idx;
       }
     });
-    var sig = (shown ? 1 : 0) + '|' + hovIdx + '|' + (s.video.muted ? 1 : 0) + (s.locked ? 1 : 0);
+    var sig = (shown ? 1 : 0) + '|' + hovIdx + '|' + (s.video.muted ? 1 : 0) + (s.locked ? 1 : 0) + (s.follow ? 1 : 0) + '|' + s.dim;
     if (sig !== s.barSig) {
       s.barSig = sig;
       xrDrawBar(s, hovIdx, shown);
@@ -2601,12 +2740,12 @@ function xrLayout(){
 function xrBuildHud(){
   var c = document.createElement('canvas');
   c.width = 1024;
-  c.height = 860;
+  c.height = 920;
   xr.hudCanvas = c;
   xr.hudCtx = c.getContext('2d');
   xr.hudTex = new THREE.CanvasTexture(c);
   var mat = new THREE.MeshBasicMaterial({ map: xr.hudTex, transparent: true });
-  xr.hud = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.4 * 860 / 1024), mat);
+  xr.hud = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.4 * 920 / 1024), mat);
   xr.scene.add(xr.hud);
   xrDrawHud();
 }
@@ -2624,6 +2763,9 @@ function xrPlaceHud(){
 }
 
 function xrHelperStatusText(){
+  var retry = false;
+  qs.hosts.forEach(function(h){ if (h.state === 'retry') retry = true; });
+  if (retry) return ['⟳ 再接続しています…', '#ffb86b'];
   var n = qs.hosts.length;
   var on = 0;
   qs.hosts.forEach(function(h){ if (h.helperOn) on++; });
@@ -2634,7 +2776,7 @@ function xrHelperStatusText(){
 
 function xrDrawHud(){
   if (!xr.hudCtx) return;
-  var ctx = xr.hudCtx, W = 1024, H = 860;
+  var ctx = xr.hudCtx, W = 1024, H = 920;
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = 'rgba(17,15,28,0.92)';
   ctx.fillRect(0, 0, W, H);
@@ -2663,6 +2805,7 @@ function xrDrawHud(){
   if (kmHas('ptr')) lines.push(['ポインター表示切替', kmButtonsFor('ptr')]);
   lines.push(['整列して正面に呼び直す', kmButtonsFor('recenter')]);
   lines.push(['設定メニュー', kmButtonsFor('menu')]);
+  lines.push(['キー送信パレット', kmButtonsFor('keys')]);
   lines.push(['このガイド', (kmHas('hud') ? kmButtonsFor('hud') + ' / ' : '') + '何もない所をクリック']);
   lines.push(['平面/湾曲・ミュート・固定', '画面のすぐ上にレーザーを当てると表示']);
 
@@ -2736,6 +2879,10 @@ function xrOnSessionEnd(){
   xr.menuHL = null;
   xr.menuCustom = false;
   xr.hudCustom = false;
+  xr.keys.open = false;
+  if (xr.keys.mesh) xr.keys.mesh.visible = false;
+  xr.keysHL = null;
+  xr.keysCustom = false;
   xr.ph.right = xrEmptyPh();
   xr.ph.left = xrEmptyPh();
   if (xr.saveDirty) { xrSaveLayout(); }
@@ -2771,11 +2918,13 @@ function xrApplyRecenter(){
   dir.normalize();
   xr.anchorPos.copy(camPos);
   xr.forward.copy(dir);
-  xr.screens.forEach(function(s){ if (!s.locked) s.custom = false; });
+  xr.screens.forEach(function(s){ if (!s.locked && !s.follow) s.custom = false; });
   xr.hudCustom = false;
   xr.menuCustom = false;
+  xr.keysCustom = false;
   xrLayout();
   if (xr.menu.open) xrMenuPlace();
+  if (xr.keys.open) xrKeysPlace();
 }
 
 /* ---------- つかんで移動 ---------- */
@@ -2786,6 +2935,9 @@ function xrGrabStart(hand){
   if (xr.menu.open && p.onMenu) {
     mesh = xr.menu.mesh; dist = p.uiDist; kind = 'menu';
     xr.menuCustom = true;
+  } else if (xr.keys.open && p.onKeys) {
+    mesh = xr.keys.mesh; dist = p.uiDist; kind = 'keys';
+    xr.keysCustom = true;
   } else if (p.onHud) {
     mesh = xr.hud; dist = p.uiDist; kind = 'hud';
     xr.hudCustom = true;
@@ -2799,6 +2951,7 @@ function xrGrabStart(hand){
   if (scr) {
     if (scr.locked) return;
     scr.custom = true;
+    scr.follow = false;
   }
   /* つかんだ瞬間のレーザー先端と中心のずれを保つ */
   var delta = new THREE.Vector3().copy(mesh.position);
@@ -2924,6 +3077,7 @@ function xrActDown(action, hand){
   var p = xr.ph[hand];
   if (action === 'click') {
     if (xr.menu.open && p.onMenu) { xrMenuActivate(p.menuBtn); return; }
+    if (xr.keys.open && p.onKeys) { xrKeysActivate(p.keysBtn); return; }
     if (p.onHud) { xrMenuToggle(); return; }
     if (p.bar) { if (p.bar.idx !== null) xrBarActivate(p.bar.scr, p.bar.idx); return; }
     var hov = xrPickHover(hand);
@@ -2960,6 +3114,8 @@ function xrActDown(action, hand){
     xrGrabStart(hand);
   } else if (action === 'menu') {
     xrMenuToggle();
+  } else if (action === 'keys') {
+    xrKeysToggle();
   } else if (action === 'ptr') {
     xr.mouseEnabled = !xr.mouseEnabled;
     xrReleaseAllButtons();
@@ -3046,7 +3202,7 @@ function xrPollInput(dt){
   if (a && aHov) {
     var tgt = aHov.scr;
     var upv = -a.ay;
-    if (Math.abs(upv) > dz && !tgt.locked) {
+    if (Math.abs(upv) > dz && !tgt.locked && !tgt.follow) {
       tgt.custom = true; /* 個別に動かした画面は並びから独立する */
       /* 指した画面だけを、視線に沿って遠く/近くへ(遠いほど速く)。高さはグリップでつかんで変える */
       var v = tgt.mesh.position.clone().sub(xr.camPos);
@@ -3066,7 +3222,8 @@ function xrPollInput(dt){
     }
   }
 
-  var overUi = xr.ph.right.onMenu || xr.ph.left.onMenu || xr.ph.right.onHud || xr.ph.left.onHud;
+  var overUi = xr.ph.right.onMenu || xr.ph.left.onMenu || xr.ph.right.onHud || xr.ph.left.onHud
+    || xr.ph.right.onKeys || xr.ph.left.onKeys;
   var sAx = axesByHand[scrHand];
   if (sAx && xr.mouseEnabled && !overUi) {
     var sv = -sAx.ay;
@@ -3108,6 +3265,7 @@ function xrUpdatePointerFor(hand){
   var busyDrag = !!(xr.press || xr.pressed.click || xr.pressed.rclick);
   var meshes = [];
   if (!busyDrag && xr.menu.open && xr.menu.mesh) meshes.push(xr.menu.mesh);
+  if (!busyDrag && xr.keys.open && xr.keys.mesh) meshes.push(xr.keys.mesh);
   if (!busyDrag && xr.hud && xr.hud.visible) meshes.push(xr.hud);
   xr.screens.forEach(function(s){
     if (s.bar && !busyDrag) meshes.push(s.bar.mesh); /* 透明でも当たり判定は生きている */
@@ -3124,6 +3282,10 @@ function xrUpdatePointerFor(hand){
       p.onMenu = true;
       p.uiDist = hit.distance;
       if (hit.uv) p.menuBtn = xrMenuHit(hit.uv);
+    } else if (xr.keys.open && obj === xr.keys.mesh) {
+      p.onKeys = true;
+      p.uiDist = hit.distance;
+      if (hit.uv) p.keysBtn = xrKeysHit(hit.uv);
     } else if (obj === xr.hud) {
       p.onHud = true;
       p.uiDist = hit.distance;
@@ -3154,6 +3316,17 @@ function xrUpdatePointers(){
     xr.menuHL = hl;
     xrMenuDraw();
   }
+  if (xr.keys.open) {
+    var kl = xr.ph.right.keysBtn || xr.ph.left.keysBtn;
+    var hi = 0;
+    for (var qi = 0; qi < qs.hosts.length; qi++) { if (qs.hosts[qi] === xr.lastHost) hi = qi; }
+    var ksig = String(kl) + '|' + hi + '|' + (xr.lastHost && xr.lastHost.helperOn ? 1 : 0);
+    if (kl !== xr.keysHL || ksig !== xr.keysSig) {
+      xr.keysHL = kl;
+      xr.keysSig = ksig;
+      xrKeysDraw();
+    }
+  }
   xrUpdateBars();
 }
 
@@ -3178,17 +3351,155 @@ function xrMaybeSendMove(){
   xr.lastSent = { key: h.scr.key, x: x, y: y, tm: now };
 }
 
+/* ---------- 追従画面: 視界の隅に付いてくる ---------- */
+function xrUpdateFollows(){
+  for (var i = 0; i < xr.screens.length; i++) {
+    var s = xr.screens[i];
+    if (!s.follow) continue;
+    var off = xr.tmpV1.set(0.55, -0.32, -1.15).applyQuaternion(xr.camera.quaternion).add(xr.camPos);
+    s.mesh.position.lerp(off, 0.18);
+    s.mesh.lookAt(xr.camPos);
+  }
+}
+
+/* ---------- キー送信パレット ---------- */
+var KEYPAL = [
+  [['enter', 'Enter', 150], ['esc', 'Esc', 110], ['tab', 'Tab', 110], ['backspace', '⌫', 90],
+   ['left', '←', 80], ['up', '↑', 80], ['down', '↓', 80], ['right', '→', 80]],
+  [['copy', 'コピー', 140], ['paste', '貼り付け', 155], ['cut', '切り取り', 155],
+   ['undo', '取り消し', 155], ['selectall', '全選択', 135]],
+  [['apptab', 'ウィンドウ切替', 220], ['back', '戻る', 125], ['forward', '進む', 125],
+   ['delete', 'Delete', 140], ['space', 'Space', 130]]
+];
+var KEYS_W = 1024, KEYS_H = 420;
+
+function xrKeysEnsure(){
+  if (xr.keys.mesh) return;
+  var c = document.createElement('canvas');
+  c.width = KEYS_W;
+  c.height = KEYS_H;
+  xr.keys.canvas = c;
+  xr.keys.ctx = c.getContext('2d');
+  xr.keys.tex = new THREE.CanvasTexture(c);
+  var mat = new THREE.MeshBasicMaterial({ map: xr.keys.tex, transparent: true, side: THREE.DoubleSide });
+  xr.keys.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 1.35 * KEYS_H / KEYS_W), mat);
+  xr.keys.mesh.visible = false;
+  xr.scene.add(xr.keys.mesh);
+}
+
+function xrKeysToggle(){
+  xrKeysEnsure();
+  xr.keys.open = !xr.keys.open;
+  xr.keys.mesh.visible = xr.keys.open;
+  if (xr.keys.open) {
+    xrKeysPlace();
+    xrKeysDraw();
+  } else {
+    xr.keysHL = null;
+  }
+}
+
+function xrKeysPlace(){
+  if (xr.keysCustom) return;
+  var camPos = new THREE.Vector3();
+  xr.camera.getWorldPosition(camPos);
+  var dir = new THREE.Vector3();
+  xr.camera.getWorldDirection(dir);
+  dir.y = 0;
+  if (dir.lengthSq() < 1e-4) dir.set(0, 0, -1);
+  dir.normalize();
+  xr.keys.mesh.position.set(camPos.x + dir.x * 1.25, camPos.y - 0.38, camPos.z + dir.z * 1.25);
+  xr.keys.mesh.lookAt(camPos.x, xr.keys.mesh.position.y + 0.15, camPos.z);
+}
+
+function xrKeysDraw(){
+  if (!xr.keys.ctx || !xr.keys.open) return;
+  var ctx = xr.keys.ctx, W = KEYS_W, H = KEYS_H;
+  var btns = [];
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(16,14,26,0.96)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#8f7bff';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(3, 3, W - 6, H - 6);
+
+  var hi = 0;
+  for (var qi = 0; qi < qs.hosts.length; qi++) { if (qs.hosts[qi] === xr.lastHost) hi = qi; }
+  var okTarget = !!(xr.lastHost && xr.lastHost.helperOn);
+  ctx.fillStyle = '#eceaf6';
+  ctx.font = 'bold 30px sans-serif';
+  ctx.fillText('キー送信', 32, 50);
+  ctx.fillStyle = okTarget ? '#3ddc97' : '#ffb86b';
+  ctx.font = '24px sans-serif';
+  ctx.fillText(
+    qs.hosts.length
+      ? ('送信先: PC' + (hi + 1) + (okTarget ? '' : '(操作モードOFF)'))
+      : '送信先なし',
+    200, 50
+  );
+
+  function kbtn(id, x, y, w, h, text){
+    var hover = xr.keysHL === id;
+    ctx.fillStyle = '#252142';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = hover ? '#cfc4ff' : '#3d3766';
+    ctx.lineWidth = hover ? 3 : 2;
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = '#eceaf6';
+    ctx.font = '25px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + w / 2, y + h / 2 + 1);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    btns.push({ id: id, x: x, y: y, w: w, h: h });
+  }
+
+  kbtn('close', W - 150, 16, 120, 46, '閉じる');
+  var yRow = [78, 192, 306];
+  for (var r = 0; r < KEYPAL.length; r++) {
+    var x = 32;
+    for (var k = 0; k < KEYPAL[r].length; k++) {
+      var it = KEYPAL[r][k];
+      kbtn(it[0], x, yRow[r], it[2], 88, it[1]);
+      x += it[2] + 10;
+    }
+  }
+  xr.keys.btns = btns;
+  xr.keys.tex.needsUpdate = true;
+}
+
+function xrKeysHit(uv){
+  var x = uv.x * KEYS_W;
+  var y = (1 - uv.y) * KEYS_H;
+  for (var i = 0; i < xr.keys.btns.length; i++) {
+    var b = xr.keys.btns[i];
+    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b.id;
+  }
+  return null;
+}
+
+function xrKeysActivate(id){
+  if (!id) return;
+  if (id === 'close') { xrKeysToggle(); return; }
+  if (xr.lastHost && xr.lastHost.helperOn) {
+    hostSend(xr.lastHost, { t: 'key', k: id });
+  }
+}
+
 /* ---------- VRの中の設定メニュー ---------- */
+var MENU_H = 820;
+
 function xrMenuEnsure(){
   if (xr.menu.mesh) return;
   var c = document.createElement('canvas');
   c.width = 1024;
-  c.height = 680;
+  c.height = MENU_H;
   xr.menu.canvas = c;
   xr.menu.ctx = c.getContext('2d');
   xr.menu.tex = new THREE.CanvasTexture(c);
   var mat = new THREE.MeshBasicMaterial({ map: xr.menu.tex, transparent: true, side: THREE.DoubleSide });
-  xr.menu.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5 * 680 / 1024), mat);
+  xr.menu.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5 * MENU_H / 1024), mat);
   xr.menu.mesh.visible = false;
   xr.scene.add(xr.menu.mesh);
 }
@@ -3220,7 +3531,7 @@ function xrMenuPlace(){
 
 function xrMenuDraw(){
   if (!xr.menu.ctx || !xr.menu.open) return;
-  var ctx = xr.menu.ctx, W = 1024, H = 680;
+  var ctx = xr.menu.ctx, W = 1024, H = MENU_H;
   var btns = [];
 
   function btn(id, x, y, w, h, text, on, disabled, small){
@@ -3301,13 +3612,20 @@ function xrMenuDraw(){
   valbox(Math.round(S.vol * 100) + '%', 618, 580, 140, 54);
   btn('vol:+', 766, 580, 70, 54, '+');
 
+  label('配置スロット(位置・大きさ・湾曲・固定・追従・明るさを記憶)', 36, 680);
+  ['A', 'B', 'C'].forEach(function(nm, i){
+    var x0 = 36 + i * 330;
+    btn('sv:' + i, x0, 696, 150, 52, nm + ' 保存', false, false, true);
+    btn('ld:' + i, x0 + 158, 696, 150, 52, nm + ' 呼出', !!S.slots[i], !S.slots[i], true);
+  });
+
   xr.menu.btns = btns;
   xr.menu.tex.needsUpdate = true;
 }
 
 function xrMenuHit(uv){
   var x = uv.x * 1024;
-  var y = (1 - uv.y) * 680;
+  var y = (1 - uv.y) * MENU_H;
   for (var i = 0; i < xr.menu.btns.length; i++) {
     var b = xr.menu.btns[i];
     if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b.id;
@@ -3352,9 +3670,72 @@ function xrMenuActivate(id){
     S.vol = clamp(Math.round((S.vol + (id === 'vol:+' ? 0.1 : -0.1)) * 10) / 10, 0, 1);
     saveS();
     applyVolume();
+  } else if (p[0] === 'sv') {
+    S.slots[parseInt(p[1], 10) || 0] = xrSnapshotLayout();
+    saveS();
+  } else if (p[0] === 'ld') {
+    var sl = S.slots[parseInt(p[1], 10) || 0];
+    if (sl) xrApplyLayoutSlot(sl);
   }
   xrMenuDraw();
   refreshSettingsUi();
+}
+
+/* ---------- 配置スロット ---------- */
+function xrBasis(){
+  var up = new THREE.Vector3(0, 1, 0);
+  var f = xr.forward.clone();
+  var r = new THREE.Vector3().crossVectors(f, up);
+  return { f: f, r: r };
+}
+
+function xrSnapshotLayout(){
+  var b = xrBasis();
+  var scr = xr.screens.map(function(s){
+    var d = s.mesh.position.clone().sub(xr.anchorPos);
+    return {
+      c: s.custom ? 1 : 0, l: s.locked ? 1 : 0, f: s.follow ? 1 : 0,
+      w: Math.round(s.wScale * 100) / 100, cv: s.curved ? 1 : 0,
+      dm: Math.round(s.dim * 100) / 100,
+      p: [
+        Math.round(d.dot(b.r) * 100) / 100,
+        Math.round(d.y * 100) / 100,
+        Math.round(d.dot(b.f) * 100) / 100
+      ]
+    };
+  });
+  return { d: xr.params.dist, wd: xr.params.width, cv: xr.params.curved ? 1 : 0, scr: scr };
+}
+
+function xrApplyLayoutSlot(sl){
+  xr.params.dist = clamp(+sl.d || 2.4, 1, S.maxDist);
+  xr.params.width = clamp(+sl.wd || 2.7, 1, S.maxW);
+  xr.params.curved = !!sl.cv;
+  var b = xrBasis();
+  var up = new THREE.Vector3(0, 1, 0);
+  (sl.scr || []).forEach(function(e, i){
+    var s = xr.screens[i];
+    if (!s || !e) return;
+    s.locked = !!e.l;
+    s.follow = !!e.f;
+    s.curved = !!e.cv;
+    s.wScale = clamp(+e.w || 1, 0.35, 6);
+    s.dim = clamp(+e.dm || 1, 0.2, 1);
+    s.mat.color.setScalar(s.dim);
+    s.custom = !!e.c;
+    if (s.custom && e.p) {
+      s.mesh.position.copy(xr.anchorPos)
+        .addScaledVector(b.r, +e.p[0] || 0)
+        .addScaledVector(up, +e.p[1] || 0)
+        .addScaledVector(b.f, +e.p[2] || 0);
+      s.mesh.lookAt(xr.camPos);
+    }
+    s.barSig = '';
+  });
+  xr.geoDirty = true;
+  xr.saveDirty = true;
+  xrLayout();
+  xrDrawHud();
 }
 
 APP.xrLimitsChanged = function(){
@@ -3374,6 +3755,7 @@ function xrRender(){
   xrUpdatePointers();
   xrPressTick();
   xrUpdateGrabs();
+  xrUpdateFollows();
   xrMaybeSendMove();
 
   var now = performance.now();
