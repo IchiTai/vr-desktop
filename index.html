@@ -362,12 +362,13 @@ footer.site a{color:var(--muted);text-decoration:underline}
       <h2>VRの中での操作(標準設定)</h2>
       <table class="ctl-table">
         <tr><td>レーザー(両手)</td><td>当てた画面のカーソルを動かす(操作モードON時)</td></tr>
-        <tr><td>右手 トリガー / Bボタン</td><td>クリック(押したままドラッグ)</td></tr>
-        <tr><td>右手 Aボタン</td><td>右クリック</td></tr>
+        <tr><td>右手 トリガー / Aボタン(下)</td><td>クリック(押したままドラッグ)</td></tr>
+        <tr><td>右手 Bボタン(上)</td><td>右クリック</td></tr>
         <tr><td>グリップ(両手)</td><td>レーザーで指した画面をつかんで移動</td></tr>
         <tr><td>右手 スティック上下</td><td>スクロール</td></tr>
         <tr><td>左手 スティック</td><td>上下で画面全体の遠近、左右で大きさ</td></tr>
-        <tr><td>左手 X / Y</td><td>設定メニュー / 画面の並びを正面に呼び直す</td></tr>
+        <tr><td>左スティックを押し込みながら上下</td><td>画面全体の高さ</td></tr>
+        <tr><td>左手 X(下) / Y(上)</td><td>設定メニュー / 画面の並びを正面に呼び直す</td></tr>
         <tr><td>左手 トリガー</td><td>操作ガイドの表示切替</td></tr>
         <tr><td>画面の上のボタン</td><td>レーザーを画面に当てると「平面/湾曲・ミュート・固定」が浮かぶ</td></tr>
       </table>
@@ -439,15 +440,18 @@ footer.site a{color:var(--muted);text-decoration:underline}
       <p class="set-note" id="qNote">見る側で変えると、共有中のパソコンにもすぐ反映されます。文字がにじむときは「くっきり」、動画がカクつくときは「なめらか」を試してください。</p>
     </div>
     <div id="setPaneEnv" class="hidden">
-      <p class="strong" style="margin-bottom:8px;color:var(--ink);font-size:14px">VRの背景</p>
-      <div class="optgrid" id="bgGrid"></div>
-      <div class="set-row" style="margin-top:8px">
-        <label>画面の最大距離 <span id="valMaxD" style="color:var(--muted)"></span></label>
-        <input type="range" id="rangeMaxD" min="3" max="30" step="1">
-      </div>
-      <div class="set-row">
-        <label>画面の最大の幅 <span id="valMaxW" style="color:var(--muted)"></span></label>
-        <input type="range" id="rangeMaxW" min="3" max="40" step="1">
+      <div id="envVrOnly">
+        <p class="strong" style="margin-bottom:8px;color:var(--ink);font-size:14px">VRの背景</p>
+        <div class="optgrid" id="bgGrid"></div>
+        <div class="set-row" style="margin-top:8px">
+          <label>画面の最大距離 <span id="valMaxD" style="color:var(--muted)"></span></label>
+          <input type="range" id="rangeMaxD" min="3" max="30" step="1">
+        </div>
+        <div class="set-row">
+          <label>画面の最大の幅 <span id="valMaxW" style="color:var(--muted)"></span></label>
+          <input type="range" id="rangeMaxW" min="3" max="40" step="1">
+        </div>
+        <p class="set-note">これらはVRの中の設定メニュー(標準では左手のXボタン)からもその場で変えられます。背景も即時に切り替わりますが、パススルーとの行き来だけはVRの入り直しで反映されます(対応機のみ)。</p>
       </div>
       <div class="set-row">
         <label>低遅延モード(受信のため込みを最小化)</label>
@@ -461,7 +465,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
         <label>音量 <span id="volVal" style="color:var(--muted)"></span></label>
         <input type="range" id="volRange" min="0" max="100" step="5">
       </div>
-      <p class="set-note">これらはVRの中の設定メニュー(標準では右手のBボタン)からもその場で変えられます。背景も即時に切り替わりますが、パススルーとの行き来だけはVRの入り直しで反映されます(対応機のみ)。設定はこの端末のブラウザに保存されます。</p>
+      <p class="set-note">設定はこの端末のブラウザの中だけに保存されます(端末ごとに別々です)。</p>
     </div>
   </div>
 </div>
@@ -510,7 +514,12 @@ function $(id){ return document.getElementById(id); }
 function show(el, on){ if(el) el.classList.toggle('hidden', !on); }
 function setView(name){
   ['viewHome', 'viewPC', 'viewQuest'].forEach(function(v){ show($(v), v === name); });
-  window.scrollTo(0, 0);
+  /* 右上の⚙は、その画面の役割に合う設定だけを開く(ホームでは非表示) */
+  var ts = $('btnTopSet');
+  if (ts) {
+    show(ts, name !== 'viewHome');
+    ts.setAttribute('data-role', name === 'viewPC' ? 'pc' : 'q');
+  }
 }
 function setDot(id, state){
   var el = $(id);
@@ -586,10 +595,7 @@ function pcAddScreen(stream){
 
 function pcCallScreen(item){
   try {
-    item.call = pc.peer.call(pc.conn.peer, item.stream, {
-      metadata: { slot: item.slot },
-      sdpTransform: sdpPreferH264
-    });
+    item.call = pc.peer.call(pc.conn.peer, item.stream, { metadata: { slot: item.slot } });
     pcApplyQualityToCall(item.call, 0);
   } catch (_e) {}
 }
@@ -863,6 +869,7 @@ async function questInit(){
   $('xrNote').textContent = qs.xrOk
     ? ''
     : 'この機器はVR表示に対応していないため、接続後は「タッチで見る」で表示と操作ができます。';
+  refreshSettingsUi(); /* VR対応が判明したら、開いている設定の表示も合わせる */
 }
 
 function questEnsurePeer(cb){
@@ -921,7 +928,7 @@ function questOnCall(call){
   var host = questHostByPeerId(call.peer);
   if (!host) { try { call.close(); } catch (_e) {} return; }
   var slot = (call.metadata && call.metadata.slot != null) ? call.metadata.slot : 0;
-  call.answer(undefined, { sdpTransform: sdpPreferH264 });
+  call.answer();
   call.on('stream', function(stream){ questAddScreen(host, slot, stream, call); });
   call.on('close', function(){ questRemoveScreen(host, slot); });
 }
@@ -1081,13 +1088,15 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-03';
+var APP_VER = '2026-08-03b';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
-var KM_BTNS = ['r0', 'r1', 'r4', 'r5', 'l0', 'l1', 'l4', 'l5'];
+var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
 var KM_BTN_LABEL = {
-  r0: '右トリガー', r1: '右グリップ', r4: '右Aボタン', r5: '右Bボタン',
-  l0: '左トリガー', l1: '左グリップ', l4: '左Xボタン', l5: '左Yボタン'
+  r0: '右トリガー', r1: '右グリップ', r3: '右スティック押し込み',
+  r4: '右Aボタン(下)', r5: '右Bボタン(上)',
+  l0: '左トリガー', l1: '左グリップ', l3: '左スティック押し込み',
+  l4: '左Xボタン(下)', l5: '左Yボタン(上)'
 };
 /* ボタンに割り当てられる機能(同じ機能を複数のボタンに割り当ててOK) */
 var KM_ACTS = [
@@ -1105,8 +1114,8 @@ var KM_ACT_LABEL = {};
 KM_ACTS.forEach(function(a){ KM_ACT_LABEL[a[0]] = a[1]; });
 
 function kmDefault(){
-  return { r0: 'click', r1: 'grab', r4: 'rclick', r5: 'click',
-           l0: 'hud', l1: 'grab', l4: 'menu', l5: 'recenter' };
+  return { r0: 'click', r1: 'grab', r3: '', r4: 'click', r5: 'rclick',
+           l0: 'hud', l1: 'grab', l3: 'hmod', l4: 'menu', l5: 'recenter' };
 }
 function kmValid(km){
   if (!km) return false;
@@ -1225,37 +1234,6 @@ function qSendQualityAll(){
   qs.hosts.forEach(function(h){ hostSend(h, { t: 'q', p: S.q }); });
 }
 
-/* ---------- 圧縮方式: H.264を先頭に並べ替える(Quest 3のハードウェア展開向け) ---------- */
-function sdpPreferH264(sdp){
-  try {
-    var lines = sdp.split('\r\n');
-    var h264 = [];
-    var rtx = {};
-    lines.forEach(function(l){
-      var m = l.match(/^a=rtpmap:(\d+)\s+H264\//i);
-      if (m) h264.push(m[1]);
-    });
-    if (!h264.length) return sdp;
-    lines.forEach(function(l){
-      var m = l.match(/^a=fmtp:(\d+)\s+apt=(\d+)/);
-      if (m && h264.indexOf(m[2]) >= 0) rtx[m[1]] = true;
-    });
-    for (var i = 0; i < lines.length; i++) {
-      if (lines[i].indexOf('m=video ') === 0) {
-        var parts = lines[i].split(' ');
-        var head = parts.slice(0, 3);
-        var pts = parts.slice(3);
-        var pref = pts.filter(function(pt){ return h264.indexOf(pt) >= 0 || rtx[pt]; });
-        var rest = pts.filter(function(pt){ return !(h264.indexOf(pt) >= 0 || rtx[pt]); });
-        lines[i] = head.concat(pref, rest).join(' ');
-      }
-    }
-    return lines.join('\r\n');
-  } catch (_e) {
-    return sdp;
-  }
-}
-
 /* ---------- 低遅延モード: 受信側のため込みを最小化 ---------- */
 function qApplyLatencyToCall(call){
   if (!call || !call.peerConnection) return;
@@ -1353,7 +1331,7 @@ var setTab = 'ctl';
 
 function openSettings(role){
   setRole = role;
-  setTab = (role === 'pc') ? 'pic' : 'ctl';
+  setTab = (role === 'pc' || !qs.xrOk) ? 'pic' : 'ctl';
   renderSettings();
   show($('setModal'), true);
 }
@@ -1364,12 +1342,17 @@ function refreshSettingsUi(){
 }
 
 function renderSettings(){
-  /* タブの表示: PC側は画質のみ */
+  /* タブの表示: PC側は画質のみ。VR非対応の機器では「操作」(VRのボタン割り当て)を出さない */
+  var vis = {
+    ctl: (setRole === 'q') && !!qs.xrOk,
+    pic: true,
+    env: (setRole === 'q')
+  };
+  if (!vis[setTab]) setTab = 'pic';
   var tabs = $('setTabs').querySelectorAll('.tab');
   tabs.forEach(function(t){
     var name = t.getAttribute('data-tab');
-    var visible = (setRole === 'q') || (name === 'pic');
-    t.classList.toggle('hidden', !visible);
+    t.classList.toggle('hidden', !vis[name]);
     t.classList.toggle('on', name === setTab);
   });
   show($('setPaneCtl'), setTab === 'ctl');
@@ -1444,6 +1427,7 @@ var BG_LIST = [
 ];
 
 function renderEnv(){
+  show($('envVrOnly'), !!qs.xrOk); /* 背景や最大距離/幅はVRでしか使わない */
   var box = $('bgGrid');
   box.innerHTML = '';
   BG_LIST.forEach(function(item){
@@ -2598,7 +2582,7 @@ function xrUpdateGrabs(){
     var dir = xr.tmpV2.set(0, 0, -1).applyMatrix4(xr.tmpMat).normalize();
     var point = origin.clone().addScaledVector(dir, g.dist);
     g.scr.mesh.position.copy(point).add(g.delta);
-    g.scr.mesh.lookAt(xr.camPos.x, g.scr.mesh.position.y, xr.camPos.z);
+    g.scr.mesh.lookAt(xr.camPos); /* 上下の傾きも含めて、自分の顔の方を向く */
     var L = xr.lasers[hand];
     L.line.visible = true;
     L.line.position.copy(origin);
@@ -2693,7 +2677,7 @@ function xrPollInput(dt){
     var gp = src.gamepad;
     var hand = src.handedness;
     var pre = hand === 'right' ? 'r' : 'l';
-    [0, 1, 4, 5].forEach(function(k){
+    [0, 1, 3, 4, 5].forEach(function(k){
       newPhys[pre + k] = !!(gp.buttons[k] && gp.buttons[k].pressed);
     });
     axesByHand[hand] = {
@@ -3073,7 +3057,9 @@ function bootApp(){
   $('btnAddScreen').addEventListener('click', pcAddScreenClick);
   $('btnStop').addEventListener('click', pcStop);
   $('btnPcSet').addEventListener('click', function(){ openSettings('pc'); });
-  $('btnTopSet').addEventListener('click', function(){ openSettings('q'); });
+  $('btnTopSet').addEventListener('click', function(){
+    openSettings($('btnTopSet').getAttribute('data-role') || 'q');
+  });
   $('btnQSet').addEventListener('click', function(){ openSettings('q'); });
 
   $('btnConnect').addEventListener('click', function(){
@@ -3111,6 +3097,7 @@ function bootApp(){
     if (pc.screens.length) pcStop();
   });
 
+  setView('viewHome'); /* 右上の⚙の初期状態(ホームでは非表示)も揃える */
   initSettingsUi();
   initTouchUi();
 }
