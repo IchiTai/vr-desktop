@@ -361,6 +361,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
         <tr><td>右手 レーザー</td><td>当てた画面のカーソルを動かす(操作モードON時)</td></tr>
         <tr><td>右手 トリガー / グリップ</td><td>左クリック / 右クリック</td></tr>
         <tr><td>右手 スティック上下</td><td>スクロール</td></tr>
+        <tr><td>右手 A / B</td><td>ポインター表示の切替 / 設定メニュー</td></tr>
         <tr><td>左手 スティック</td><td>上下で画面全体の遠近、左右で大きさ</td></tr>
         <tr><td>左手 X / Y</td><td>平面と湾曲の切替 / 画面を正面に呼び直す</td></tr>
         <tr><td>左手 トリガー</td><td>操作ガイドの表示切替</td></tr>
@@ -436,6 +437,14 @@ footer.site a{color:var(--muted);text-decoration:underline}
       <p class="strong" style="margin-bottom:8px;color:var(--ink);font-size:14px">VRの背景</p>
       <div class="optgrid" id="bgGrid"></div>
       <div class="set-row" style="margin-top:8px">
+        <label>画面の最大距離 <span id="valMaxD" style="color:var(--muted)"></span></label>
+        <input type="range" id="rangeMaxD" min="3" max="30" step="1">
+      </div>
+      <div class="set-row">
+        <label>画面の最大の幅 <span id="valMaxW" style="color:var(--muted)"></span></label>
+        <input type="range" id="rangeMaxW" min="3" max="40" step="1">
+      </div>
+      <div class="set-row">
         <label>接続品質を表示する</label>
         <input type="checkbox" id="chkStats" style="width:18px;height:18px;accent-color:var(--accent)">
       </div>
@@ -443,7 +452,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
         <label>音量 <span id="volVal" style="color:var(--muted)"></span></label>
         <input type="range" id="volRange" min="0" max="100" step="5">
       </div>
-      <p class="set-note">背景は次にVRへ入るときに反映されます(パススルーは対応している機器のみ)。設定はこの端末のブラウザに保存されます。</p>
+      <p class="set-note">これらはVRの中の設定メニュー(標準では右手のBボタン)からもその場で変えられます。背景も即時に切り替わりますが、パススルーとの行き来だけはVRの入り直しで反映されます(対応機のみ)。設定はこの端末のブラウザに保存されます。</p>
     </div>
   </div>
 </div>
@@ -1069,10 +1078,30 @@ var KM_ACTIONS = [
   ['ptr',      'ポインター表示の切替'],
   ['curve',    '平面/湾曲の切替'],
   ['recenter', '画面を正面に呼び直す'],
-  ['hud',      '操作ガイドの表示切替']
+  ['hud',      '操作ガイドの表示切替'],
+  ['menu',     '設定メニューを開く/閉じる']
 ];
 function kmDefault(){
-  return { click: 'r0', rclick: 'r1', ptr: 'r4', hud: 'l0', curve: 'l4', recenter: 'l5', hmod: 'l1', stick: 'left' };
+  return { click: 'r0', rclick: 'r1', ptr: 'r4', menu: 'r5', hud: 'l0', curve: 'l4', recenter: 'l5', hmod: 'l1', stick: 'left' };
+}
+
+/* 旧バージョンの保存(7機能)には、空いているボタンに設定メニューを割り当てて引き継ぐ */
+function kmMigrate(km){
+  var def = kmDefault();
+  if (!km) return def;
+  var legacy = ['click', 'rclick', 'ptr', 'hud', 'curve', 'recenter', 'hmod'];
+  var used = {};
+  for (var i = 0; i < legacy.length; i++) {
+    var v = km[legacy[i]];
+    if (KM_BTNS.indexOf(v) < 0 || used[v]) return def;
+    used[v] = true;
+  }
+  var free = null;
+  KM_BTNS.forEach(function(b){ if (!used[b]) free = b; });
+  if (!free) return def;
+  var out = { menu: free, stick: (km.stick === 'right') ? 'right' : 'left' };
+  legacy.forEach(function(k){ out[k] = km[k]; });
+  return out;
 }
 function kmValid(km){
   if (!km) return false;
@@ -1094,7 +1123,9 @@ function loadS(){
   s.vol = (typeof s.vol === 'number' && s.vol >= 0 && s.vol <= 1) ? s.vol : 1;
   s.scrollDir = (s.scrollDir === -1) ? -1 : 1;
   s.scrollSpd = ([0, 1, 2].indexOf(s.scrollSpd) >= 0) ? s.scrollSpd : 1;
-  if (!kmValid(s.km)) s.km = kmDefault();
+  if (!kmValid(s.km)) s.km = kmMigrate(s.km);
+  s.maxDist = (typeof s.maxDist === 'number') ? clamp(Math.round(s.maxDist), 3, 30) : 12;
+  s.maxW = (typeof s.maxW === 'number') ? clamp(Math.round(s.maxW), 3, 40) : 16;
   if (!s.layout || typeof s.layout.dist !== 'number') s.layout = null;
   return s;
 }
@@ -1345,6 +1376,10 @@ function renderEnv(){
     box.appendChild(b);
   });
   $('chkStats').checked = S.stats;
+  $('rangeMaxD').value = String(S.maxDist);
+  $('valMaxD').textContent = S.maxDist + 'm';
+  $('rangeMaxW').value = String(S.maxW);
+  $('valMaxW').textContent = S.maxW + 'm';
   $('volRange').value = String(Math.round(S.vol * 100));
   $('volVal').textContent = Math.round(S.vol * 100) + '%';
 }
@@ -1386,6 +1421,16 @@ function initSettingsUi(){
     saveS();
     questStatsTick();
   });
+  function wireLimit(rid, vid, key, lo, hi){
+    $(rid).addEventListener('input', function(){
+      S[key] = clamp(parseInt($(rid).value, 10) || lo, lo, hi);
+      $(vid).textContent = S[key] + 'm';
+      saveS();
+      if (APP.xrLimitsChanged) APP.xrLimitsChanged();
+    });
+  }
+  wireLimit('rangeMaxD', 'valMaxD', 'maxDist', 3, 30);
+  wireLimit('rangeMaxW', 'valMaxW', 'maxW', 3, 40);
   $('volRange').addEventListener('input', function(){
     S.vol = clamp(parseInt($('volRange').value, 10) / 100, 0, 1);
     $('volVal').textContent = Math.round(S.vol * 100) + '%';
@@ -1787,6 +1832,8 @@ var xr = {
   hudPinned: false, hudUntil: 0,
   needsRecenter: false,
   saveDirty: false, lastSave: 0,
+  menu: { open: false, mesh: null, canvas: null, ctx: null, tex: null, btns: [] },
+  menuHoverAny: false, menuHoverBtn: null,
   bg: { grid: null, stars: null, sky: null },
   tmpMat: null, tmpV1: null, tmpV2: null
 };
@@ -1806,8 +1853,8 @@ function xrBuildScene(){
   xr.built = true;
 
   if (S.layout) {
-    xr.params.dist = clamp(S.layout.dist, 1.0, 12.0);
-    xr.params.width = clamp(S.layout.width, 1.0, 16.0);
+    xr.params.dist = clamp(S.layout.dist, 1.0, S.maxDist);
+    xr.params.width = clamp(S.layout.width, 1.0, S.maxW);
     xr.params.yOff = clamp(S.layout.yOff, -1.2, 1.2);
     xr.params.curved = !!S.layout.curved;
   }
@@ -2167,6 +2214,7 @@ function xrDrawHud(){
     ['ポインター表示切替', B[S.km.ptr]],
     ['平面 / 湾曲', B[S.km.curve]],
     ['正面に呼び直す', B[S.km.recenter]],
+    ['設定メニュー', B[S.km.menu]],
     ['このガイド', B[S.km.hud]]
   ];
   var y = 138;
@@ -2225,6 +2273,10 @@ function xrOnSessionEnd(){
   xr.session = null;
   if (xr.renderer) xr.renderer.setAnimationLoop(null);
   xrReleaseAllButtons();
+  xr.menu.open = false;
+  if (xr.menu.mesh) xr.menu.mesh.visible = false;
+  xr.menuHoverAny = false;
+  xr.menuHoverBtn = null;
   if (xr.saveDirty) { xrSaveLayout(); }
 }
 
@@ -2265,7 +2317,10 @@ function xrActDown(action){
   if (!action) return;
   var canClick = xr.hover && xr.mouseEnabled && xr.hover.scr.host.helperOn;
   if (action === 'click') {
+    if (xr.menu.open && xr.menuHoverAny) { xrMenuActivate(xr.menuHoverBtn); return; }
     if (canClick) { hostSend(xr.hover.scr.host, { t: 'dn', b: 0 }); xr.pressed.click = xr.hover.scr.host; }
+  } else if (action === 'menu') {
+    xrMenuToggle();
   } else if (action === 'rclick') {
     if (canClick) { hostSend(xr.hover.scr.host, { t: 'dn', b: 2 }); xr.pressed.rclick = xr.hover.scr.host; }
   } else if (action === 'ptr') {
@@ -2336,22 +2391,22 @@ function xrPollInput(dt){
       if (xr.phys[S.km.hmod]) {
         xr.params.yOff = clamp(xr.params.yOff + upv * dt * 0.55, -1.2, 1.2);
       } else {
-        /* 遠いほど速く動く(掛け算式)。最大は2倍の12mまで */
-        xr.params.dist = clamp(xr.params.dist * (1 + upv * dt * 0.85), 1.0, 12.0);
+        /* 遠いほど速く動く(掛け算式)。上限は設定で変更できる */
+        xr.params.dist = clamp(xr.params.dist * (1 + upv * dt * 0.85), 1.0, S.maxDist);
       }
       xr.saveDirty = true;
       xrLayout();
     }
     if (Math.abs(a.ax) > dz) {
-      /* 大きいほど速く変わる(掛け算式)。最大は2倍の16mまで */
-      xr.params.width = clamp(xr.params.width * (1 + a.ax * dt * 0.9), 1.0, 16.0);
+      /* 大きいほど速く変わる(掛け算式)。上限は設定で変更できる */
+      xr.params.width = clamp(xr.params.width * (1 + a.ax * dt * 0.9), 1.0, S.maxW);
       xr.geoDirty = true;
       xr.saveDirty = true;
     }
   }
 
   var sAx = axesByHand[scrHand];
-  if (sAx && xr.mouseEnabled) {
+  if (sAx && xr.mouseEnabled && !xr.menuHoverAny) {
     var sv = -sAx.ay;
     var now = performance.now();
     if (Math.abs(sv) > 0.5 && now - xr.lastScroll > SCROLL_MS[S.scrollSpd]) {
@@ -2381,12 +2436,21 @@ function xrUpdatePointer(){
   xr.raycaster.set(origin, dir);
 
   var meshes = [];
+  if (xr.menu.open && xr.menu.mesh) meshes.push(xr.menu.mesh);
   for (var k = 0; k < xr.screens.length; k++) meshes.push(xr.screens[k].mesh);
   var hits = xr.raycaster.intersectObjects(meshes);
+
+  var prevBtn = xr.menuHoverBtn, prevAny = xr.menuHoverAny;
+  xr.menuHoverAny = false;
+  xr.menuHoverBtn = null;
 
   var len = 4, result = null;
   if (hits.length) {
     len = hits[0].distance;
+    if (xr.menu.open && hits[0].object === xr.menu.mesh) {
+      xr.menuHoverAny = true;
+      if (hits[0].uv) xr.menuHoverBtn = xrMenuHit(hits[0].uv);
+    }
     var ref = hits[0].object.userData.ref;
     if (ref && hits[0].uv) {
       result = { scr: ref, uv: hits[0].uv };
@@ -2398,8 +2462,197 @@ function xrUpdatePointer(){
   xr.laser.position.copy(origin);
   xr.laser.quaternion.setFromRotationMatrix(xr.tmpMat);
   xr.laser.scale.set(1, 1, len);
+  if (prevBtn !== xr.menuHoverBtn || prevAny !== xr.menuHoverAny) xrMenuDraw();
   return result;
 }
+
+/* ---------- VRの中の設定メニュー ---------- */
+function xrMenuEnsure(){
+  if (xr.menu.mesh) return;
+  var c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = 680;
+  xr.menu.canvas = c;
+  xr.menu.ctx = c.getContext('2d');
+  xr.menu.tex = new THREE.CanvasTexture(c);
+  var mat = new THREE.MeshBasicMaterial({ map: xr.menu.tex, transparent: true, side: THREE.DoubleSide });
+  xr.menu.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5 * 680 / 1024), mat);
+  xr.menu.mesh.visible = false;
+  xr.scene.add(xr.menu.mesh);
+}
+
+function xrMenuToggle(){
+  xrMenuEnsure();
+  xr.menu.open = !xr.menu.open;
+  xr.menu.mesh.visible = xr.menu.open;
+  if (xr.menu.open) {
+    xrMenuPlace();
+    xrMenuDraw();
+  } else {
+    xr.menuHoverAny = false;
+    xr.menuHoverBtn = null;
+  }
+}
+
+function xrMenuPlace(){
+  var camPos = new THREE.Vector3();
+  xr.camera.getWorldPosition(camPos);
+  var dir = new THREE.Vector3();
+  xr.camera.getWorldDirection(dir);
+  dir.y = 0;
+  if (dir.lengthSq() < 1e-4) dir.set(0, 0, -1);
+  dir.normalize();
+  xr.menu.mesh.position.set(camPos.x + dir.x * 1.5, camPos.y - 0.05, camPos.z + dir.z * 1.5);
+  xr.menu.mesh.lookAt(camPos.x, xr.menu.mesh.position.y, camPos.z);
+}
+
+function xrMenuDraw(){
+  if (!xr.menu.ctx || !xr.menu.open) return;
+  var ctx = xr.menu.ctx, W = 1024, H = 680;
+  var btns = [];
+
+  function btn(id, x, y, w, h, text, on, disabled, small){
+    var hover = (xr.menuHoverBtn === id) && !disabled;
+    ctx.fillStyle = disabled ? 'rgba(37,33,66,0.4)' : (on ? 'rgba(143,123,255,0.28)' : '#252142');
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = disabled ? '#332e58' : (on ? '#8f7bff' : (hover ? '#cfc4ff' : '#332e58'));
+    ctx.lineWidth = (hover || on) ? 3 : 2;
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = disabled ? '#6a6488' : '#eceaf6';
+    ctx.font = (small ? '22px' : '26px') + ' sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + w / 2, y + h / 2 + 1);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    if (!disabled) btns.push({ id: id, x: x, y: y, w: w, h: h });
+  }
+  function label(t, x, y){
+    ctx.fillStyle = '#b8a9ff';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillText(t, x, y);
+  }
+  function valbox(text, x, y, w, h){
+    ctx.fillStyle = '#161327';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#332e58';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = '#eceaf6';
+    ctx.font = 'bold 26px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + w / 2, y + h / 2 + 1);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(16,14,26,0.96)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#8f7bff';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(3, 3, W - 6, H - 6);
+  ctx.fillStyle = '#eceaf6';
+  ctx.font = 'bold 34px sans-serif';
+  ctx.fillText('設定', 36, 58);
+
+  btn('close', W - 166, 20, 130, 48, '閉じる');
+
+  label('画質', 36, 122);
+  ['sharp', 'balance', 'smooth', 'auto'].forEach(function(p, i){
+    btn('q:' + p, 36 + i * 242, 136, 226, 58, QUALITY[p].name, S.q === p, false, true);
+  });
+
+  label('背景', 36, 244);
+  BG_LIST.forEach(function(item, i){
+    var r = Math.floor(i / 3), c = i % 3;
+    btn('bg:' + item[0], 36 + c * 325, 258 + r * 70, 310, 56, item[1],
+        S.bg === item[0], item[0] === 'pass' && !qs.arOk, true);
+  });
+
+  label('画面の最大距離', 36, 448);
+  btn('md:-', 36, 462, 70, 54, '−');
+  valbox(S.maxDist + ' m', 114, 462, 140, 54);
+  btn('md:+', 262, 462, 70, 54, '+');
+
+  label('画面の最大の幅', 540, 448);
+  btn('mw:-', 540, 462, 70, 54, '−');
+  valbox(S.maxW + ' m', 618, 462, 140, 54);
+  btn('mw:+', 766, 462, 70, 54, '+');
+
+  label('接続品質の表示', 36, 566);
+  btn('st', 36, 580, 140, 54, S.stats ? 'ON' : 'OFF', S.stats);
+
+  label('音量', 540, 566);
+  btn('vol:-', 540, 580, 70, 54, '−');
+  valbox(Math.round(S.vol * 100) + '%', 618, 580, 140, 54);
+  btn('vol:+', 766, 580, 70, 54, '+');
+
+  xr.menu.btns = btns;
+  xr.menu.tex.needsUpdate = true;
+}
+
+function xrMenuHit(uv){
+  var x = uv.x * 1024;
+  var y = (1 - uv.y) * 680;
+  for (var i = 0; i < xr.menu.btns.length; i++) {
+    var b = xr.menu.btns[i];
+    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b.id;
+  }
+  return null;
+}
+
+function xrMenuActivate(id){
+  if (!id) return;
+  if (id === 'close') { xrMenuToggle(); return; }
+  var p = id.split(':');
+  if (p[0] === 'q') {
+    S.q = p[1];
+    saveS();
+    qSendQualityAll();
+  } else if (p[0] === 'bg') {
+    var b = p[1];
+    if (b === 'pass' && !qs.arOk) return;
+    S.bg = b;
+    saveS();
+    if (b === 'pass' && xr.mode === 'immersive-vr' && xr.session) {
+      /* VR→パススルーはセッションの入り直しが必要 */
+      $('qStatus').textContent = 'もう一度「VRで見る」を押すと、パススルーで始まります。';
+      try { xr.session.end(); } catch (_e) {}
+      return;
+    }
+    xrApplyBackground();
+  } else if (id === 'md:-' || id === 'md:+') {
+    S.maxDist = clamp(S.maxDist + (id === 'md:+' ? 2 : -2), 3, 30);
+    if (xr.params.dist > S.maxDist) { xr.params.dist = S.maxDist; xrLayout(); }
+    saveS();
+  } else if (id === 'mw:-' || id === 'mw:+') {
+    S.maxW = clamp(S.maxW + (id === 'mw:+' ? 2 : -2), 3, 40);
+    if (xr.params.width > S.maxW) { xr.params.width = S.maxW; xr.geoDirty = true; }
+    saveS();
+  } else if (id === 'st') {
+    S.stats = !S.stats;
+    saveS();
+    questStatsTick();
+    xrDrawHud();
+  } else if (id === 'vol:-' || id === 'vol:+') {
+    S.vol = clamp(Math.round((S.vol + (id === 'vol:+' ? 0.1 : -0.1)) * 10) / 10, 0, 1);
+    saveS();
+    applyVolume();
+  }
+  xrMenuDraw();
+  refreshSettingsUi();
+}
+
+APP.xrLimitsChanged = function(){
+  if (!xr.built) return;
+  var moved = false;
+  if (xr.params.dist > S.maxDist) { xr.params.dist = S.maxDist; moved = true; }
+  if (xr.params.width > S.maxW) { xr.params.width = S.maxW; xr.geoDirty = true; }
+  if (moved) xrLayout();
+  if (xr.menu.open) xrMenuDraw();
+};
 
 function xrMaybeSendMove(){
   var h = xr.hover;
