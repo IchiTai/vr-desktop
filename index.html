@@ -362,15 +362,15 @@ footer.site a{color:var(--muted);text-decoration:underline}
       <h2>VRの中での操作(標準設定)</h2>
       <table class="ctl-table">
         <tr><td>レーザー(両手)</td><td>当てた画面のカーソルを動かす(操作モードON時)</td></tr>
-        <tr><td>右手 トリガー / Aボタン(下)</td><td>クリック(押したままドラッグ)</td></tr>
+        <tr><td>トリガー(左右) / 右Aボタン(下)</td><td>クリック(押したままドラッグ)</td></tr>
         <tr><td>右手 Bボタン(上)</td><td>右クリック</td></tr>
-        <tr><td>グリップ(両手)</td><td>レーザーで指した画面をつかんで移動</td></tr>
+        <tr><td>グリップ(両手)</td><td>指した画面をつかんで移動(設定・ガイドのパネルもつかめます)</td></tr>
         <tr><td>右手 スティック上下</td><td>スクロール</td></tr>
-        <tr><td>左手 スティック</td><td>上下で画面全体の遠近、左右で大きさ</td></tr>
-        <tr><td>左スティックを押し込みながら上下</td><td>画面全体の高さ</td></tr>
-        <tr><td>左手 X(下) / Y(上)</td><td>設定メニュー / 画面の並びを正面に呼び直す</td></tr>
-        <tr><td>左手 トリガー</td><td>操作ガイドの表示切替</td></tr>
-        <tr><td>画面の上のボタン</td><td>レーザーを画面に当てると「平面/湾曲・ミュート・固定」が浮かぶ</td></tr>
+        <tr><td>左手 スティック</td><td>上下で指した画面の遠近、左右で大きさ</td></tr>
+        <tr><td>左スティックを押し込みながら上下</td><td>指した画面の高さ</td></tr>
+        <tr><td>左手 X(下) / Y(上)</td><td>設定メニュー / 画面を整列して正面に呼び直す</td></tr>
+        <tr><td>何もない所をクリック</td><td>操作ガイドの表示/非表示</td></tr>
+        <tr><td>画面のすぐ上にレーザー</td><td>「平面/湾曲・ミュート・固定」のボタンが現れる</td></tr>
       </table>
       <p class="msg-info" style="margin-top:10px;margin-bottom:0">ボタンごとの機能は「⚙ 設定 → 操作」で変えられます(同じ機能を複数のボタンに割り当ててもOK)。</p>
     </div>
@@ -542,7 +542,11 @@ var pc = {
 async function pcCapture(errId){
   try {
     return await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: { ideal: 60, max: 60 } },
+      video: {
+        frameRate: { ideal: 60, max: 60 },
+        width: { max: 2560 },
+        height: { max: 1600 }
+      },
       audio: true
     });
   } catch (e) {
@@ -1088,7 +1092,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-03b';
+var APP_VER = '2026-08-03c';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1115,7 +1119,17 @@ KM_ACTS.forEach(function(a){ KM_ACT_LABEL[a[0]] = a[1]; });
 
 function kmDefault(){
   return { r0: 'click', r1: 'grab', r3: '', r4: 'click', r5: 'rclick',
-           l0: 'hud', l1: 'grab', l3: 'hmod', l4: 'menu', l5: 'recenter' };
+           l0: 'click', l1: 'grab', l3: 'hmod', l4: 'menu', l5: 'recenter' };
+}
+
+/* 前の版の標準のままなら、新しい標準へ自動で置き換える */
+function kmIsOldDefault(km){
+  var old = { r0: 'click', r1: 'grab', r3: '', r4: 'click', r5: 'rclick',
+              l0: 'hud', l1: 'grab', l3: 'hmod', l4: 'menu', l5: 'recenter' };
+  for (var i = 0; i < KM_BTNS.length; i++) {
+    if (km[KM_BTNS[i]] !== old[KM_BTNS[i]]) return false;
+  }
+  return true;
 }
 function kmValid(km){
   if (!km) return false;
@@ -1147,7 +1161,7 @@ function loadS(){
   s.scrollSpd = ([0, 1, 2].indexOf(s.scrollSpd) >= 0) ? s.scrollSpd : 1;
   s.stick = (s.stick === 'right') ? 'right'
     : (s.km && s.km.stick === 'right') ? 'right' : 'left'; /* 旧保存からの引き継ぎ */
-  if (!kmValid(s.km2)) s.km2 = kmDefault();
+  if (!kmValid(s.km2) || kmIsOldDefault(s.km2)) s.km2 = kmDefault();
   delete s.km;
   s.lowLat = (s.lowLat !== false); /* 低遅延モード: 初期ON */
   s.maxDist = (typeof s.maxDist === 'number') ? clamp(Math.round(s.maxDist), 3, 30) : 12;
@@ -1179,11 +1193,14 @@ var QUALITY = {
              name: '自動', desc: '通信の状態にあわせてブラウザにおまかせ' }
 };
 
-/* 取り込みのフレームレートをプリセットに合わせる */
+/* 取り込みをプリセットに合わせる。Retinaなどの超高解像度は、
+   VRで見分けられる上限(横2560)に整えて、圧縮の失速による画質低下を防ぐ */
 function pcApplyFps(vt, fps){
-  if (!vt || !fps || !vt.applyConstraints) return;
+  if (!vt || !vt.applyConstraints) return;
+  var c = { width: { max: 2560 }, height: { max: 1600 } };
+  if (fps) c.frameRate = { ideal: fps, max: fps };
   try {
-    vt.applyConstraints({ frameRate: { ideal: fps, max: fps } }).catch(function(){});
+    vt.applyConstraints(c).catch(function(){});
   } catch (_e) {}
 }
 
@@ -1914,14 +1931,14 @@ var xr = {
   needsRecenter: false,
   saveDirty: false, lastSave: 0,
   menu: { open: false, mesh: null, canvas: null, ctx: null, tex: null, btns: [] },
-  menuHL: null,
+  menuHL: null, menuCustom: false, hudCustom: false,
   camPos: null,
   bg: { grid: null, stars: null, sky: null },
   tmpMat: null, tmpV1: null, tmpV2: null
 };
 
 function xrEmptyPh(){
-  return { hover: null, menuBtn: null, onMenu: false, onHud: false, bar: null };
+  return { hover: null, menuBtn: null, onMenu: false, onHud: false, bar: null, uiDist: 0 };
 }
 
 APP.xrKmChanged = function(){
@@ -2124,6 +2141,9 @@ function xrSyncScreens(){
     ['right', 'left'].forEach(function(hand){
       if (xr.grab[hand] && xr.grab[hand].scr === s) xr.grab[hand] = null;
     });
+    ['right', 'left'].forEach(function(hand){ /* 念のため参照切れも掃除 */
+      if (xr.grab[hand] && xr.grab[hand].mesh === s.mesh) xr.grab[hand] = null;
+    });
     xr.root.remove(s.mesh);
     try {
       if (s.bar) {
@@ -2147,8 +2167,11 @@ APP.xrHud = function(){ if (xr.built) xrDrawHud(); };
 
 /* ---------- 画面の形状 ---------- */
 /* 画面ごとの表示幅: 高さを揃える(16:9でちょうど設定幅)。縦長のスマホ画面も自然に並ぶ */
-function xrScreenW(s){
+function xrScreenWBase(s){
   return xr.params.width * (9 / 16) * s.aspect;
+}
+function xrScreenW(s){
+  return xrScreenWBase(s) * (s.wScale || 1);
 }
 
 function xrMakeScreenGeo(width, aspect, curved){
@@ -2200,7 +2223,7 @@ function xrCreateScreen(d){
   var mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
   var s = {
     key: d.key, host: d.host, slot: d.slot, video: d.video,
-    tex: tex, mat: mat, mesh: null, aspect: 16 / 9,
+    tex: tex, mat: mat, mesh: null, aspect: 16 / 9, wScale: 1,
     curved: xr.params.curved, locked: false, custom: false,
     bar: null, barSig: ''
   };
@@ -2241,12 +2264,11 @@ function xrBuildBar(s){
   var tex = new THREE.CanvasTexture(c);
   var mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide });
   var mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.98, 0.98 * BAR_H / BAR_W), mat);
-  mesh.visible = false;
   mesh.userData.barOf = s;
   s.bar = { canvas: c, ctx: c.getContext('2d'), tex: tex, mesh: mesh };
   s.mesh.add(mesh);
   xrPlaceBar(s);
-  xrDrawBar(s, -1);
+  xrDrawBar(s, -1, false);
 }
 
 function xrPlaceBar(s){
@@ -2255,8 +2277,14 @@ function xrPlaceBar(s){
   s.bar.mesh.position.set(0, h / 2 + 0.12, 0.03);
 }
 
-function xrDrawBar(s, hoverIdx){
+function xrDrawBar(s, hoverIdx, shown){
   var ctx = s.bar.ctx;
+  if (!shown) {
+    /* 指していないあいだは透明(当たり判定だけ残す) */
+    ctx.clearRect(0, 0, BAR_W, BAR_H);
+    s.bar.tex.needsUpdate = true;
+    return;
+  }
   var labels = [
     { t: '平面 / 湾曲', on: false },
     { t: s.video.muted ? 'ミュート中' : 'ミュート', on: s.video.muted },
@@ -2311,6 +2339,7 @@ function xrBarActivate(s, idx){
       ['right', 'left'].forEach(function(hand){
         if (xr.grab[hand] && xr.grab[hand].scr === s) xr.grab[hand] = null;
       });
+      s.custom = true; /* いまの位置のまま留める */
     }
   }
   s.barSig = '';
@@ -2320,25 +2349,18 @@ function xrBarActivate(s, idx){
 function xrUpdateBars(){
   xr.screens.forEach(function(s){
     var hovIdx = -1;
-    var vis = false;
+    var shown = false;
     ['right', 'left'].forEach(function(hand){
       var p = xr.ph[hand];
-      if (p.hover && p.hover.scr === s) vis = true;
       if (p.bar && p.bar.scr === s) {
-        vis = true;
+        shown = true; /* ボタン一覧そのものにレーザーが当たっているときだけ表示 */
         if (p.bar.idx !== null) hovIdx = p.bar.idx;
       }
-      if (xr.grab[hand] && xr.grab[hand].scr === s) vis = true;
     });
-    s.bar.mesh.visible = vis;
-    if (vis) {
-      var sig = hovIdx + '|' + (s.video.muted ? 1 : 0) + (s.locked ? 1 : 0);
-      if (sig !== s.barSig) {
-        s.barSig = sig;
-        xrDrawBar(s, hovIdx);
-      }
-    } else {
-      s.barSig = '';
+    var sig = (shown ? 1 : 0) + '|' + hovIdx + '|' + (s.video.muted ? 1 : 0) + (s.locked ? 1 : 0);
+    if (sig !== s.barSig) {
+      s.barSig = sig;
+      xrDrawBar(s, hovIdx, shown);
     }
   });
 }
@@ -2383,7 +2405,7 @@ function xrBuildHud(){
 }
 
 function xrPlaceHud(){
-  if (!xr.hud) return;
+  if (!xr.hud || xr.hudCustom) return;
   var p = xr.params;
   var h = p.width * 9 / 16;
   var hd = Math.min(p.dist * 0.96, 3.0);
@@ -2423,16 +2445,16 @@ function xrDrawHud(){
   var lines = [
     ['クリック / ドラッグ', kmButtonsFor('click')],
     ['右クリック', kmButtonsFor('rclick')],
-    ['画面をつかんで移動', kmButtonsFor('grab')],
+    ['画面やパネルをつかんで移動', kmButtonsFor('grab')],
     ['スクロール', scrJp + 'スティック 上下'],
-    ['画面全体の遠近 / 大きさ', adjJp + 'スティック 上下 / 左右']
+    ['指した画面の遠近 / 大きさ', adjJp + 'スティック 上下 / 左右']
   ];
-  if (kmHas('hmod')) lines.push(['画面全体の高さ', kmButtonsFor('hmod') + ' + ' + adjJp + 'スティック上下']);
+  if (kmHas('hmod')) lines.push(['指した画面の高さ', kmButtonsFor('hmod') + ' + ' + adjJp + 'スティック上下']);
   if (kmHas('ptr')) lines.push(['ポインター表示切替', kmButtonsFor('ptr')]);
-  lines.push(['正面に呼び直す', kmButtonsFor('recenter')]);
+  lines.push(['整列して正面に呼び直す', kmButtonsFor('recenter')]);
   lines.push(['設定メニュー', kmButtonsFor('menu')]);
-  lines.push(['このガイド', kmButtonsFor('hud')]);
-  lines.push(['平面/湾曲・ミュート・固定', '画面にレーザーを当てると上に表示']);
+  lines.push(['このガイド', (kmHas('hud') ? kmButtonsFor('hud') + ' / ' : '') + '何もない所をクリック']);
+  lines.push(['平面/湾曲・ミュート・固定', '画面のすぐ上にレーザーを当てると表示']);
 
   var y = 138;
   for (var i = 0; i < lines.length; i++) {
@@ -2502,6 +2524,8 @@ function xrOnSessionEnd(){
   xr.menu.open = false;
   if (xr.menu.mesh) xr.menu.mesh.visible = false;
   xr.menuHL = null;
+  xr.menuCustom = false;
+  xr.hudCustom = false;
   xr.ph.right = xrEmptyPh();
   xr.ph.left = xrEmptyPh();
   if (xr.saveDirty) { xrSaveLayout(); }
@@ -2537,27 +2561,44 @@ function xrApplyRecenter(){
   xr.anchorPos.copy(camPos);
   xr.forward.copy(dir);
   xr.screens.forEach(function(s){ if (!s.locked) s.custom = false; });
+  xr.hudCustom = false;
+  xr.menuCustom = false;
   xrLayout();
+  if (xr.menu.open) xrMenuPlace();
 }
 
 /* ---------- つかんで移動 ---------- */
 function xrGrabStart(hand){
   var p = xr.ph[hand];
-  if (!p.hover || xr.grab[hand]) return;
-  var s = p.hover.scr;
-  if (s.locked) return;
-  s.custom = true;
-  var hit = xr.tmpV1;
-  /* つかんだ瞬間のレーザー先端と画面中心のずれを保つ */
-  var delta = new THREE.Vector3().copy(s.mesh.position);
+  if (xr.grab[hand]) return;
+  var mesh = null, dist = 0, scr = null, kind = '';
+  if (xr.menu.open && p.onMenu) {
+    mesh = xr.menu.mesh; dist = p.uiDist; kind = 'menu';
+    xr.menuCustom = true;
+  } else if (p.onHud) {
+    mesh = xr.hud; dist = p.uiDist; kind = 'hud';
+    xr.hudCustom = true;
+    xr.hudPinned = true; /* つかんだガイドは勝手に消えない */
+  } else if (p.bar) {
+    scr = p.bar.scr; mesh = scr.mesh; dist = p.uiDist; kind = 'scr';
+  } else if (p.hover) {
+    scr = p.hover.scr; mesh = scr.mesh; dist = p.hover.dist; kind = 'scr';
+  }
+  if (!mesh) return;
+  if (scr) {
+    if (scr.locked) return;
+    scr.custom = true;
+  }
+  /* つかんだ瞬間のレーザー先端と中心のずれを保つ */
+  var delta = new THREE.Vector3().copy(mesh.position);
   var ctrl = xrControllerFor(hand);
   if (ctrl) {
     xr.tmpMat.identity().extractRotation(ctrl.matrixWorld);
-    var origin = hit.setFromMatrixPosition(ctrl.matrixWorld);
+    var origin = xr.tmpV1.setFromMatrixPosition(ctrl.matrixWorld);
     var dir = xr.tmpV2.set(0, 0, -1).applyMatrix4(xr.tmpMat).normalize();
-    delta.sub(origin.clone().addScaledVector(dir, p.hover.dist));
+    delta.sub(origin.clone().addScaledVector(dir, dist));
   }
-  xr.grab[hand] = { scr: s, dist: p.hover.dist, delta: delta };
+  xr.grab[hand] = { kind: kind, scr: scr, mesh: mesh, dist: dist, delta: delta };
 }
 
 function xrGrabEnd(hand){
@@ -2581,8 +2622,8 @@ function xrUpdateGrabs(){
     var origin = xr.tmpV1.setFromMatrixPosition(ctrl.matrixWorld);
     var dir = xr.tmpV2.set(0, 0, -1).applyMatrix4(xr.tmpMat).normalize();
     var point = origin.clone().addScaledVector(dir, g.dist);
-    g.scr.mesh.position.copy(point).add(g.delta);
-    g.scr.mesh.lookAt(xr.camPos); /* 上下の傾きも含めて、自分の顔の方を向く */
+    g.mesh.position.copy(point).add(g.delta);
+    g.mesh.lookAt(xr.camPos); /* 上下の傾きも含めて、自分の顔の方を向く */
     var L = xr.lasers[hand];
     L.line.visible = true;
     L.line.position.copy(origin);
@@ -2624,9 +2665,16 @@ function xrActDown(action, hand){
     if (p.onHud) { xrMenuToggle(); return; }
     if (p.bar) { if (p.bar.idx !== null) xrBarActivate(p.bar.scr, p.bar.idx); return; }
     var hov = xrPickHover(hand);
-    if (hov && xr.mouseEnabled && hov.scr.host.helperOn) {
-      hostSend(hov.scr.host, { t: 'dn', b: 0 });
-      xr.pressed.click = hov.scr.host;
+    if (hov) {
+      if (xr.mouseEnabled && hov.scr.host.helperOn) {
+        hostSend(hov.scr.host, { t: 'dn', b: 0 });
+        xr.pressed.click = hov.scr.host;
+      }
+    } else {
+      /* 何もない所をクリック → 操作ガイドの表示/非表示 */
+      xr.hudPinned = !(xr.hudPinned || performance.now() < xr.hudUntil);
+      xr.hudUntil = 0;
+      if (xr.hudPinned) xr.hudCustom = false; /* 出し直しは定位置に */
     }
   } else if (action === 'rclick') {
     if (p.onMenu || p.onHud || p.bar) return;
@@ -2702,23 +2750,34 @@ function xrPollInput(dt){
   var dz = 0.25;
 
   var a = axesByHand[adjHand];
-  if (a) {
+  var aHov = xrActiveHover();
+  if (a && aHov) {
+    var tgt = aHov.scr;
     var upv = -a.ay;
-    if (Math.abs(upv) > dz) {
+    if (Math.abs(upv) > dz && !tgt.locked) {
+      tgt.custom = true; /* 個別に動かした画面は並びから独立する */
       if (xrHmodHeld()) {
-        xr.params.yOff = clamp(xr.params.yOff + upv * dt * 0.55, -1.2, 1.2);
+        tgt.mesh.position.y = clamp(
+          tgt.mesh.position.y + upv * dt * 0.6,
+          xr.camPos.y - 1.8, xr.camPos.y + 2.2
+        );
       } else {
-        /* 遠いほど速く動く(掛け算式)。上限は設定で変更できる */
-        xr.params.dist = clamp(xr.params.dist * (1 + upv * dt * 0.85), 1.0, S.maxDist);
+        /* 指した画面だけを、視線に沿って遠く/近くへ(遠いほど速く) */
+        var v = tgt.mesh.position.clone().sub(xr.camPos);
+        var d0 = Math.max(0.2, v.length());
+        var nd = clamp(d0 * (1 + upv * dt * 0.85), 0.7, S.maxDist);
+        tgt.mesh.position.copy(xr.camPos).addScaledVector(v.normalize(), nd);
       }
-      xr.saveDirty = true;
-      xrLayout();
+      tgt.mesh.lookAt(xr.camPos);
     }
-    if (Math.abs(a.ax) > dz) {
-      /* 大きいほど速く変わる(掛け算式)。上限は設定で変更できる */
-      xr.params.width = clamp(xr.params.width * (1 + a.ax * dt * 0.9), 1.0, S.maxW);
-      xr.geoDirty = true;
-      xr.saveDirty = true;
+    if (Math.abs(a.ax) > dz && !tgt.locked) {
+      /* 指した画面だけの大きさ(上限は設定の最大の幅まで) */
+      var base = Math.max(0.2, xrScreenWBase(tgt));
+      var ns = clamp(tgt.wScale * (1 + a.ax * dt * 0.9), 0.35, Math.max(0.35, S.maxW / base));
+      if (ns !== tgt.wScale) {
+        tgt.wScale = ns;
+        xr.geoDirty = true;
+      }
     }
   }
 
@@ -2765,7 +2824,7 @@ function xrUpdatePointerFor(hand){
   if (xr.menu.open && xr.menu.mesh) meshes.push(xr.menu.mesh);
   if (xr.hud && xr.hud.visible) meshes.push(xr.hud);
   xr.screens.forEach(function(s){
-    if (s.bar && s.bar.mesh.visible) meshes.push(s.bar.mesh);
+    if (s.bar) meshes.push(s.bar.mesh); /* 透明でも当たり判定は生きている */
     meshes.push(s.mesh);
   });
   var hits = xr.raycaster.intersectObjects(meshes);
@@ -2777,11 +2836,14 @@ function xrUpdatePointerFor(hand){
     var obj = hit.object;
     if (xr.menu.open && obj === xr.menu.mesh) {
       p.onMenu = true;
+      p.uiDist = hit.distance;
       if (hit.uv) p.menuBtn = xrMenuHit(hit.uv);
     } else if (obj === xr.hud) {
       p.onHud = true;
+      p.uiDist = hit.distance;
     } else if (obj.userData.barOf) {
       p.bar = { scr: obj.userData.barOf, idx: hit.uv ? xrBarHit(hit.uv) : null };
+      p.uiDist = hit.distance;
     } else if (obj.userData.ref && hit.uv) {
       p.hover = { scr: obj.userData.ref, uv: hit.uv, dist: hit.distance };
       xr.lastHost = obj.userData.ref.host;
@@ -2857,6 +2919,7 @@ function xrMenuToggle(){
 }
 
 function xrMenuPlace(){
+  if (xr.menuCustom) return; /* つかんで動かした位置を尊重 */
   var camPos = new THREE.Vector3();
   xr.camera.getWorldPosition(camPos);
   var dir = new THREE.Vector3();
