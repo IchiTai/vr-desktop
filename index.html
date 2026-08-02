@@ -1215,7 +1215,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-03i';
+var APP_VER = '2026-08-03j';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1313,8 +1313,8 @@ function hostSend(host, m){
 
 /* ---------- 画質プリセット ---------- */
 var QUALITY = {
-  sharp:   { hint: 'detail', br: 30000000, deg: 'maintain-resolution', fps: 30,
-             name: 'くっきり', desc: '文字を最優先(30fps)。資料や文章の作業向き' },
+  sharp:   { hint: 'detail', br: 30000000, deg: 'maintain-resolution', fps: 60,
+             name: 'くっきり', desc: '文字を最優先。資料や文章の作業向き' },
   balance: { hint: 'detail', br: 10000000, deg: 'balanced', fps: 60,
              name: 'バランス(標準)', desc: '文字と動きの両立(60fps)。まずはこれ' },
   smooth:  { hint: 'motion', br: 12000000, deg: 'maintain-framerate', fps: 60,
