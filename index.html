@@ -610,13 +610,17 @@ function pcRenderScreens(){
     if (pc.helperOn && pc.monitors.length > 1) {
       var sel = document.createElement('select');
       sel.className = 'monsel';
+      var opNone = document.createElement('option');
+      opNone.value = '-1';
+      opNone.textContent = '操作しない(見るだけ)';
+      sel.appendChild(opNone);
       pc.monitors.forEach(function(m, mi){
         var op = document.createElement('option');
         op.value = String(mi);
         op.textContent = '操作先: モニター' + (mi + 1) + (mi === 0 ? '(メイン)' : '') + ' ' + m.w + '×' + m.h;
         sel.appendChild(op);
       });
-      if (item.mon > pc.monitors.length - 1) item.mon = 0;
+      if (item.mon !== -1 && item.mon > pc.monitors.length - 1) item.mon = 0;
       sel.value = String(item.mon);
       sel.addEventListener('change', function(){
         item.mon = parseInt(sel.value, 10) || 0;
@@ -755,6 +759,8 @@ function pcOnData(msg){
   if (!msg || !msg.t) return;
   if (msg.t === 'mv') {
     var item = pcFindScreen(msg.s);
+    if (item && item.mon < 0) { pc.ctlBlock = true; return; } /* 「操作しない」画面 */
+    pc.ctlBlock = false;
     var out = { t: 'mv', x: msg.x, y: msg.y, s: item ? item.mon : 0 };
     var q = pc.inputQueue;
     if (q.length && q[q.length - 1].t === 'mv' && q[q.length - 1].s === out.s) {
@@ -763,8 +769,10 @@ function pcOnData(msg){
       q.push(out);
     }
   } else if (msg.t === 'dn' || msg.t === 'up') {
+    if (pc.ctlBlock) return;
     pc.inputQueue.push({ t: msg.t, b: msg.b });
   } else if (msg.t === 'sc') {
+    if (pc.ctlBlock) return;
     pc.inputQueue.push({ t: 'sc', d: msg.d });
   } else if (msg.t === 'q') {
     pcSetQuality(msg.p);
@@ -1798,8 +1806,8 @@ function xrBuildScene(){
   xr.built = true;
 
   if (S.layout) {
-    xr.params.dist = clamp(S.layout.dist, 1.0, 6.0);
-    xr.params.width = clamp(S.layout.width, 1.0, 8.0);
+    xr.params.dist = clamp(S.layout.dist, 1.0, 12.0);
+    xr.params.width = clamp(S.layout.width, 1.0, 16.0);
     xr.params.yOff = clamp(S.layout.yOff, -1.2, 1.2);
     xr.params.curved = !!S.layout.curved;
   }
@@ -2001,7 +2009,7 @@ function xrCreateScreen(d){
   var mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
   var s = { key: d.key, host: d.host, slot: d.slot, video: d.video, tex: tex, mat: mat, mesh: null, aspect: 16 / 9 };
   if (d.video.videoWidth > 0) s.aspect = d.video.videoWidth / d.video.videoHeight;
-  s.mesh = new THREE.Mesh(xrMakeScreenGeo(s.aspect), mat);
+  s.mesh = new THREE.Mesh(xrMakeScreenGeo(xrScreenW(s), s.aspect), mat);
   s.mesh.userData.ref = s;
   d.video.addEventListener('resize', function(){
     if (d.video.videoWidth > 0) {
@@ -2017,10 +2025,16 @@ APP.xrSync = function(){ if (xr.built) xrSyncScreens(); };
 APP.xrHud = function(){ if (xr.built) xrDrawHud(); };
 
 /* ---------- 形状 ---------- */
-function xrMakeScreenGeo(aspect){
-  var width = xr.params.width;
+/* 画面ごとの表示幅: 高さを揃える(16:9でちょうど設定幅)。縦長のスマホ画面も自然に並ぶ */
+function xrScreenW(s){
+  return xr.params.width * (9 / 16) * s.aspect;
+}
+
+function xrMakeScreenGeo(width, aspect){
   var height = width / aspect;
-  var angle = xr.params.curved ? 0.85 : 0;
+  var angle = xr.params.curved
+    ? Math.min(1.5, 0.85 * (width / Math.max(0.8, xr.params.width)))
+    : 0;
   var segX = 48, segY = 8;
   var pos = [], uv = [], idx = [];
   var iy, ix;
@@ -2060,7 +2074,7 @@ function xrMakeScreenGeo(aspect){
 function xrRebuildGeos(){
   xr.screens.forEach(function(s){
     var old = s.mesh.geometry;
-    s.mesh.geometry = xrMakeScreenGeo(s.aspect);
+    s.mesh.geometry = xrMakeScreenGeo(xrScreenW(s), s.aspect);
     if (old) old.dispose();
   });
   xrLayout();
@@ -2071,11 +2085,12 @@ function xrLayout(){
   var p = xr.params;
   var n = xr.screens.length;
   if (!xr.built || n === 0) { xrPlaceHud(); return; }
-  var unit = p.width / p.dist;
-  var total = unit * n + p.gap * (n - 1);
+  var total = p.gap * (n - 1);
+  xr.screens.forEach(function(s){ total += xrScreenW(s) / p.dist; });
   var az = -total / 2;
   var up = xr.tmpV2.set(0, 1, 0);
   xr.screens.forEach(function(s){
+    var unit = xrScreenW(s) / p.dist;
     var center = az + unit / 2;
     az += unit + p.gap;
     var dir = xr.forward.clone().applyAxisAngle(up, -center);
@@ -2106,9 +2121,12 @@ function xrBuildHud(){
 function xrPlaceHud(){
   if (!xr.hud) return;
   var p = xr.params;
-  var h = p.width / (xr.screens.length ? xr.screens[0].aspect : (16 / 9));
-  var pos = xr.tmpV1.copy(xr.anchorPos).addScaledVector(xr.forward, p.dist * 0.96);
-  xr.hud.position.set(pos.x, xr.anchorPos.y + p.yOff - (h / 2) - 0.55, pos.z);
+  var h = p.width * 9 / 16; /* 揃えた高さ */
+  /* 画面がどれだけ遠く・大きくても、ガイドは手前の読める位置に置く */
+  var hd = Math.min(p.dist * 0.96, 3.0);
+  var y = xr.anchorPos.y + clamp(p.yOff - h / 2 - 0.55, -1.35, -0.5);
+  var pos = xr.tmpV1.copy(xr.anchorPos).addScaledVector(xr.forward, hd);
+  xr.hud.position.set(pos.x, y, pos.z);
   xr.hud.lookAt(xr.anchorPos.x, xr.hud.position.y, xr.anchorPos.z);
   xr.hud.rotateX(-0.35);
 }
@@ -2318,13 +2336,15 @@ function xrPollInput(dt){
       if (xr.phys[S.km.hmod]) {
         xr.params.yOff = clamp(xr.params.yOff + upv * dt * 0.55, -1.2, 1.2);
       } else {
-        xr.params.dist = clamp(xr.params.dist + upv * dt * 1.7, 1.0, 6.0);
+        /* 遠いほど速く動く(掛け算式)。最大は2倍の12mまで */
+        xr.params.dist = clamp(xr.params.dist * (1 + upv * dt * 0.85), 1.0, 12.0);
       }
       xr.saveDirty = true;
       xrLayout();
     }
     if (Math.abs(a.ax) > dz) {
-      xr.params.width = clamp(xr.params.width + a.ax * dt * 1.9, 1.0, 8.0);
+      /* 大きいほど速く変わる(掛け算式)。最大は2倍の16mまで */
+      xr.params.width = clamp(xr.params.width * (1 + a.ax * dt * 0.9), 1.0, 16.0);
       xr.geoDirty = true;
       xr.saveDirty = true;
     }
