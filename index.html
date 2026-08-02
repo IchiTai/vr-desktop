@@ -364,10 +364,10 @@ footer.site a{color:var(--muted);text-decoration:underline}
         <tr><td>レーザー(両手)</td><td>当てた画面のカーソルを動かす(操作モードON時)</td></tr>
         <tr><td>トリガー(左右) / 右Aボタン(下)</td><td>クリック。すぐ動かす=ドラッグ、長押しして動かす=スクロール</td></tr>
         <tr><td>右手 Bボタン(上)</td><td>右クリック</td></tr>
-        <tr><td>グリップ(両手)</td><td>指した画面をつかんで移動(設定・ガイドのパネルもつかめます)</td></tr>
+        <tr><td>グリップ(両手)</td><td>指した画面をつかんで移動(高さ変更もこれで。設定・ガイドのパネルもつかめます)</td></tr>
         <tr><td>右手 スティック上下</td><td>スクロール</td></tr>
         <tr><td>左手 スティック</td><td>上下で指した画面の遠近、左右で大きさ</td></tr>
-        <tr><td>左スティックを押し込みながら上下</td><td>指した画面の高さ</td></tr>
+        <tr><td>左スティック押し込み</td><td>ポインター(レーザー)の表示/非表示</td></tr>
         <tr><td>左手 X(下) / Y(上)</td><td>設定メニュー / 画面を整列して正面に呼び直す</td></tr>
         <tr><td>何もない所をクリック</td><td>操作ガイドの表示/非表示</td></tr>
         <tr><td>画面のすぐ上にレーザー</td><td>「平面/湾曲・ミュート・固定」のボタンが現れる</td></tr>
@@ -762,7 +762,7 @@ async function pcPingHelper(){
   var monitors = [];
   try {
     var ctl = new AbortController();
-    var t = setTimeout(function(){ ctl.abort(); }, 1200);
+    var t = setTimeout(function(){ ctl.abort(); }, 3000);
     var r = await fetch(HELPER_URL + '/ping', { method: 'GET', signal: ctl.signal });
     clearTimeout(t);
     if (r.ok) {
@@ -773,6 +773,14 @@ async function pcPingHelper(){
       } catch (_e) {}
     }
   } catch (_e) { on = false; }
+
+  /* ドラッグ中の混雑による一時的な無応答では、操作モードを落とさない(2回連続で確定) */
+  if (!on) {
+    pc.pingFails = (pc.pingFails || 0) + 1;
+    if (pc.pingFails < 2 && pc.helperOn) return;
+  } else {
+    pc.pingFails = 0;
+  }
 
   var sig = JSON.stringify(monitors);
   var changed = (on !== pc.helperOn) || (sig !== pc.monSig);
@@ -1099,7 +1107,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-03e';
+var APP_VER = '2026-08-03f';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1114,7 +1122,6 @@ var KM_ACTS = [
   ['click',    'クリック(押したままドラッグ)'],
   ['rclick',   '右クリック'],
   ['grab',     '画面をつかんで移動'],
-  ['hmod',     '高さ調整(押しながらスティック上下)'],
   ['ptr',      'ポインター表示の切替'],
   ['recenter', '画面を正面に呼び直す'],
   ['menu',     '設定メニューを開く/閉じる'],
@@ -1126,7 +1133,7 @@ KM_ACTS.forEach(function(a){ KM_ACT_LABEL[a[0]] = a[1]; });
 
 function kmDefault(){
   return { r0: 'click', r1: 'grab', r3: '', r4: 'click', r5: 'rclick',
-           l0: 'click', l1: 'grab', l3: 'hmod', l4: 'menu', l5: 'recenter' };
+           l0: 'click', l1: 'grab', l3: 'ptr', l4: 'menu', l5: 'recenter' };
 }
 
 /* 前の版の標準のままなら、新しい標準へ自動で置き換える */
@@ -2608,12 +2615,12 @@ function xrPlaceHud(){
   if (!xr.hud || xr.hudCustom) return;
   var p = xr.params;
   var h = p.width * 9 / 16;
-  var hd = Math.min(p.dist * 0.96, 3.0);
-  var y = xr.anchorPos.y + clamp(p.yOff - h / 2 - 0.6, -1.45, -0.85);
+  var hd = Math.min(p.dist * 0.9, 2.4);
+  var y = xr.anchorPos.y + clamp(p.yOff - h / 2 - 0.7, -1.6, -1.05);
   var pos = xr.tmpV1.copy(xr.anchorPos).addScaledVector(xr.forward, hd);
   xr.hud.position.set(pos.x, y, pos.z);
   xr.hud.lookAt(xr.anchorPos.x, xr.hud.position.y, xr.anchorPos.z);
-  xr.hud.rotateX(-0.35);
+  xr.hud.rotateX(-0.5);
 }
 
 function xrHelperStatusText(){
@@ -2653,7 +2660,6 @@ function xrDrawHud(){
     ['スクロール', scrJp + 'スティック 上下'],
     ['指した画面の遠近 / 大きさ', adjJp + 'スティック 上下 / 左右']
   ]);
-  if (kmHas('hmod')) lines.push(['指した画面の高さ', kmButtonsFor('hmod') + ' + ' + adjJp + 'スティック上下']);
   if (kmHas('ptr')) lines.push(['ポインター表示切替', kmButtonsFor('ptr')]);
   lines.push(['整列して正面に呼び直す', kmButtonsFor('recenter')]);
   lines.push(['設定メニュー', kmButtonsFor('menu')]);
@@ -2840,14 +2846,6 @@ function xrUpdateGrabs(){
 }
 
 /* ---------- ボタン入力(km2: ボタン→機能) ---------- */
-function xrHmodHeld(){
-  for (var i = 0; i < KM_BTNS.length; i++) {
-    var b = KM_BTNS[i];
-    if (S.km2[b] === 'hmod' && xr.phys[b]) return true;
-  }
-  return false;
-}
-
 function xrPickHover(hand){
   var mine = xr.ph[hand];
   if (!xr.grab[hand] && mine.hover) return mine.hover;
@@ -2869,6 +2867,7 @@ function kmAnyPressed(action){
   }
   return false;
 }
+/* (高さの修飾ボタンは廃止: 高さはグリップでつかんで動かす) */
 
 function xrR4(v){ return Math.round(clamp(v, 0, 1) * 10000) / 10000; }
 
@@ -3049,18 +3048,11 @@ function xrPollInput(dt){
     var upv = -a.ay;
     if (Math.abs(upv) > dz && !tgt.locked) {
       tgt.custom = true; /* 個別に動かした画面は並びから独立する */
-      if (xrHmodHeld()) {
-        tgt.mesh.position.y = clamp(
-          tgt.mesh.position.y + upv * dt * 0.6,
-          xr.camPos.y - 1.8, xr.camPos.y + 2.2
-        );
-      } else {
-        /* 指した画面だけを、視線に沿って遠く/近くへ(遠いほど速く) */
-        var v = tgt.mesh.position.clone().sub(xr.camPos);
-        var d0 = Math.max(0.2, v.length());
-        var nd = clamp(d0 * (1 + upv * dt * 0.85), 0.7, S.maxDist);
-        tgt.mesh.position.copy(xr.camPos).addScaledVector(v.normalize(), nd);
-      }
+      /* 指した画面だけを、視線に沿って遠く/近くへ(遠いほど速く)。高さはグリップでつかんで変える */
+      var v = tgt.mesh.position.clone().sub(xr.camPos);
+      var d0 = Math.max(0.2, v.length());
+      var nd = clamp(d0 * (1 + upv * dt * 0.85), 0.7, S.maxDist);
+      tgt.mesh.position.copy(xr.camPos).addScaledVector(v.normalize(), nd);
       tgt.mesh.lookAt(xr.camPos);
     }
     if (Math.abs(a.ax) > dz && !tgt.locked) {
