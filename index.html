@@ -988,6 +988,9 @@ async function questInit(){
     ? ''
     : 'この機器はVR表示に対応していないため、接続後は「タッチで見る」で表示と操作ができます。';
   refreshSettingsUi(); /* VR対応が判明したら、開いている設定の表示も合わせる */
+  /* 接続ボタンを押す前に、中継サーバーへの登録(受付)を先に済ませておく。
+     初回接続の待ち時間の大半はこれだったため */
+  questEnsurePeer(function(){});
 }
 
 function questEnsurePeer(cb){
@@ -1016,29 +1019,50 @@ function questAddHost(codeRaw, errEl){
   if (code.length !== 6) { errEl.textContent = '6桁のコードを入力してください。'; return false; }
   if (questHostByPeerId(PEER_PREFIX + code)) { errEl.textContent = 'そのコードにはすでに接続しています。'; return false; }
   errEl.textContent = '';
-  var host = { idx: qs.nextHost++, code: code, conn: null, screens: [], helperOn: false, state: 'connecting' };
+  var host = { idx: qs.nextHost++, code: code, conn: null, screens: [], helperOn: false, state: 'connecting', dialTries: 1 };
   qs.hosts.push(host);
   qs.pendingHost = host;
   questUiSync();
-  /* 15秒で必ず結果を出す(黙って「接続中…」のままにしない) */
-  host.connWatch = setTimeout(function(){
-    if (host.gone || host.state !== 'connecting') return;
-    host.gone = true;
-    if (qs.pendingHost === host) qs.pendingHost = null;
-    try { if (host.conn) host.conn.close(); } catch (_e) {}
-    var i = qs.hosts.indexOf(host);
-    if (i >= 0) qs.hosts.splice(i, 1);
-    questUiSync();
-    if (APP.xrSync) APP.xrSync();
-    questShowErr(qs.peerReady
-      ? '時間内に接続できませんでした。まず、パソコン側のページを再読み込みして共有し直し、新しいコードで試してください。それでも毎回止まる場合は、ルーターの「プライバシーセパレーター(AP隔離)」やVPNが機器どうしの通信を遮っている可能性があります。'
-      : 'Quest側から中継サーバーにつながれていません。QuestのWi-Fi接続を確認して、このページを再読み込みしてください(中継サーバーの一時的な混雑のこともあります)。');
-  }, 15000);
+  host.connWatch = setTimeout(function(){ questDialTimeout(host); }, 6000);
   questEnsurePeer(function(){
     host.conn = qs.peer.connect(PEER_PREFIX + code, { serialization: 'json' });
     questWireConn(host);
   });
   return true;
+}
+
+/* 接続ボタン後の経過表示(ボタンは「接続中…」のまま) */
+function questConnectingNote(msg){
+  if (!$('qStepA').classList.contains('hidden')) $('qErr').textContent = msg;
+  if (APP.xrPadMsg) APP.xrPadMsg(msg);
+}
+
+/* 初回接続: 6秒で開かなければ自動で試し直す(最大3回)。
+   1回目は中継サーバー登録や経路作りの準備で時間がかかりやすいため */
+function questDialTimeout(host){
+  if (host.gone || host.state !== 'connecting') return;
+  if (host.dialTries < 3) {
+    host.dialTries++;
+    try { if (host.conn) host.conn.close(); } catch (_e) {}
+    questConnectingNote('時間がかかっています。自動で試し直しています…(' + host.dialTries + '回目)');
+    questEnsurePeer(function(){
+      if (host.gone || host.state !== 'connecting') return;
+      host.conn = qs.peer.connect(PEER_PREFIX + host.code, { serialization: 'json' });
+      questWireConn(host);
+    });
+    host.connWatch = setTimeout(function(){ questDialTimeout(host); }, 6000);
+    return;
+  }
+  host.gone = true;
+  if (qs.pendingHost === host) qs.pendingHost = null;
+  try { if (host.conn) host.conn.close(); } catch (_e) {}
+  var i = qs.hosts.indexOf(host);
+  if (i >= 0) qs.hosts.splice(i, 1);
+  questUiSync();
+  if (APP.xrSync) APP.xrSync();
+  questShowErr(qs.peerReady
+    ? '3回試しましたが接続できませんでした。パソコン側のページを再読み込みして共有し直し、新しいコードで試してください。それでも毎回止まる場合は、ルーターの「プライバシーセパレーター(AP隔離)」やVPNが機器どうしの通信を遮っている可能性があります。'
+    : 'Quest側から中継サーバーにつながれていません。QuestのWi-Fi接続を確認して、このページを再読み込みしてください(中継サーバーの一時的な混雑のこともあります)。');
 }
 
 function questWireConn(host){
@@ -1050,6 +1074,7 @@ function questWireConn(host){
     host.retryUntil = 0;
     clearTimeout(host.connWatch);
     clearTimeout(host.retryWatch);
+    if (!$('qStepA').classList.contains('hidden')) $('qErr').textContent = '';
     hostSend(host, { t: 'q', p: S.q });
     questUiSync();
     if (APP.xrHud) APP.xrHud();
@@ -1294,7 +1319,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-03m';
+var APP_VER = '2026-08-03n';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1497,15 +1522,17 @@ async function questStatsTick(){
   }
   for (var i = 0; i < qs.hosts.length; i++) {
     var h = qs.hosts[i];
-    var bps = 0, fps = 0, w = 0, hh = 0, got = false, rtt = null;
+    var bps = 0, fps = 0, w = 0, hh = 0, got = false, rtt = null, route = null;
     for (var k = 0; k < h.screens.length; k++) {
       var sc = h.screens[k];
       if (!sc.call || !sc.call.peerConnection) continue;
       try {
         var stats = await sc.call.peerConnection.getStats();
-        var pairs = {}, selId = null;
+        var pairs = {}, selId = null, cands = {};
         stats.forEach(function(rep){
-          if (rep.type === 'inbound-rtp' && rep.kind === 'video') {
+          if (rep.type === 'local-candidate' || rep.type === 'remote-candidate') {
+            cands[rep.id] = rep;
+          } else if (rep.type === 'inbound-rtp' && rep.kind === 'video') {
             if (sc.pv && sc.pv.ts && rep.timestamp > sc.pv.ts) {
               bps += (rep.bytesReceived - sc.pv.bytes) * 8 / ((rep.timestamp - sc.pv.ts) / 1000);
             }
@@ -1532,12 +1559,24 @@ async function questStatsTick(){
           if (pr && typeof pr.currentRoundTripTime === 'number') {
             rtt = Math.round(pr.currentRoundTripTime * 1000);
           }
+          /* 映像の通り道: 直接(同一ネット) / 直接 / 中継サーバー経由 */
+          if (pr && route === null) {
+            var lc = cands[pr.localCandidateId];
+            var rc = cands[pr.remoteCandidateId];
+            if (lc && rc) {
+              route = (lc.candidateType === 'relay' || rc.candidateType === 'relay') ? 'relay'
+                : (lc.candidateType === 'host' && rc.candidateType === 'host') ? 'lan' : 'net';
+            }
+          }
         }
       } catch (_e) {}
     }
+    var routeJp = route === 'relay' ? ' / 経路: 中継サーバー(遅)'
+      : route === 'lan' ? ' / 経路: 直接(同一ネット)'
+      : route === 'net' ? ' / 経路: 直接' : '';
     h.statText = got
       ? ('受信 ' + (Math.max(0, bps) / 1e6).toFixed(1) + ' Mbps / ' + fps + 'fps / ' + w + '×' + hh
-         + (rtt !== null ? ' / 往復' + rtt + 'ms' : ''))
+         + (rtt !== null ? ' / 往復' + rtt + 'ms' : '') + routeJp)
       : '計測中…';
   }
   statsRefreshUi();
