@@ -755,16 +755,22 @@ function pcCreatePeer(attempt){
 
   peer.on('disconnected', function(){ try { peer.reconnect(); } catch (_e) {} });
   peer.on('connection', function(conn){
-    if (pc.conn) { try { conn.close(); } catch (_e) {} return; } /* 見る側は1台まで */
+    /* 見る側は1台まで。ただし新しい接続を優先する:
+       再読み込み前の古い接続が残っていても、新しい方を受け入れて古い方を切る */
+    if (pc.conn && pc.conn !== conn) {
+      try { pc.conn.close(); } catch (_e) {}
+    }
     pc.conn = conn;
     conn.on('open', function(){
+      if (pc.conn !== conn) return;
       setDot('dotQuest', 'on');
       $('lblQuest').textContent = 'Questと接続中';
       pcSendHelperState();
       pc.screens.forEach(pcCallScreen);
     });
-    conn.on('data', pcOnData);
+    conn.on('data', function(m){ if (pc.conn === conn) pcOnData(m); });
     conn.on('close', function(){
+      if (pc.conn !== conn) return; /* 置き換えた古い接続の後始末で、新しい接続を消さない */
       pc.conn = null;
       pc.screens.forEach(function(s){ s.call = null; });
       if (pc.screens.length) {
@@ -972,7 +978,9 @@ function questAddHost(codeRaw, errEl){
     if (i >= 0) qs.hosts.splice(i, 1);
     questUiSync();
     if (APP.xrSync) APP.xrSync();
-    questShowErr('時間内に接続できませんでした。パソコン側が「コードを発行しています…」のままなら中継サーバー側の問題です(両方のページを再読み込みして、時間をおいて再試行)。コード発行済みなのに毎回ここで止まる場合は、ルーターの「プライバシーセパレーター(AP隔離)」やVPN・テザリングが機器どうしの通信を遮っている可能性が高いです。');
+    questShowErr(qs.peerReady
+      ? '時間内に接続できませんでした。まず、パソコン側のページを再読み込みして共有し直し、新しいコードで試してください。それでも毎回止まる場合は、ルーターの「プライバシーセパレーター(AP隔離)」やVPNが機器どうしの通信を遮っている可能性があります。'
+      : 'Quest側から中継サーバーにつながれていません。QuestのWi-Fi接続を確認して、このページを再読み込みしてください(中継サーバーの一時的な混雑のこともあります)。');
   }, 15000);
   questEnsurePeer(function(){
     host.conn = qs.peer.connect(PEER_PREFIX + code, { serialization: 'json' });
@@ -1232,7 +1240,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-03k';
+var APP_VER = '2026-08-03l';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
