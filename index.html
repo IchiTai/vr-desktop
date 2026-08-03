@@ -1062,8 +1062,10 @@ function questAddHost(codeRaw, errEl){
   qs.pendingHost = host;
   questUiSync();
   questLog('接続を開始: コード ' + code);
+  host.dialT0 = Date.now();
+  host.dialDeadline = host.dialT0 + DIAL_TOTAL_MS;
   questEnsurePeer(function(){});
-  questDialTimeout(host); /* 1回目のダイヤルもここから(未登録なら待ってから) */
+  questDialTick(host); /* 経路作りは打ち切らず、じっくり待つ */
   return true;
 }
 
@@ -1073,72 +1075,110 @@ function questConnectingNote(msg){
   if (APP.xrPadMsg) APP.xrPadMsg(msg);
 }
 
-/* 初回接続: 1回のダイヤルに8秒。開かなければ試し直す(最大3回)。
-   次のダイヤルは前のダイヤルを「切り離してから」始めるので、
-   交渉中の接続を後続が殺してしまうことはない */
-function questDialTimeout(host){
+/* ---- 初回接続: 直結の経路作りを、旧版と同じようにじっくり待つ ----
+   打ち切って作り直すと経路探しがゼロからやり直しになるため、
+   時間切れでは殺さない。本当に失敗(failed)したときだけ1回作り直す */
+var DIAL_TOTAL_MS = 90000;
+var DIAL_MAX = 2;
+
+function questDialStart(host){
   if (host.gone || host.state !== 'connecting') return;
-  clearTimeout(host.connWatch);
-  if (!qs.peer || !qs.peerReady) {
-    /* 中継サーバーへの登録がまだ: 回数を消費せずに待つ */
-    questConnectingNote('中継サーバーに登録しています…');
-    questEnsurePeer(function(){});
-    host.connWatch = setTimeout(function(){ questDialTimeout(host); }, 3000);
-    return;
-  }
-  if (qs.peer.disconnected) {
-    /* 受付が切断状態のままダイヤルしても必ず失敗する。回数を消費せず復帰を待つ */
-    questLog('受付が切断状態のため待機 → 再接続中');
-    questConnectingNote('中継サーバーへ再接続しています…');
+  host.dialTries++;
+  questDetachConn(host);
+  questLog('ダイヤル ' + host.dialTries + '回目 → vrdd-' + host.code);
+  host.conn = qs.peer.connect(PEER_PREFIX + host.code, { serialization: 'json' });
+  if (!host.conn) {
+    questLog('ダイヤルを開始できませんでした → 受付の復帰を待ちます');
+    host.dialTries--;
     try { qs.peer.reconnect(); } catch (_e) {}
-    host.connWatch = setTimeout(function(){ questDialTimeout(host); }, 3000);
     return;
   }
-  if (host.dialTries < 3) {
-    host.dialTries++;
-    questDetachConn(host);
-    if (host.dialTries === 1) questConnectingNote('接続しています…');
-    else questConnectingNote('時間がかかっています。自動で試し直しています…(' + host.dialTries + '回目)');
-    questLog('ダイヤル ' + host.dialTries + '回目 → vrdd-' + host.code);
-    host.conn = qs.peer.connect(PEER_PREFIX + host.code, { serialization: 'json' });
-    if (!host.conn) {
-      /* PeerJSがダイヤル自体を拒否(内部切断など)。回数を戻して仕切り直す */
-      questLog('ダイヤルを開始できませんでした → 仕切り直し');
-      host.dialTries--;
-      try { qs.peer.reconnect(); } catch (_e) {}
-      host.connWatch = setTimeout(function(){ questDialTimeout(host); }, 3000);
-      return;
-    }
-    questWireConn(host);
-    host.connWatch = setTimeout(function(){ questDialTimeout(host); }, 8000);
+  questWireConn(host);
+}
+
+function questDialFailed(host, why){
+  if (host.gone || host.state !== 'connecting') return;
+  if (host.dialTries < DIAL_MAX) {
+    questLog(why + ' → 候補を集め直して、もう一度だけダイヤルします');
+    questDialStart(host);
     return;
   }
+  questDialGiveUp(host, why);
+}
+
+function questDialGiveUp(host, why){
+  if (host.gone) return;
   host.gone = true;
   if (qs.pendingHost === host) qs.pendingHost = null;
+  clearTimeout(host.connWatch);
   questDetachConn(host);
   var i = qs.hosts.indexOf(host);
   if (i >= 0) qs.hosts.splice(i, 1);
   questUiSync();
   if (APP.xrSync) APP.xrSync();
-  var wasReady = !!(qs.peer && qs.peerReady && !qs.peer.disconnected);
-  questLog('3回失敗 → 受付を作り直して待機');
-  if (qs.hosts.length === 0) {
-    /* 連続失敗のあとは受付ごと作り直す(次の手動試行を新品の状態から始める) */
-    try { if (qs.peer) qs.peer.destroy(); } catch (_e) {}
-    qs.peer = null;
-    qs.peerReady = false;
-    questPeerStat('');
-  }
-  questShowErr(wasReady
-    ? '3回試しましたが、相手との通信路が開きませんでした。下の診断ログの最後の「経路:」を確認してください(checkingやfailedで止まる場合、ルーターのAP隔離やVPNが原因のことが多いです)。少し待ってもう一度試すこともできます。'
-    : 'Quest側が中継サーバーに登録できていません。QuestのWi-Fiを確認して、このページを再読み込みしてください(中継サーバーの混雑のこともあります)。');
+  questLog('接続をあきらめました(' + why + ')');
+  questShowErr('直接の通信路を' + Math.round(DIAL_TOTAL_MS / 1000) + '秒待ちましたが作れませんでした。①QuestとPCを同じWi-Fi名(SSID)につなぐ ②ルーターの「プライバシーセパレーター(AP隔離)」をOFF ③PCのVPNを切る、を確認して、もう一度試してください。');
 }
+
+function questDialTick(host){
+  if (host.gone || host.state !== 'connecting') return;
+  if (Date.now() > host.dialDeadline) { questDialGiveUp(host, '時間切れ'); return; }
+  if (!qs.peer || !qs.peerReady) {
+    questConnectingNote('中継サーバーに登録しています…');
+    questEnsurePeer(function(){});
+  } else if (qs.peer.disconnected) {
+    questConnectingNote('中継サーバーへ再接続しています…');
+    try { qs.peer.reconnect(); } catch (_e) {}
+  } else if (!host.conn) {
+    questConnectingNote('接続しています…');
+    questDialStart(host);
+  } else {
+    var sec = Math.round((Date.now() - host.dialT0) / 1000);
+    questConnectingNote('通信路を作っています… ' + sec + '秒(切らずにこのままお待ちください)');
+    if (sec > 0 && sec % 15 < 5) questLog('経路づくりを継続中(' + sec + '秒経過)');
+  }
+  host.connWatch = setTimeout(function(){ questDialTick(host); }, 5000);
+}
+
 
 /* 現役の接続を安全に置き換える(古い方のcloseイベントは無視されるよう、先に切り離す) */
 function questDetachConn(host){
   var old = host.conn;
   host.conn = null;
   if (old) { try { old.close(); } catch (_e) {} }
+}
+
+/* 選ばれた直結経路の種類をログに出す */
+function questLogRouteType(host, conn){
+  try {
+    var pcn = conn.peerConnection;
+    if (!pcn || !pcn.getStats) return;
+    setTimeout(function(){
+      pcn.getStats().then(function(stats){
+        var pairId = null, pairs = {}, cands = {};
+        stats.forEach(function(r){
+          if (r.type === 'transport' && r.selectedCandidatePairId) pairId = r.selectedCandidatePairId;
+          if (r.type === 'candidate-pair') pairs[r.id] = r;
+          if (r.type === 'local-candidate' || r.type === 'remote-candidate') cands[r.id] = r;
+        });
+        var pair = pairId ? pairs[pairId] : null;
+        if (!pair) {
+          Object.keys(pairs).forEach(function(k){
+            var r = pairs[k];
+            if (!pair && r.state === 'succeeded' && (r.selected || r.nominated)) pair = r;
+          });
+        }
+        if (!pair) return;
+        var lc = cands[pair.localCandidateId];
+        var ty = lc && lc.candidateType;
+        if (ty === 'host') {
+          questLog('経路の種類: 同一ネットワーク直結');
+        } else if (ty) {
+          questLog('経路の種類: 直結(NAT越え)');
+        }
+      }).catch(function(){});
+    }, 1200);
+  } catch (_e) {}
 }
 
 function questWatchIce(host, conn){
@@ -1149,7 +1189,11 @@ function questWatchIce(host, conn){
     if (pcn) {
       clearInterval(t);
       pcn.addEventListener('iceconnectionstatechange', function(){
-        if (host.conn === conn) questLog('経路: ' + pcn.iceConnectionState);
+        if (host.conn !== conn) return;
+        questLog('経路: ' + pcn.iceConnectionState);
+        if (pcn.iceConnectionState === 'failed' && host.state === 'connecting') {
+          questDialFailed(host, '経路作りが失敗(failed)');
+        }
       });
     } else if (tries > 24 || host.conn !== conn) {
       clearInterval(t);
@@ -1163,6 +1207,7 @@ function questWireConn(host){
   conn.on('open', function(){
     if (host.gone || host.conn !== conn) { try { conn.close(); } catch (_e) {} return; }
     questLog('接続できました(PC ' + host.code + ')');
+    questLogRouteType(host, conn);
     if (qs.pendingHost === host) qs.pendingHost = null;
     host.state = 'open';
     host.retryUntil = 0;
@@ -1189,7 +1234,7 @@ function questWireConn(host){
        ダイヤル中の失敗はダイヤル側のタイマーが管理する */
     if (host.conn !== conn) return;
     questLog('接続が閉じました(PC ' + host.code + ')');
-    if (host.state === 'connecting') return;
+    if (host.state === 'connecting') { questDialFailed(host, '接続が閉じられました'); return; }
     questConnLost(host);
   });
 }
@@ -1423,7 +1468,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-03q';
+var APP_VER = '2026-08-03s';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1496,7 +1541,7 @@ function loadS(){
   delete s.km;
   s.lowLat = (s.lowLat !== false); /* 低遅延モード: 初期ON */
   s.trig = (s.trig === 'plain') ? 'plain' : 'vd';
-  s.kbfwd = (s.kbfwd !== false); /* BTキーボード直送: 初期ON */ /* トリガー: 長押し→移動でスクロール */
+  s.kbfwd = (s.kbfwd !== false); /* BTキーボード直送: 初期ON */
   s.rscale = ([1, 1.15, 1.3].indexOf(+s.rscale) >= 0) ? +s.rscale : 1.15; /* VR描画解像度 */
   s.aniso = (s.aniso !== false); /* 文字のちらつき低減: 初期ON */
   if (!Array.isArray(s.slots) || s.slots.length !== 3) s.slots = [null, null, null];
