@@ -1023,8 +1023,9 @@ function questAddHost(codeRaw, errEl){
   qs.hosts.push(host);
   qs.pendingHost = host;
   questUiSync();
-  host.connWatch = setTimeout(function(){ questDialTimeout(host); }, 6000);
+  host.connWatch = setTimeout(function(){ questDialTimeout(host); }, 8000);
   questEnsurePeer(function(){
+    if (host.gone || host.state !== 'connecting' || host.conn) return; /* 二重ダイヤル防止 */
     host.conn = qs.peer.connect(PEER_PREFIX + code, { serialization: 'json' });
     questWireConn(host);
   });
@@ -1037,41 +1038,60 @@ function questConnectingNote(msg){
   if (APP.xrPadMsg) APP.xrPadMsg(msg);
 }
 
-/* 初回接続: 6秒で開かなければ自動で試し直す(最大3回)。
-   1回目は中継サーバー登録や経路作りの準備で時間がかかりやすいため */
+/* 初回接続: 1回のダイヤルに8秒。開かなければ試し直す(最大3回)。
+   次のダイヤルは前のダイヤルを「切り離してから」始めるので、
+   交渉中の接続を後続が殺してしまうことはない */
 function questDialTimeout(host){
   if (host.gone || host.state !== 'connecting') return;
+  if (!qs.peer || !qs.peerReady) {
+    /* 中継サーバーへの登録がまだ: 回数を消費せずに待つ */
+    questConnectingNote('中継サーバーに登録しています…');
+    questEnsurePeer(function(){});
+    host.connWatch = setTimeout(function(){ questDialTimeout(host); }, 3000);
+    return;
+  }
   if (host.dialTries < 3) {
     host.dialTries++;
-    try { if (host.conn) host.conn.close(); } catch (_e) {}
+    questDetachConn(host);
     questConnectingNote('時間がかかっています。自動で試し直しています…(' + host.dialTries + '回目)');
-    questEnsurePeer(function(){
-      if (host.gone || host.state !== 'connecting') return;
-      host.conn = qs.peer.connect(PEER_PREFIX + host.code, { serialization: 'json' });
-      questWireConn(host);
-    });
-    host.connWatch = setTimeout(function(){ questDialTimeout(host); }, 6000);
+    host.conn = qs.peer.connect(PEER_PREFIX + host.code, { serialization: 'json' });
+    questWireConn(host);
+    host.connWatch = setTimeout(function(){ questDialTimeout(host); }, 8000);
     return;
   }
   host.gone = true;
   if (qs.pendingHost === host) qs.pendingHost = null;
-  try { if (host.conn) host.conn.close(); } catch (_e) {}
+  questDetachConn(host);
   var i = qs.hosts.indexOf(host);
   if (i >= 0) qs.hosts.splice(i, 1);
   questUiSync();
   if (APP.xrSync) APP.xrSync();
-  questShowErr(qs.peerReady
-    ? '3回試しましたが接続できませんでした。パソコン側のページを再読み込みして共有し直し、新しいコードで試してください。それでも毎回止まる場合は、ルーターの「プライバシーセパレーター(AP隔離)」やVPNが機器どうしの通信を遮っている可能性があります。'
-    : 'Quest側から中継サーバーにつながれていません。QuestのWi-Fi接続を確認して、このページを再読み込みしてください(中継サーバーの一時的な混雑のこともあります)。');
+  if (qs.hosts.length === 0) {
+    /* 連続失敗のあとは受付ごと作り直す(次の手動試行を新品の状態から始める) */
+    try { if (qs.peer) qs.peer.destroy(); } catch (_e) {}
+    qs.peer = null;
+    qs.peerReady = false;
+  }
+  questShowErr(qs.peerReady === false && qs.peer === null
+    ? '3回試しましたが接続できませんでした。内部の接続情報は作り直したので、少し待ってからもう一度「接続する」を押してください。毎回失敗する場合は、パソコン側ページの再読み込み、ルーターの「プライバシーセパレーター(AP隔離)」やVPNの確認を。'
+    : '3回試しましたが接続できませんでした。パソコン側のページを再読み込みして共有し直し、新しいコードで試してください。');
+}
+
+/* 現役の接続を安全に置き換える(古い方のcloseイベントは無視されるよう、先に切り離す) */
+function questDetachConn(host){
+  var old = host.conn;
+  host.conn = null;
+  if (old) { try { old.close(); } catch (_e) {} }
 }
 
 function questWireConn(host){
   var conn = host.conn;
   conn.on('open', function(){
-    if (host.gone) { try { conn.close(); } catch (_e) {} return; }
+    if (host.gone || host.conn !== conn) { try { conn.close(); } catch (_e) {} return; }
     if (qs.pendingHost === host) qs.pendingHost = null;
     host.state = 'open';
     host.retryUntil = 0;
+    host.dialTries = 1;
     clearTimeout(host.connWatch);
     clearTimeout(host.retryWatch);
     if (!$('qStepA').classList.contains('hidden')) $('qErr').textContent = '';
@@ -1080,7 +1100,7 @@ function questWireConn(host){
     if (APP.xrHud) APP.xrHud();
   });
   conn.on('data', function(m){
-    if (!m) return;
+    if (!m || host.conn !== conn) return;
     if (m.t === 'helper') {
       host.helperOn = !!m.on;
       questUiSync();
@@ -1089,7 +1109,13 @@ function questWireConn(host){
       questRemoveScreen(host, m.s);
     }
   });
-  conn.on('close', function(){ questConnLost(host); });
+  conn.on('close', function(){
+    /* 自分が現役でなければ(置き換え済みの古いダイヤル)、何もしない。
+       ダイヤル中の失敗はダイヤル側のタイマーが管理する */
+    if (host.conn !== conn) return;
+    if (host.state === 'connecting') return;
+    questConnLost(host);
+  });
 }
 
 /* 切断時: 同じコードで約2分間、静かに再接続を試みる */
@@ -1108,12 +1134,13 @@ function questConnLost(host){
   host.retryTimer = setTimeout(function(){
     if (host.gone) return;
     try {
+      questDetachConn(host);
       host.conn = qs.peer.connect(PEER_PREFIX + host.code, { serialization: 'json' });
       questWireConn(host);
       clearTimeout(host.retryWatch);
       host.retryWatch = setTimeout(function(){
         if (!host.gone && host.state === 'retry') {
-          try { host.conn.close(); } catch (_e) {}
+          questDetachConn(host);
           questConnLost(host);
         }
       }, 8000);
@@ -1319,7 +1346,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-03n';
+var APP_VER = '2026-08-03p';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
