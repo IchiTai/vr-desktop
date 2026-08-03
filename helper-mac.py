@@ -193,6 +193,75 @@ def do_key(k):
         pass
 
 
+# ---- 任意キー(Bluetoothキーボード直送用) ----
+KBCODE = {"KeyA": 0, "KeyB": 11, "KeyC": 8, "KeyD": 2, "KeyE": 14, "KeyF": 3,
+          "KeyG": 5, "KeyH": 4, "KeyI": 34, "KeyJ": 38, "KeyK": 40, "KeyL": 37,
+          "KeyM": 46, "KeyN": 45, "KeyO": 31, "KeyP": 35, "KeyQ": 12, "KeyR": 15,
+          "KeyS": 1, "KeyT": 17, "KeyU": 32, "KeyV": 9, "KeyW": 13, "KeyX": 7,
+          "KeyY": 16, "KeyZ": 6,
+          "Digit1": 18, "Digit2": 19, "Digit3": 20, "Digit4": 21, "Digit5": 23,
+          "Digit6": 22, "Digit7": 26, "Digit8": 28, "Digit9": 25, "Digit0": 29,
+          "Minus": 27, "Equal": 24, "BracketLeft": 33, "BracketRight": 30,
+          "Backslash": 42, "Semicolon": 41, "Quote": 39, "Backquote": 50,
+          "Comma": 43, "Period": 47, "Slash": 44,
+          "Enter": 36, "Escape": 53, "Backspace": 51, "Tab": 48, "Space": 49,
+          "Delete": 117, "ArrowLeft": 123, "ArrowRight": 124, "ArrowDown": 125,
+          "ArrowUp": 126, "Home": 115, "End": 119, "PageUp": 116, "PageDown": 121,
+          "F1": 122, "F2": 120, "F3": 99, "F4": 118, "F5": 96, "F6": 97,
+          "F7": 98, "F8": 100, "F9": 101, "F10": 109, "F11": 103, "F12": 111}
+KBPY = {"Enter": "enter", "Escape": "esc", "Backspace": "backspace", "Tab": "tab",
+        "Space": "space", "Delete": "delete", "ArrowLeft": "left",
+        "ArrowRight": "right", "ArrowDown": "down", "ArrowUp": "up"}
+
+
+def do_kb(c, m):
+    try:
+        if QZ is not None and c in KBCODE:
+            flags = 0
+            if m & 1:
+                flags |= QZ.kCGEventFlagMaskControl
+            if m & 2:
+                flags |= QZ.kCGEventFlagMaskShift
+            if m & 4:
+                flags |= QZ.kCGEventFlagMaskAlternate
+            if m & 8:
+                flags |= QZ.kCGEventFlagMaskCommand
+            _qz_key(KBCODE[c], flags)
+            return
+        keys = []
+        if m & 1:
+            keys.append("ctrl")
+        if m & 2:
+            keys.append("shift")
+        if m & 4:
+            keys.append("option")
+        if m & 8:
+            keys.append("command")
+        base = KBPY.get(c) or (c[3].lower() if c.startswith("Key") else None)             or (c[5] if c.startswith("Digit") else None)
+        if base is None:
+            return
+        if keys:
+            pyautogui.hotkey(*(keys + [base]), _pause=False)
+        else:
+            pyautogui.press(base, _pause=False)
+    except Exception:
+        pass
+
+
+def do_ch(s):
+    # 文字をそのまま打つ(配列に依存しないユニコード入力)
+    try:
+        if QZ is not None:
+            for down in (True, False):
+                ev = QZ.CGEventCreateKeyboardEvent(None, 0, down)
+                QZ.CGEventKeyboardSetUnicodeString(ev, len(s), s)
+                qz_post(ev)
+        else:
+            pyautogui.write(s, _pause=False)
+    except Exception:
+        pass
+
+
 def do_txt(s):
     # 日本語も確実に入るよう、クリップボード経由で貼り付ける
     try:
@@ -295,6 +364,10 @@ class Handler(BaseHTTPRequestHandler):
                     do_key(str(e.get("k", "")))
                 elif t == "txt":
                     do_txt(str(e.get("s", "")))
+                elif t == "kb":
+                    do_kb(str(e.get("c", "")), int(e.get("m", 0) or 0))
+                elif t == "ch":
+                    do_ch(str(e.get("s", ""))[:8])
         except Exception:
             pass
         self._reply()

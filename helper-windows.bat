@@ -221,6 +221,33 @@ while ($true) {
                                     [VRMouse]::keybd_event(17, 0, 2, 0)
                                 }
                             }
+                            'kb' {
+                                $c = [string]$e.c
+                                $m = [int]$e.m
+                                $KB = @{ KeyA=65;KeyB=66;KeyC=67;KeyD=68;KeyE=69;KeyF=70;KeyG=71;KeyH=72;KeyI=73;KeyJ=74;KeyK=75;KeyL=76;KeyM=77;KeyN=78;KeyO=79;KeyP=80;KeyQ=81;KeyR=82;KeyS=83;KeyT=84;KeyU=85;KeyV=86;KeyW=87;KeyX=88;KeyY=89;KeyZ=90;Digit0=48;Digit1=49;Digit2=50;Digit3=51;Digit4=52;Digit5=53;Digit6=54;Digit7=55;Digit8=56;Digit9=57;Minus=189;Equal=187;BracketLeft=219;BracketRight=221;Backslash=220;Semicolon=186;Quote=222;Backquote=192;Comma=188;Period=190;Slash=191;Enter=13;Escape=27;Backspace=8;Tab=9;Space=32;Delete=46;ArrowLeft=37;ArrowUp=38;ArrowRight=39;ArrowDown=40;Home=36;End=35;PageUp=33;PageDown=34;F1=112;F2=113;F3=114;F4=115;F5=116;F6=117;F7=118;F8=119;F9=120;F10=121;F11=122;F12=123 }
+                                if ($KB.ContainsKey($c)) {
+                                    if ($m -band 1) { [VRMouse]::keybd_event(17, 0, 0, 0) }
+                                    if ($m -band 2) { [VRMouse]::keybd_event(16, 0, 0, 0) }
+                                    if ($m -band 4) { [VRMouse]::keybd_event(18, 0, 0, 0) }
+                                    if ($m -band 8) { [VRMouse]::keybd_event(91, 0, 0, 0) }
+                                    [VRMouse]::keybd_event([byte]$KB[$c], 0, 0, 0)
+                                    [VRMouse]::keybd_event([byte]$KB[$c], 0, 2, 0)
+                                    if ($m -band 8) { [VRMouse]::keybd_event(91, 0, 2, 0) }
+                                    if ($m -band 4) { [VRMouse]::keybd_event(18, 0, 2, 0) }
+                                    if ($m -band 2) { [VRMouse]::keybd_event(16, 0, 2, 0) }
+                                    if ($m -band 1) { [VRMouse]::keybd_event(17, 0, 2, 0) }
+                                }
+                            }
+                            'ch' {
+                                $s = [string]$e.s
+                                if ($s.Length -gt 0 -and $s.Length -le 8) {
+                                    $esc = ''
+                                    foreach ($chr in $s.ToCharArray()) {
+                                        if ('+^%~(){}[]'.Contains([string]$chr)) { $esc += '{' + $chr + '}' } else { $esc += $chr }
+                                    }
+                                    try { [System.Windows.Forms.SendKeys]::SendWait($esc) } catch { }
+                                }
+                            }
                         }
                     }
                 } catch { }

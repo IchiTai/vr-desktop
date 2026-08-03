@@ -378,6 +378,8 @@ footer.site a{color:var(--muted);text-decoration:underline}
         <tr><td>左手 スティック</td><td>上下で指した画面の遠近、左右で大きさ</td></tr>
         <tr><td>左スティック押し込み</td><td>ポインター(レーザー)の表示/非表示</td></tr>
         <tr><td>右スティック押し込み</td><td>キー送信パレット(Enter・コピー・貼り付けなど)</td></tr>
+        <tr><td>手(ハンドトラッキング)</td><td>指さしでレーザー、つまむ(ピンチ)=クリック。押し方の使い分けも同じ</td></tr>
+        <tr><td>Bluetoothキーボード</td><td>Questにペアリングしたキーボードで、そのままPCに入力</td></tr>
         <tr><td>左手 X(下) / Y(上)</td><td>設定メニュー / 画面を整列して正面に呼び直す</td></tr>
         <tr><td>何もない所をクリック</td><td>操作ガイドの表示/非表示</td></tr>
         <tr><td>画面のすぐ上にレーザー</td><td>「平面/湾曲・ミュート・固定・追従・明るさ」のボタンが現れる</td></tr>
@@ -432,6 +434,10 @@ footer.site a{color:var(--muted);text-decoration:underline}
     </div>
     <div id="setPaneCtl" class="hidden">
       <div id="kmRows"></div>
+      <div class="set-row">
+        <label>Bluetoothキーボードをそのまま送る</label>
+        <input type="checkbox" id="chkKbFwd" style="width:18px;height:18px;accent-color:var(--accent)">
+      </div>
       <div class="set-row">
         <label>トリガーのドラッグ</label>
         <select class="monsel" id="selTrig">
@@ -573,7 +579,7 @@ function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
    PC側(共有する側)
    ================================================================ */
 var pc = {
-  peer: null, conn: null, code: '',
+  peer: null, conns: [], code: '',
   screens: [],        /* {slot, stream, call, mon} */
   nextSlot: 1,
   helperOn: false, monitors: [], monSig: '',
@@ -635,14 +641,35 @@ function pcAddScreen(stream){
   }
   pc.screens.push(item);
   pcRenderScreens();
-  if (pc.conn && pc.conn.open) pcCallScreen(item);
+  pcCallScreen(item);
 }
 
 function pcCallScreen(item){
+  pc.conns.forEach(function(conn){
+    if (conn.open) pcCallScreenTo(item, conn);
+  });
+}
+
+function pcCallScreenTo(item, conn){
   try {
-    item.call = pc.peer.call(pc.conn.peer, item.stream, { metadata: { slot: item.slot } });
-    pcApplyQualityToCall(item.call, 0);
+    item.calls = item.calls || {};
+    var old = item.calls[conn.peer];
+    if (old) { try { old.close(); } catch (_e) {} }
+    var call = pc.peer.call(conn.peer, item.stream, { metadata: { slot: item.slot } });
+    item.calls[conn.peer] = call;
+    pcApplyQualityToCall(call, 0);
   } catch (_e) {}
+}
+
+function pcBroadcast(m){
+  pc.conns.forEach(function(c){
+    if (c.open) { try { c.send(m); } catch (_e) {} }
+  });
+}
+
+function pcEachCall(item, fn){
+  if (!item.calls) return;
+  Object.keys(item.calls).forEach(function(k){ fn(item.calls[k]); });
 }
 
 function pcFindScreen(slot){
@@ -660,9 +687,9 @@ function pcRemoveScreen(slot){
   if (idx < 0) return;
   var item = pc.screens[idx];
   item.stream.getTracks().forEach(function(t){ try { t.stop(); } catch (_e) {} });
-  if (item.call) { try { item.call.close(); } catch (_e) {} }
+  pcEachCall(item, function(c){ try { c.close(); } catch (_e) {} });
   pc.screens.splice(idx, 1);
-  if (pc.conn && pc.conn.open) { try { pc.conn.send({ t: 'del', s: slot }); } catch (_e) {} }
+  pcBroadcast({ t: 'del', s: slot });
   if (pc.screens.length === 0) { pcStop(); return; }
   pcRenderScreens();
 }
@@ -755,28 +782,38 @@ function pcCreatePeer(attempt){
 
   peer.on('disconnected', function(){ try { peer.reconnect(); } catch (_e) {} });
   peer.on('connection', function(conn){
-    /* 見る側は1台まで。ただし新しい接続を優先する:
-       再読み込み前の古い接続が残っていても、新しい方を受け入れて古い方を切る */
-    if (pc.conn && pc.conn !== conn) {
-      try { pc.conn.close(); } catch (_e) {}
-    }
-    pc.conn = conn;
-    conn.on('open', function(){
-      if (pc.conn !== conn) return;
-      setDot('dotQuest', 'on');
-      $('lblQuest').textContent = 'Questと接続中';
-      pcSendHelperState();
-      pc.screens.forEach(pcCallScreen);
-    });
-    conn.on('data', function(m){ if (pc.conn === conn) pcOnData(m); });
-    conn.on('close', function(){
-      if (pc.conn !== conn) return; /* 置き換えた古い接続の後始末で、新しい接続を消さない */
-      pc.conn = null;
-      pc.screens.forEach(function(s){ s.call = null; });
-      if (pc.screens.length) {
-        setDot('dotQuest', 'wait');
-        $('lblQuest').textContent = 'Questの接続待ち';
+    /* 見る側は最大3台まで同時接続。同じ端末の再接続は古い方を置き換え、
+       あふれたら一番古い接続を切って新しい方を受け入れる */
+    pc.conns = pc.conns.filter(function(c){
+      if (c !== conn && c.peer === conn.peer) {
+        try { c.close(); } catch (_e) {}
+        return false;
       }
+      return c !== conn;
+    });
+    while (pc.conns.length >= 3) {
+      var oldC = pc.conns.shift();
+      try { oldC.close(); } catch (_e) {}
+    }
+    pc.conns.push(conn);
+    conn.on('open', function(){
+      if (pc.conns.indexOf(conn) < 0) return;
+      pcUpdateViewerLabel();
+      try { conn.send({ t: 'helper', on: pc.helperOn }); } catch (_e) {}
+      pc.screens.forEach(function(item){ pcCallScreenTo(item, conn); });
+    });
+    conn.on('data', function(m){ if (pc.conns.indexOf(conn) >= 0) pcOnData(m); });
+    conn.on('close', function(){
+      var i = pc.conns.indexOf(conn);
+      if (i < 0) return; /* 置き換え済みの古い接続 */
+      pc.conns.splice(i, 1);
+      pc.screens.forEach(function(item){
+        if (item.calls && item.calls[conn.peer]) {
+          try { item.calls[conn.peer].close(); } catch (_e) {}
+          delete item.calls[conn.peer];
+        }
+      });
+      pcUpdateViewerLabel();
     });
   });
 
@@ -839,10 +876,20 @@ async function pcPingHelper(){
   }
 }
 
-function pcSendHelperState(){
-  if (pc.conn && pc.conn.open) {
-    try { pc.conn.send({ t: 'helper', on: pc.helperOn }); } catch (_e) {}
+function pcUpdateViewerLabel(){
+  var n = 0;
+  pc.conns.forEach(function(c){ if (c.open) n++; });
+  if (n > 0) {
+    setDot('dotQuest', 'on');
+    $('lblQuest').textContent = (n === 1) ? 'Questと接続中' : '見る側 ' + n + '台と接続中';
+  } else if (pc.screens.length) {
+    setDot('dotQuest', 'wait');
+    $('lblQuest').textContent = 'Questの接続待ち';
   }
+}
+
+function pcSendHelperState(){
+  pcBroadcast({ t: 'helper', on: pc.helperOn });
 }
 
 function pcOnData(msg){
@@ -872,6 +919,11 @@ function pcOnData(msg){
   } else if (msg.t === 'txt') {
     var s2 = String(msg.s || '').slice(0, 1000);
     if (s2) pc.inputQueue.push({ t: 'txt', s: s2 });
+  } else if (msg.t === 'kb') {
+    pc.inputQueue.push({ t: 'kb', c: String(msg.c || '').slice(0, 20), m: (msg.m | 0) & 15 });
+  } else if (msg.t === 'ch') {
+    var s3 = String(msg.s || '').slice(0, 8);
+    if (s3) pc.inputQueue.push({ t: 'ch', s: s3 });
   }
 }
 
@@ -891,11 +943,11 @@ async function pcFlushInput(){
 function pcStop(){
   pc.screens.forEach(function(item){
     item.stream.getTracks().forEach(function(t){ try { t.stop(); } catch (_e) {} });
-    if (item.call) { try { item.call.close(); } catch (_e) {} }
+    pcEachCall(item, function(c){ try { c.close(); } catch (_e) {} });
   });
   pc.screens = [];
   if (pc.peer) { try { pc.peer.destroy(); } catch (_e) {} pc.peer = null; }
-  pc.conn = null;
+  pc.conns = [];
   pc.timers.forEach(clearInterval);
   pc.timers = [];
   pc.inputQueue = [];
@@ -1167,6 +1219,7 @@ function questOnPeerError(err){
 }
 
 function questShowErr(msg){
+  if (APP.xrPadMsg) APP.xrPadMsg(msg);
   if (!$('qStepA').classList.contains('hidden')) {
     $('qErr').textContent = msg;
     $('btnConnect').disabled = false;
@@ -1217,6 +1270,7 @@ function questUiSync(){
   if (qsEl) qsEl.textContent = anyRetry
     ? '接続が切れました。自動で再接続しています…'
     : 'パソコンの画面を受信しています。';
+  if (APP.xrPadSync) APP.xrPadSync();
 }
 
 function questReset(){
@@ -1240,7 +1294,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-03l';
+var APP_VER = '2026-08-03m';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1312,7 +1366,8 @@ function loadS(){
   if (!kmValid(s.km2) || kmIsOldDefault(s.km2)) s.km2 = kmDefault();
   delete s.km;
   s.lowLat = (s.lowLat !== false); /* 低遅延モード: 初期ON */
-  s.trig = (s.trig === 'plain') ? 'plain' : 'vd'; /* トリガー: 長押し→移動でスクロール */
+  s.trig = (s.trig === 'plain') ? 'plain' : 'vd';
+  s.kbfwd = (s.kbfwd !== false); /* BTキーボード直送: 初期ON */ /* トリガー: 長押し→移動でスクロール */
   s.rscale = ([1, 1.15, 1.3].indexOf(+s.rscale) >= 0) ? +s.rscale : 1.15; /* VR描画解像度 */
   s.aniso = (s.aniso !== false); /* 文字のちらつき低減: 初期ON */
   if (!Array.isArray(s.slots) || s.slots.length !== 3) s.slots = [null, null, null];
@@ -1370,7 +1425,7 @@ function pcSetQuality(p){
       try { vt.contentHint = q.hint; } catch (_e) {}
       pcApplyFps(vt, q.fps);
     }
-    if (item.call) pcApplyQualityToCall(item.call, 0);
+    pcEachCall(item, function(c){ pcApplyQualityToCall(c, 0); });
   });
 }
 
@@ -1563,6 +1618,7 @@ function renderKm(){
     box.appendChild(row);
   });
   $('selTrig').value = S.trig;
+  $('chkKbFwd').checked = S.kbfwd;
   $('selStick').value = S.stick;
   $('selScrollDir').value = String(S.scrollDir);
   $('selScrollSpd').value = String(S.scrollSpd);
@@ -1644,6 +1700,10 @@ function initSettingsUi(){
       renderSettings();
     });
   });
+  $('chkKbFwd').addEventListener('change', function(){
+    S.kbfwd = $('chkKbFwd').checked;
+    saveS();
+  });
   $('selTrig').addEventListener('change', function(){
     S.trig = ($('selTrig').value === 'plain') ? 'plain' : 'vd';
     saveS();
@@ -1706,6 +1766,42 @@ function initSettingsUi(){
   });
   setInterval(questStatsTick, 2000);
 }
+
+/* ================================================================
+   Bluetoothキーボード直送:
+   タッチビューア表示中、またはVRセッション中の物理キー入力をPCへ送る
+   ================================================================ */
+var KB_CODES = {};
+('KeyA KeyB KeyC KeyD KeyE KeyF KeyG KeyH KeyI KeyJ KeyK KeyL KeyM KeyN KeyO KeyP KeyQ KeyR KeyS KeyT KeyU KeyV KeyW KeyX KeyY KeyZ ' +
+ 'Digit0 Digit1 Digit2 Digit3 Digit4 Digit5 Digit6 Digit7 Digit8 Digit9 ' +
+ 'Minus Equal BracketLeft BracketRight Backslash Semicolon Quote Backquote Comma Period Slash ' +
+ 'Enter Escape Backspace Tab Space Delete ArrowLeft ArrowRight ArrowUp ArrowDown Home End PageUp PageDown ' +
+ 'F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12').split(' ').forEach(function(c){ KB_CODES[c] = 1; });
+
+function kbForwardHost(){
+  var tvOpen = !$('touchView').classList.contains('hidden');
+  if (tvOpen) return tv.host || null;
+  if (typeof xr !== 'undefined' && xr.session) return xr.lastHost || (qs.hosts[0] || null);
+  return null;
+}
+
+window.addEventListener('keydown', function(e){
+  if (!S.kbfwd) return;
+  var t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  var host = kbForwardHost();
+  if (!host || !host.helperOn) return;
+  var mods = (e.ctrlKey ? 1 : 0) | (e.shiftKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+  if (e.key && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    hostSend(host, { t: 'ch', s: e.key });
+    e.preventDefault();
+    return;
+  }
+  if (KB_CODES[e.code]) {
+    hostSend(host, { t: 'kb', c: e.code, m: mods });
+    e.preventDefault();
+  }
+});
 /* ================================================================
    VR Desktop - タッチビューア(スマホ / タブレット / パソコン)
    ジェスチャー:
@@ -2126,6 +2222,10 @@ var xr = {
   menu: { open: false, mesh: null, canvas: null, ctx: null, tex: null, btns: [] },
   keys: { open: false, mesh: null, canvas: null, ctx: null, tex: null, btns: [] },
   keysHL: null, keysCustom: false, keysSig: '',
+  pad: { open: false, mesh: null, canvas: null, ctx: null, tex: null, btns: [], code: '', status: '' },
+  padHL: null, padCustom: false,
+  handSel: { right: false, left: false },
+  lastClock: '', remindMin: 0, remindAt: 0, remindShownUntil: 0,
   menuHL: null, menuCustom: false, hudCustom: false,
   camPos: null,
   bg: { grid: null, ring: null, sky: null, spark: null, tex: {} },
@@ -2133,7 +2233,7 @@ var xr = {
 };
 
 function xrEmptyPh(){
-  return { hover: null, menuBtn: null, onMenu: false, onHud: false, bar: null, uiDist: 0, onKeys: false, keysBtn: null };
+  return { hover: null, menuBtn: null, onMenu: false, onHud: false, bar: null, uiDist: 0, onKeys: false, keysBtn: null, onPad: false, padBtn: null };
 }
 
 APP.xrKmChanged = function(){
@@ -2861,6 +2961,18 @@ function xrDrawHud(){
   ctx.font = 'bold 40px sans-serif';
   ctx.fillText(st[0], 40, 72);
 
+  var dnow = new Date();
+  ctx.fillStyle = '#8f89a8';
+  ctx.font = 'bold 34px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText(dnow.getHours() + ':' + ('0' + dnow.getMinutes()).slice(-2), W - 40, 72);
+  ctx.textAlign = 'left';
+  if (Date.now() < xr.remindShownUntil) {
+    ctx.fillStyle = '#ffb86b';
+    ctx.font = 'bold 27px sans-serif';
+    ctx.fillText('☕ 休憩の時間です', 40, 112);
+  }
+
   var adjJp = (S.stick === 'right') ? '右' : '左';
   var scrJp = (S.stick === 'right') ? '左' : '右';
   var lines = [
@@ -2926,10 +3038,12 @@ async function xrEnter(){
   try {
     /* 描画解像度(スーパーサンプリング)。セッション開始前にのみ設定できる */
     try { xr.renderer.xr.setFramebufferScaleFactor(S.rscale || 1); } catch (_e2) {}
-    var session = await navigator.xr.requestSession(mode, { optionalFeatures: ['local-floor'] });
+    var session = await navigator.xr.requestSession(mode, { optionalFeatures: ['local-floor', 'hand-tracking'] });
     xr.mode = mode;
     xr.session = session;
     session.addEventListener('end', xrOnSessionEnd);
+    session.addEventListener('selectstart', xrOnSelectStart);
+    session.addEventListener('selectend', xrOnSelectEnd);
     await xr.renderer.xr.setSession(session);
     xr.needsRecenter = true;
     xr.hudPinned = false;
@@ -2940,6 +3054,23 @@ async function xrEnter(){
   } catch (e) {
     alert('VRを開始できませんでした: ' + (e && e.message ? e.message : e));
   }
+}
+
+/* ハンドトラッキング: つまむ(ピンチ)=クリック。押し分け(タップ/ドラッグ/長押しスクロール)も共通 */
+function xrOnSelectStart(e){
+  var src = e.inputSource;
+  if (!src || !src.hand) return; /* コントローラーのトリガーはボタン側で処理済み */
+  var hand = (src.handedness === 'left') ? 'left' : 'right';
+  xr.handSel[hand] = true;
+  xrActDown('click', hand);
+}
+
+function xrOnSelectEnd(e){
+  var src = e.inputSource;
+  if (!src || !src.hand) return;
+  var hand = (src.handedness === 'left') ? 'left' : 'right';
+  xr.handSel[hand] = false;
+  xrActUp('click', hand);
 }
 
 function xrOnSessionEnd(){
@@ -2957,6 +3088,12 @@ function xrOnSessionEnd(){
   if (xr.keys.mesh) xr.keys.mesh.visible = false;
   xr.keysHL = null;
   xr.keysCustom = false;
+  xr.pad.open = false;
+  if (xr.pad.mesh) xr.pad.mesh.visible = false;
+  xr.padHL = null;
+  xr.padCustom = false;
+  xr.handSel.right = false;
+  xr.handSel.left = false;
   xr.ph.right = xrEmptyPh();
   xr.ph.left = xrEmptyPh();
   if (xr.saveDirty) { xrSaveLayout(); }
@@ -2996,9 +3133,11 @@ function xrApplyRecenter(){
   xr.hudCustom = false;
   xr.menuCustom = false;
   xr.keysCustom = false;
+  xr.padCustom = false;
   xrLayout();
   if (xr.menu.open) xrMenuPlace();
   if (xr.keys.open) xrKeysPlace();
+  if (xr.pad.open) xrPadPlace();
 }
 
 /* ---------- つかんで移動 ---------- */
@@ -3012,6 +3151,9 @@ function xrGrabStart(hand){
   } else if (xr.keys.open && p.onKeys) {
     mesh = xr.keys.mesh; dist = p.uiDist; kind = 'keys';
     xr.keysCustom = true;
+  } else if (xr.pad.open && p.onPad) {
+    mesh = xr.pad.mesh; dist = p.uiDist; kind = 'pad';
+    xr.padCustom = true;
   } else if (p.onHud) {
     mesh = xr.hud; dist = p.uiDist; kind = 'hud';
     xr.hudCustom = true;
@@ -3152,6 +3294,7 @@ function xrActDown(action, hand){
   if (action === 'click') {
     if (xr.menu.open && p.onMenu) { xrMenuActivate(p.menuBtn); return; }
     if (xr.keys.open && p.onKeys) { xrKeysActivate(p.keysBtn); return; }
+    if (xr.pad.open && p.onPad) { xrPadActivate(p.padBtn); return; }
     if (p.onHud) { xrMenuToggle(); return; }
     if (p.bar) { if (p.bar.idx !== null) xrBarActivate(p.bar.scr, p.bar.idx); return; }
     var hov = xrPickHover(hand);
@@ -3257,7 +3400,8 @@ function xrPollInput(dt){
   xr.prevPhys = newPhys;
 
   /* 押しっぱなし検知: 離す信号が欠けても自動で復帰する */
-  if (xr.pressed.click && !kmAnyPressed('click')) {
+  var handHeld = xr.handSel.right || xr.handSel.left;
+  if (xr.pressed.click && !kmAnyPressed('click') && !handHeld) {
     hostSend(xr.pressed.click, { t: 'up', b: 0 });
     xr.pressed.click = null;
   }
@@ -3265,7 +3409,7 @@ function xrPollInput(dt){
     hostSend(xr.pressed.rclick, { t: 'up', b: 2 });
     xr.pressed.rclick = null;
   }
-  if (xr.press && !kmAnyPressed('click')) xrPressFinish(false);
+  if (xr.press && !kmAnyPressed('click') && !handHeld) xrPressFinish(false);
 
   var adjHand = (S.stick === 'right') ? 'right' : 'left';
   var scrHand = (adjHand === 'right') ? 'left' : 'right';
@@ -3297,7 +3441,7 @@ function xrPollInput(dt){
   }
 
   var overUi = xr.ph.right.onMenu || xr.ph.left.onMenu || xr.ph.right.onHud || xr.ph.left.onHud
-    || xr.ph.right.onKeys || xr.ph.left.onKeys;
+    || xr.ph.right.onKeys || xr.ph.left.onKeys || xr.ph.right.onPad || xr.ph.left.onPad;
   var sAx = axesByHand[scrHand];
   if (sAx && xr.mouseEnabled && !overUi) {
     var sv = -sAx.ay;
@@ -3340,6 +3484,7 @@ function xrUpdatePointerFor(hand){
   var meshes = [];
   if (!busyDrag && xr.menu.open && xr.menu.mesh) meshes.push(xr.menu.mesh);
   if (!busyDrag && xr.keys.open && xr.keys.mesh) meshes.push(xr.keys.mesh);
+  if (!busyDrag && xr.pad.open && xr.pad.mesh) meshes.push(xr.pad.mesh);
   if (!busyDrag && xr.hud && xr.hud.visible) meshes.push(xr.hud);
   xr.screens.forEach(function(s){
     if (s.bar && !busyDrag) meshes.push(s.bar.mesh); /* 透明でも当たり判定は生きている */
@@ -3360,6 +3505,10 @@ function xrUpdatePointerFor(hand){
       p.onKeys = true;
       p.uiDist = hit.distance;
       if (hit.uv) p.keysBtn = xrKeysHit(hit.uv);
+    } else if (xr.pad.open && obj === xr.pad.mesh) {
+      p.onPad = true;
+      p.uiDist = hit.distance;
+      if (hit.uv) p.padBtn = xrPadHit(hit.uv);
     } else if (obj === xr.hud) {
       p.onHud = true;
       p.uiDist = hit.distance;
@@ -3399,6 +3548,13 @@ function xrUpdatePointers(){
       xr.keysHL = kl;
       xr.keysSig = ksig;
       xrKeysDraw();
+    }
+  }
+  if (xr.pad.open) {
+    var pl = xr.ph.right.padBtn || xr.ph.left.padBtn;
+    if (pl !== xr.padHL) {
+      xr.padHL = pl;
+      xrPadDraw();
     }
   }
   xrUpdateBars();
@@ -3561,6 +3717,186 @@ function xrKeysActivate(id){
   }
 }
 
+/* ---------- VR内のPC追加(テンキー)パネル ---------- */
+var PAD_W = 1024, PAD_H = 520;
+
+function xrPadEnsure(){
+  if (xr.pad.mesh) return;
+  var c = document.createElement('canvas');
+  c.width = PAD_W;
+  c.height = PAD_H;
+  xr.pad.canvas = c;
+  xr.pad.ctx = c.getContext('2d');
+  xr.pad.tex = new THREE.CanvasTexture(c);
+  var mat = new THREE.MeshBasicMaterial({ map: xr.pad.tex, transparent: true, side: THREE.DoubleSide });
+  xr.pad.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.3 * PAD_H / PAD_W), mat);
+  xr.pad.mesh.visible = false;
+  xr.scene.add(xr.pad.mesh);
+}
+
+function xrPadToggle(){
+  xrPadEnsure();
+  xr.pad.open = !xr.pad.open;
+  xr.pad.mesh.visible = xr.pad.open;
+  if (xr.pad.open) {
+    xr.pad.status = '';
+    xrPadPlace();
+    xrPadDraw();
+  } else {
+    xr.padHL = null;
+  }
+}
+
+function xrPadPlace(){
+  if (xr.padCustom) return;
+  var camPos = new THREE.Vector3();
+  xr.camera.getWorldPosition(camPos);
+  var dir = new THREE.Vector3();
+  xr.camera.getWorldDirection(dir);
+  dir.y = 0;
+  if (dir.lengthSq() < 1e-4) dir.set(0, 0, -1);
+  dir.normalize();
+  xr.pad.mesh.position.set(camPos.x + dir.x * 1.3, camPos.y - 0.12, camPos.z + dir.z * 1.3);
+  xr.pad.mesh.lookAt(camPos.x, xr.pad.mesh.position.y, camPos.z);
+}
+
+function xrPadDraw(){
+  if (!xr.pad.ctx || !xr.pad.open) return;
+  var ctx = xr.pad.ctx, W = PAD_W, H = PAD_H;
+  var btns = [];
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(16,14,26,0.96)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#8f7bff';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(3, 3, W - 6, H - 6);
+  ctx.fillStyle = '#eceaf6';
+  ctx.font = 'bold 30px sans-serif';
+  ctx.fillText('PCを追加 / 再接続', 32, 50);
+
+  function pbtn(id, x, y, w, h, text, big){
+    var hover = xr.padHL === id;
+    ctx.fillStyle = '#252142';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = hover ? '#cfc4ff' : '#3d3766';
+    ctx.lineWidth = hover ? 3 : 2;
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = '#eceaf6';
+    ctx.font = (big ? 'bold 30px' : '27px') + ' sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + w / 2, y + h / 2 + 1);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    btns.push({ id: id, x: x, y: y, w: w, h: h });
+  }
+
+  pbtn('close', W - 150, 16, 120, 46, '閉じる');
+
+  /* コード表示 */
+  for (var bi = 0; bi < 6; bi++) {
+    var bx = 32 + bi * 60;
+    ctx.fillStyle = '#161327';
+    ctx.fillRect(bx, 76, 52, 62);
+    ctx.strokeStyle = '#332e58';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(bx, 76, 52, 62);
+    var chd = xr.pad.code[bi] || '';
+    if (chd) {
+      ctx.fillStyle = '#eceaf6';
+      ctx.font = 'bold 34px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(chd, bx + 26, 108);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+    }
+  }
+
+  /* テンキー */
+  var grid = [['d1', '1'], ['d2', '2'], ['d3', '3'], ['d4', '4'], ['d5', '5'],
+              ['d6', '6'], ['d7', '7'], ['d8', '8'], ['d9', '9'],
+              ['clr', 'C'], ['d0', '0'], ['bks', '⌫']];
+  for (var gi = 0; gi < grid.length; gi++) {
+    var gx = 32 + (gi % 3) * 112;
+    var gy = 160 + Math.floor(gi / 3) * 86;
+    pbtn(grid[gi][0], gx, gy, 100, 74, grid[gi][1], true);
+  }
+
+  pbtn('go', 420, 160, 220, 74, '接続する', true);
+
+  /* 接続の一覧 */
+  ctx.font = '24px sans-serif';
+  var hy = 96;
+  if (!qs.hosts.length) {
+    ctx.fillStyle = '#8f89a8';
+    ctx.fillText('まだ接続がありません', 420, hy);
+  }
+  for (var hi = 0; hi < qs.hosts.length && hi < 3; hi++) {
+    var h = qs.hosts[hi];
+    var stt = h.state === 'retry' ? '⟳ 再接続中' :
+      (h.state === 'open' ? (h.helperOn ? '接続中(操作ON)' : '接続中(見るだけ)') : '接続待ち…');
+    ctx.fillStyle = '#d8d5ea';
+    ctx.fillText('PC' + (hi + 1) + ' [' + h.code + '] ' + stt, 420, hy);
+    hy += 34;
+  }
+
+  /* 状態メッセージ */
+  ctx.fillStyle = '#ffb86b';
+  ctx.font = '23px sans-serif';
+  var stx = xr.pad.status || '';
+  for (var li = 0; li < 6 && stx.length; li++) {
+    ctx.fillText(stx.slice(0, 24), 420, 286 + li * 32);
+    stx = stx.slice(24);
+  }
+
+  xr.pad.btns = btns;
+  xr.pad.tex.needsUpdate = true;
+}
+
+function xrPadHit(uv){
+  var x = uv.x * PAD_W;
+  var y = (1 - uv.y) * PAD_H;
+  for (var i = 0; i < xr.pad.btns.length; i++) {
+    var b = xr.pad.btns[i];
+    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b.id;
+  }
+  return null;
+}
+
+function xrPadActivate(id){
+  if (!id) return;
+  if (id === 'close') { xrPadToggle(); return; }
+  if (id === 'clr') {
+    xr.pad.code = '';
+  } else if (id === 'bks') {
+    xr.pad.code = xr.pad.code.slice(0, -1);
+  } else if (id === 'go') {
+    if (xr.pad.code.length !== 6) {
+      xr.pad.status = '6桁のコードを入力してください。';
+    } else {
+      var fake = { textContent: '' };
+      var ok = questAddHost(xr.pad.code, fake);
+      xr.pad.status = fake.textContent || (ok ? '接続しています…(結果は15秒以内にここに出ます)' : '');
+      if (ok) xr.pad.code = '';
+    }
+  } else if (id.charAt(0) === 'd') {
+    if (xr.pad.code.length < 6) xr.pad.code += id.charAt(1);
+  }
+  xrPadDraw();
+}
+
+APP.xrPadMsg = function(msg){
+  if (xr.built && xr.pad.open) {
+    xr.pad.status = String(msg || '');
+    xrPadDraw();
+  }
+};
+
+APP.xrPadSync = function(){
+  if (xr.built && xr.pad.open) xrPadDraw();
+};
+
 /* ---------- VRの中の設定メニュー ---------- */
 var MENU_H = 820;
 
@@ -3655,6 +3991,8 @@ function xrMenuDraw(){
   ctx.fillText('設定', 36, 58);
 
   btn('close', W - 166, 20, 130, 48, '閉じる');
+  btn('pad', W - 320, 20, 140, 48, 'PC追加', false, false, true);
+  btn('rc', W - 474, 20, 140, 48, '整列', false, false, true);
 
   label('画質', 36, 122);
   ['sharp', 'balance', 'smooth', 'auto'].forEach(function(p, i){
@@ -3691,6 +4029,11 @@ function xrMenuDraw(){
     var x0 = 36 + i * 330;
     btn('sv:' + i, x0, 696, 150, 52, nm + ' 保存', false, false, true);
     btn('ld:' + i, x0 + 158, 696, 150, 52, nm + ' 呼出', !!S.slots[i], !S.slots[i], true);
+  });
+
+  label('休憩リマインダー', 36, 786);
+  [['rm:0', 'なし', 0], ['rm:30', '30分', 30], ['rm:60', '60分', 60], ['rm:90', '90分', 90]].forEach(function(it, i){
+    btn(it[0], 300 + i * 140, 756, 128, 48, it[1], xr.remindMin === it[2], false, true);
   });
 
   xr.menu.btns = btns;
@@ -3744,6 +4087,15 @@ function xrMenuActivate(id){
     S.vol = clamp(Math.round((S.vol + (id === 'vol:+' ? 0.1 : -0.1)) * 10) / 10, 0, 1);
     saveS();
     applyVolume();
+  } else if (id === 'pad') {
+    xrPadToggle();
+  } else if (id === 'rc') {
+    xr.needsRecenter = true;
+  } else if (p[0] === 'rm') {
+    var mm = parseInt(p[1], 10) || 0;
+    xr.remindMin = mm;
+    xr.remindAt = mm ? (Date.now() + mm * 60000) : 0;
+    xr.remindShownUntil = 0;
   } else if (p[0] === 'sv') {
     S.slots[parseInt(p[1], 10) || 0] = xrSnapshotLayout();
     saveS();
@@ -3843,6 +4195,22 @@ function xrRender(){
     xrSaveLayout();
   }
   if (xr.hud) xr.hud.visible = xr.hudPinned || now < xr.hudUntil;
+
+  /* 時計の分更新と休憩リマインダー */
+  var dclk = new Date();
+  var clkStr = dclk.getHours() + ':' + ('0' + dclk.getMinutes()).slice(-2);
+  if (clkStr !== xr.lastClock) {
+    xr.lastClock = clkStr;
+    xrDrawHud();
+  }
+  if (xr.remindAt && Date.now() >= xr.remindAt) {
+    xr.remindAt = 0;
+    xr.remindMin = 0;
+    xr.remindShownUntil = Date.now() + 60000;
+    xr.hudPinned = true;
+    xrDrawHud();
+    if (xr.menu.open) xrMenuDraw();
+  }
 
   xr.renderer.render(xr.scene, xr.camera);
 
