@@ -962,6 +962,18 @@ function questAddHost(codeRaw, errEl){
   qs.hosts.push(host);
   qs.pendingHost = host;
   questUiSync();
+  /* 15秒で必ず結果を出す(黙って「接続中…」のままにしない) */
+  host.connWatch = setTimeout(function(){
+    if (host.gone || host.state !== 'connecting') return;
+    host.gone = true;
+    if (qs.pendingHost === host) qs.pendingHost = null;
+    try { if (host.conn) host.conn.close(); } catch (_e) {}
+    var i = qs.hosts.indexOf(host);
+    if (i >= 0) qs.hosts.splice(i, 1);
+    questUiSync();
+    if (APP.xrSync) APP.xrSync();
+    questShowErr('時間内に接続できませんでした。パソコン側が「コードを発行しています…」のままなら中継サーバー側の問題です(両方のページを再読み込みして、時間をおいて再試行)。コード発行済みなのに毎回ここで止まる場合は、ルーターの「プライバシーセパレーター(AP隔離)」やVPN・テザリングが機器どうしの通信を遮っている可能性が高いです。');
+  }, 15000);
   questEnsurePeer(function(){
     host.conn = qs.peer.connect(PEER_PREFIX + code, { serialization: 'json' });
     questWireConn(host);
@@ -976,6 +988,7 @@ function questWireConn(host){
     if (qs.pendingHost === host) qs.pendingHost = null;
     host.state = 'open';
     host.retryUntil = 0;
+    clearTimeout(host.connWatch);
     clearTimeout(host.retryWatch);
     hostSend(host, { t: 'q', p: S.q });
     questUiSync();
@@ -1088,6 +1101,7 @@ function questRemoveScreen(host, slot, silent){
 
 function questDropHost(host, msg){
   host.gone = true;
+  clearTimeout(host.connWatch);
   clearTimeout(host.retryTimer);
   clearTimeout(host.retryWatch);
   var i = qs.hosts.indexOf(host);
@@ -1118,6 +1132,7 @@ function questOnPeerError(err){
       var h2 = questHostByPeerId(PEER_PREFIX + m[1]);
       if (h2) host = h2;
     }
+    if (host) clearTimeout(host.connWatch);
     if (host && host.state === 'retry') {
       /* 自動再接続の途中: エラー表示せず、次の試行にまわす */
       clearTimeout(host.retryWatch);
@@ -1136,8 +1151,10 @@ function questOnPeerError(err){
       if (APP.tvSync) APP.tvSync();
     }
     questShowErr('このコードのパソコンが見つかりません。コードと、パソコン側で共有中かを確認してください。');
-  } else if (t === 'network' || t === 'server-error' || t === 'socket-error') {
-    questShowErr('接続サービスにつながりません。QuestがWi-Fiにつながっているか確認してください。');
+  } else if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') {
+    questShowErr('接続サービスにつながりません。QuestがWi-Fiにつながっているか確認して、ページを再読み込みしてください。');
+  } else if (t && t !== 'disconnected') {
+    questShowErr('接続サービスでエラーが起きました(種類: ' + t + ')。両方のページを再読み込みして、もう一度試してください。');
   }
 }
 
@@ -1215,7 +1232,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-03j';
+var APP_VER = '2026-08-03k';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
