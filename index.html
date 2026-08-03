@@ -146,6 +146,11 @@ video.preview{
 .code-input::placeholder{color:#4a4568;letter-spacing:.35em}
 
 .msg-err{color:var(--err);font-size:14px;min-height:1.6em;margin-bottom:8px}
+.notice-warn{
+  margin-top:10px;padding:10px 12px;border-radius:10px;
+  background:rgba(255,184,107,.10);border:1px solid rgba(255,184,107,.45);
+  color:#ffd8a8;font-size:13px;line-height:1.8;
+}
 .diag{
   margin-top:8px;padding:8px 10px;background:#0d0b18;border:1px solid var(--line);
   border-radius:8px;color:var(--muted);font-size:11px;line-height:1.7;
@@ -317,6 +322,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
       <p class="code-hint">接続コード</p>
       <div class="codebox" id="codeBox"></div>
       <p class="code-hint" id="pcCodeHint">コードを発行しています…</p>
+      <div class="notice-warn hidden" id="pcPermWarn"></div>
     </div>
     <div class="panel">
       <div class="statusrow"><span class="dot dot-off" id="dotShare"></span><span class="lbl">画面の共有</span></div>
@@ -403,6 +409,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
   <div class="tv-top">
     <div class="tv-tabs" id="tvTabs"></div>
     <span class="tv-stats hidden" id="tvStats"></span>
+    <button class="btn-ghost btn-sm" id="tvMode" title="カーソルの移動方法">絶対</button>
     <button class="btn-ghost btn-sm" id="tvKeys">⌨</button>
     <button class="btn-ghost btn-sm" id="tvFull">全画面</button>
     <button class="btn-ghost btn-sm" id="tvSet">設定</button>
@@ -506,6 +513,20 @@ footer.site a{color:var(--muted);text-decoration:underline}
           <input type="checkbox" id="chkAniso" style="width:18px;height:18px;accent-color:var(--accent)">
         </div>
         <p class="set-note">描画解像度は、次にVRへ入るときに反映されます。これらはVRの中の設定メニュー(標準では左手のXボタン)からもその場で変えられます。背景も即時に切り替わりますが、パススルーとの行き来だけはVRの入り直しで反映されます(対応機のみ)。</p>
+      </div>
+      <div class="set-row">
+        <label>カーソルの移動方法(タッチで見る)</label>
+        <select class="monsel" id="selTvMode">
+          <option value="abs">絶対(指やカーソルの位置へ)</option>
+          <option value="rel">相対(トラックパッド式)</option>
+        </select>
+      </div>
+      <div class="set-row">
+        <label>タッチ/マウスのカーソル移動(タッチで見る)</label>
+        <select class="monsel" id="selPtrMode">
+          <option value="abs">そのまま(触れた場所・マウス位置へ)</option>
+          <option value="rel">なぞって動かす(トラックパッド式)</option>
+        </select>
       </div>
       <div class="set-row">
         <label>低遅延モード(受信のため込みを最小化)</label>
@@ -626,6 +647,7 @@ async function pcStartShare(){
   pcSetQuality(S.q);
   pcCreatePeer(0);
   pcStartHelperLoop();
+  pcCheckPermission();
 }
 
 async function pcAddScreenClick(){
@@ -931,6 +953,17 @@ function pcOnData(msg){
   } else if (msg.t === 'ch') {
     var s3 = String(msg.s || '').slice(0, 8);
     if (s3) pc.inputQueue.push({ t: 'ch', s: s3 });
+  } else if (msg.t === 'mvr') {
+    /* 相対移動: 連続するぶんは1つにまとめてヘルパーの負荷を抑える */
+    var rdx = clamp(msg.x | 0, -3000, 3000);
+    var rdy = clamp(msg.y | 0, -3000, 3000);
+    var lastQ = pc.inputQueue[pc.inputQueue.length - 1];
+    if (lastQ && lastQ.t === 'mvr') {
+      lastQ.x += rdx;
+      lastQ.y += rdy;
+    } else {
+      pc.inputQueue.push({ t: 'mvr', x: rdx, y: rdy });
+    }
   }
 }
 
@@ -1010,7 +1043,6 @@ function questLog(msg){
   var el = $('qDiag');
   if (el) {
     el.textContent = qs.diag.join('\n');
-    show(el, true);
     el.scrollTop = el.scrollHeight;
   }
 }
@@ -1394,6 +1426,7 @@ function questOnPeerError(err){
 
 function questShowErr(msg){
   if (APP.xrPadMsg) APP.xrPadMsg(msg);
+  if (qs.diag.length) show($('qDiag'), true); /* ログは問題が起きたときだけ表示 */
   if (!$('qStepA').classList.contains('hidden')) {
     $('qErr').textContent = msg;
     $('btnConnect').disabled = false;
@@ -1468,7 +1501,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-03s';
+var APP_VER = '2026-08-03u';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1542,6 +1575,8 @@ function loadS(){
   s.lowLat = (s.lowLat !== false); /* 低遅延モード: 初期ON */
   s.trig = (s.trig === 'plain') ? 'plain' : 'vd';
   s.kbfwd = (s.kbfwd !== false); /* BTキーボード直送: 初期ON */
+  s.ptrMode = (s.ptrMode === 'rel') ? 'rel' : 'abs'; /* タッチ/マウスのカーソル移動 */
+  s.tvMode = (s.tvMode === 'rel') ? 'rel' : 'abs'; /* タッチで見るのカーソル移動方式 */
   s.rscale = ([1, 1.15, 1.3].indexOf(+s.rscale) >= 0) ? +s.rscale : 1.15; /* VR描画解像度 */
   s.aniso = (s.aniso !== false); /* 文字のちらつき低減: 初期ON */
   if (!Array.isArray(s.slots) || s.slots.length !== 3) s.slots = [null, null, null];
@@ -1864,8 +1899,10 @@ function renderEnv(){
   });
   $('chkStats').checked = S.stats;
   $('chkLowLat').checked = S.lowLat;
+  $('selTvMode').value = S.tvMode;
   $('selRScale').value = String(S.rscale);
   $('chkAniso').checked = S.aniso;
+  $('selPtrMode').value = S.ptrMode;
   $('rangeMaxD').value = String(S.maxDist);
   $('valMaxD').textContent = S.maxDist + 'm';
   $('rangeMaxW').value = String(S.maxW);
@@ -1926,10 +1963,19 @@ function initSettingsUi(){
     S.rscale = ([1, 1.15, 1.3].indexOf(v) >= 0) ? v : 1.15;
     saveS();
   });
+  $('selPtrMode').addEventListener('change', function(){
+    S.ptrMode = ($('selPtrMode').value === 'rel') ? 'rel' : 'abs';
+    saveS();
+  });
   $('chkAniso').addEventListener('change', function(){
     S.aniso = $('chkAniso').checked;
     saveS();
     if (APP.xrAnisoChanged) APP.xrAnisoChanged();
+  });
+  $('selTvMode').addEventListener('change', function(){
+    S.tvMode = ($('selTvMode').value === 'rel') ? 'rel' : 'abs';
+    saveS();
+    if (APP.tvModeChanged) APP.tvModeChanged();
   });
   $('chkLowLat').addEventListener('change', function(){
     S.lowLat = $('chkLowLat').checked;
@@ -1992,13 +2038,18 @@ window.addEventListener('keydown', function(e){
 });
 /* ================================================================
    VR Desktop - タッチビューア(スマホ / タブレット / パソコン)
-   ジェスチャー:
-     1本指なぞる        = カーソル移動
-     1本指タップ        = クリック(2回続けてダブルクリック)
-     1本指長押し→動かす = ドラッグ
-     2本指タップ        = 右クリック
-     2本指で上下        = スクロール(ズーム中は表示の移動)
-     ピンチ             = 手元でズーム
+
+   タッチ(「そのまま」= 触れた場所へ):
+     1本指なぞる/タップ = カーソル移動/クリック、長押し→動かす = ドラッグ
+     2本指で上下 = スクロール(ズーム中は表示の移動)
+     2本指タップ = 右クリック、ピンチ = 手元でズーム
+   タッチ(「なぞって動かす」= トラックパッド式):
+     1本指なぞる = 相対移動、タップ = その場でクリック
+     長押し→動かす = ドラッグ。2本指スクロールなどは共通
+   マウス(パソコンで開いたとき):
+     そのまま: 動かすだけで追従、左/右クリック、ホイール
+     なぞって: すぐ動かす=相対移動、短くクリック=クリック、
+               長押し→動かす=ドラッグ、右クリック/ホイール対応
    ================================================================ */
 
 var tv = {
@@ -2013,7 +2064,10 @@ var tv = {
   twoKind: '',         /* '' | 'pinch' | 'scroll' | 'pan' */
   ignoreSingle: false,
   lastMv: 0,
-  unmuteTried: false
+  unmuteTried: false,
+  relX: 0, relY: 0,
+  lastWheel: 0,
+  m: null /* マウス用の押し分け状態 */
 };
 
 function tvPtrCount(){ return Object.keys(tv.ptrs).length; }
@@ -2158,6 +2212,22 @@ function tvClampPan(){
   tv.ty = clamp(tv.ty, minY, 0);
 }
 
+var REL_TOUCH = 2.4, REL_MOUSE = 1.5;
+
+function tvIsRel(){ return S.ptrMode === 'rel'; }
+
+/* トラックパッド式: 動かした量をそのままPCカーソルの移動量として送る */
+function tvSendRel(dx, dy, mult){
+  if (!tvCanControl()) return;
+  tv.relX += dx * mult / Math.max(1, tv.z);
+  tv.relY += dy * mult / Math.max(1, tv.z);
+  var ix = Math.trunc(tv.relX), iy = Math.trunc(tv.relY);
+  if (!ix && !iy) return;
+  tv.relX -= ix;
+  tv.relY -= iy;
+  hostSend(tv.host, { t: 'mvr', x: clamp(ix, -300, 300), y: clamp(iy, -300, 300) });
+}
+
 function tvEndDrag(){
   if (tv.mode === 'drag' && tvCanControl()) hostSend(tv.host, { t: 'up', b: 0 });
   if (tv.holdTimer) { clearTimeout(tv.holdTimer); tv.holdTimer = null; }
@@ -2178,10 +2248,83 @@ function tvTryUnmute(){
   show($('qMuteNote'), false);
 }
 
+/* ---------- マウス(パソコンのタッチで見る) ---------- */
+function tvMouseDown(e){
+  $('tvTouch').setPointerCapture && $('tvTouch').setPointerCapture(e.pointerId);
+  if (e.button === 2) {
+    if (!tvCanControl()) return;
+    if (!tvIsRel()) {
+      var uvr = tvUv(e.clientX, e.clientY);
+      if (!uvr.inside) return;
+      tvSendMv(uvr);
+    }
+    hostSend(tv.host, { t: 'dn', b: 2 });
+    tv.m = { btn: 2 };
+    return;
+  }
+  if (e.button !== 0) return;
+  if (!tvIsRel()) {
+    var uv0 = tvUv(e.clientX, e.clientY);
+    if (uv0.inside && tvCanControl()) {
+      tvSendMv(uv0);
+      hostSend(tv.host, { t: 'dn', b: 0 });
+    }
+    tv.m = { btn: 0, abs: true };
+    return;
+  }
+  tv.m = { btn: 0, phase: 'pending', x: e.clientX, y: e.clientY, t0: performance.now() };
+}
+
+function tvMouseMove(e){
+  var now = performance.now();
+  if (!tv.m) {
+    /* ボタンなしの移動: 「そのまま」ならカーソルが追従する */
+    if (tvIsRel()) return;
+    if (now - tv.lastMv < 25) return;
+    var uv = tvUv(e.clientX, e.clientY);
+    if (uv.inside && tvCanControl()) { tvSendMv(uv); tv.lastMv = now; }
+    return;
+  }
+  if (tv.m.btn === 2 || tv.m.abs) {
+    if (tvIsRel()) return;
+    if (now - tv.lastMv < 25) return;
+    var uva = tvUv(e.clientX, e.clientY);
+    if (uva.inside && tvCanControl()) { tvSendMv(uva); tv.lastMv = now; }
+    return;
+  }
+  /* なぞってモードの左ボタン: 押してすぐ動かす=相対移動、長押し後=ドラッグ */
+  var dx = e.clientX - tv.m.x, dy = e.clientY - tv.m.y;
+  tv.m.x = e.clientX;
+  tv.m.y = e.clientY;
+  if (tv.m.phase === 'pending' && (dx || dy)) {
+    if (now - tv.m.t0 < 300) {
+      tv.m.phase = 'glide';
+    } else {
+      tv.m.phase = 'drag';
+      if (tvCanControl()) hostSend(tv.host, { t: 'dn', b: 0 });
+    }
+  }
+  if (tv.m.phase === 'glide' || tv.m.phase === 'drag') tvSendRel(dx, dy, REL_MOUSE);
+}
+
+function tvMouseUp(e){
+  if (!tv.m) return;
+  var m = tv.m;
+  tv.m = null;
+  if (!tvCanControl()) return;
+  if (m.btn === 2) { hostSend(tv.host, { t: 'up', b: 2 }); return; }
+  if (m.abs || m.phase === 'drag') { hostSend(tv.host, { t: 'up', b: 0 }); return; }
+  if (m.phase === 'pending' && performance.now() - m.t0 < 320) {
+    hostSend(tv.host, { t: 'dn', b: 0 });
+    hostSend(tv.host, { t: 'up', b: 0 });
+  }
+}
+
 /* ---------- ポインターイベント ---------- */
 function tvDown(e){
   e.preventDefault();
   tvTryUnmute();
+  if (e.pointerType === 'mouse') { tvMouseDown(e); return; }
   $('tvTouch').setPointerCapture && $('tvTouch').setPointerCapture(e.pointerId);
   tv.ptrs[e.pointerId] = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now() };
   var n = tvPtrCount();
@@ -2193,13 +2336,22 @@ function tvDown(e){
     tv.holdTimer = setTimeout(function(){
       if (tvPtrCount() === 1 && tv.mode === '' && !tv.ignoreSingle) {
         tv.mode = 'drag';
-        var uv = tvUv(tv.start.x, tv.start.y);
-        if (uv.inside && tvCanControl()) {
-          tvSendMv(uv);
-          hostSend(tv.host, { t: 'dn', b: 0 });
-          if (navigator.vibrate) { try { navigator.vibrate(15); } catch (_e) {} }
+        if (tvIsRel()) {
+          if (tvCanControl()) {
+            hostSend(tv.host, { t: 'dn', b: 0 });
+            if (navigator.vibrate) { try { navigator.vibrate(15); } catch (_e) {} }
+          } else {
+            tv.mode = '';
+          }
         } else {
-          tv.mode = '';
+          var uv = tvUv(tv.start.x, tv.start.y);
+          if (uv.inside && tvCanControl()) {
+            tvSendMv(uv);
+            hostSend(tv.host, { t: 'dn', b: 0 });
+            if (navigator.vibrate) { try { navigator.vibrate(15); } catch (_e) {} }
+          } else {
+            tv.mode = '';
+          }
         }
       }
       tv.holdTimer = null;
@@ -2224,8 +2376,11 @@ function tvDown(e){
 }
 
 function tvMove(e){
+  if (e.pointerType === 'mouse') { e.preventDefault(); tvMouseMove(e); return; }
   if (!tv.ptrs[e.pointerId]) return;
   e.preventDefault();
+  var prevPX = tv.ptrs[e.pointerId].x;
+  var prevPY = tv.ptrs[e.pointerId].y;
   tv.ptrs[e.pointerId].x = e.clientX;
   tv.ptrs[e.pointerId].y = e.clientY;
   var n = tvPtrCount();
@@ -2238,10 +2393,14 @@ function tvMove(e){
       if (tv.holdTimer) { clearTimeout(tv.holdTimer); tv.holdTimer = null; }
     }
     if (tv.mode === 'move' || tv.mode === 'drag') {
-      var now = performance.now();
-      if (now - tv.lastMv >= 25) {
-        var uv = tvUv(p.x, p.y);
-        if (uv.inside) { tvSendMv(uv); tv.lastMv = now; }
+      if (tvIsRel()) {
+        tvSendRel(e.clientX - prevPX, e.clientY - prevPY, REL_TOUCH);
+      } else {
+        var now = performance.now();
+        if (now - tv.lastMv >= 25) {
+          var uv = tvUv(p.x, p.y);
+          if (uv.inside) { tvSendMv(uv); tv.lastMv = now; }
+        }
       }
     }
   } else if (n === 2 && tv.mode === 'two' && tv.two) {
@@ -2251,8 +2410,8 @@ function tvMove(e){
     var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
 
     if (!tv.twoKind) {
-      if (Math.abs(d / tv.two.d - 1) > 0.08) tv.twoKind = 'pinch';
-      else if (Math.abs(my - tv.two.smy) > 16) tv.twoKind = (tv.z > 1.02) ? 'pan' : 'scroll';
+      if (Math.abs(d / tv.two.d - 1) > 0.09 && Math.abs(d - tv.two.d) > 24) tv.twoKind = 'pinch';
+      else if (Math.hypot(mx - tv.two.smx, my - tv.two.smy) > 12) tv.twoKind = (tv.z > 1.02) ? 'pan' : 'scroll';
     }
 
     if (tv.twoKind === 'pinch') {
@@ -2282,6 +2441,7 @@ function tvMove(e){
 }
 
 function tvUp(e){
+  if (e.pointerType === 'mouse') { e.preventDefault(); tvMouseUp(e); return; }
   if (!tv.ptrs[e.pointerId]) return;
   e.preventDefault();
   var was = tv.ptrs[e.pointerId];
@@ -2294,11 +2454,18 @@ function tvUp(e){
       var dur = performance.now() - tv.two.t;
       var moved = Math.hypot(tv.two.mx - tv.two.smx, tv.two.my - tv.two.smy);
       if (!tv.twoKind && dur < 300 && moved < 12) {
-        var uv2 = tvUv(tv.two.smx, tv.two.smy);
-        if (uv2.inside && tvCanControl()) {
-          tvSendMv(uv2);
-          hostSend(tv.host, { t: 'dn', b: 2 });
-          hostSend(tv.host, { t: 'up', b: 2 });
+        if (tvIsRel()) {
+          if (tvCanControl()) {
+            hostSend(tv.host, { t: 'dn', b: 2 });
+            hostSend(tv.host, { t: 'up', b: 2 });
+          }
+        } else {
+          var uv2 = tvUv(tv.two.smx, tv.two.smy);
+          if (uv2.inside && tvCanControl()) {
+            tvSendMv(uv2);
+            hostSend(tv.host, { t: 'dn', b: 2 });
+            hostSend(tv.host, { t: 'up', b: 2 });
+          }
         }
       }
       tv.mode = '';
@@ -2317,11 +2484,18 @@ function tvUp(e){
       } else if (tv.mode === '' ) {
         var dur1 = performance.now() - was.t;
         if (dur1 < 320) {
-          var uv = tvUv(was.x, was.y);
-          if (uv.inside && tvCanControl()) {
-            tvSendMv(uv);
-            hostSend(tv.host, { t: 'dn', b: 0 });
-            hostSend(tv.host, { t: 'up', b: 0 });
+          if (tvIsRel()) {
+            if (tvCanControl()) {
+              hostSend(tv.host, { t: 'dn', b: 0 });
+              hostSend(tv.host, { t: 'up', b: 0 });
+            }
+          } else {
+            var uv = tvUv(was.x, was.y);
+            if (uv.inside && tvCanControl()) {
+              tvSendMv(uv);
+              hostSend(tv.host, { t: 'dn', b: 0 });
+              hostSend(tv.host, { t: 'up', b: 0 });
+            }
           }
         }
       }
@@ -2339,6 +2513,14 @@ function initTouchUi(){
   t.addEventListener('pointerup', tvUp);
   t.addEventListener('pointercancel', tvUp);
   t.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+  t.addEventListener('wheel', function(e){
+    e.preventDefault();
+    if (!tvCanControl()) return;
+    var now = performance.now();
+    if (now - tv.lastWheel < 40) return;
+    tv.lastWheel = now;
+    hostSend(tv.host, { t: 'sc', d: (e.deltaY > 0 ? 1 : -1) * S.scrollDir });
+  }, { passive: false });
 
   $('tvKeys').addEventListener('click', function(){
     var b = $('tvKeybar');
