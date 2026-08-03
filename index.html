@@ -146,6 +146,11 @@ video.preview{
 .code-input::placeholder{color:#4a4568;letter-spacing:.35em}
 
 .msg-err{color:var(--err);font-size:14px;min-height:1.6em;margin-bottom:8px}
+.diag{
+  margin-top:8px;padding:8px 10px;background:#0d0b18;border:1px solid var(--line);
+  border-radius:8px;color:var(--muted);font-size:11px;line-height:1.7;
+  white-space:pre-line;max-height:150px;overflow:auto;
+}
 .msg-info{color:var(--muted);font-size:14px;min-height:1.6em;margin-bottom:8px}
 
 .ctl-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
@@ -344,6 +349,8 @@ footer.site a{color:var(--muted);text-decoration:underline}
       <p>パソコンの画面に表示されている6桁のコードを入力してください。</p>
       <input class="code-input" id="codeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
       <p class="msg-err" id="qErr"></p>
+      <p class="msg-info" id="qPeerStat" style="margin-top:2px"></p>
+      <div class="diag hidden" id="qDiag"></div>
       <button class="btn btn-wide" id="btnConnect">接続する</button>
       <p class="msg-info" id="xrNote" style="margin-top:10px"></p>
     </div>
@@ -973,6 +980,7 @@ var qs = {
   hosts: [],          /* {idx, code, conn, screens:[{slot, stream, video}], helperOn, state} */
   nextHost: 1,
   pendingHost: null,
+  diag: [],
   anyStream: false,
   xrOk: false
 };
@@ -993,18 +1001,48 @@ async function questInit(){
   questEnsurePeer(function(){});
 }
 
+/* 接続の診断ログ: どの段階で止まったかを画面に残す */
+function questLog(msg){
+  var t = new Date();
+  var line = ('0' + t.getMinutes()).slice(-2) + ':' + ('0' + t.getSeconds()).slice(-2) + ' ' + msg;
+  qs.diag.push(line);
+  if (qs.diag.length > 14) qs.diag.shift();
+  var el = $('qDiag');
+  if (el) {
+    el.textContent = qs.diag.join('\n');
+    show(el, true);
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
+function questPeerStat(txt){
+  var el = $('qPeerStat');
+  if (el) el.textContent = txt ? ('中継サーバー: ' + txt) : '';
+}
+
 function questEnsurePeer(cb){
   if (qs.peer) {
     if (qs.peerReady) cb();
     else qs.peer.on('open', function(){ cb(); });
     return;
   }
+  questLog('中継サーバーの受付を作成しています…');
+  questPeerStat('登録中…');
   var peer = new Peer({ debug: 1 });
   qs.peer = peer;
-  peer.on('open', function(){ qs.peerReady = true; cb(); });
+  peer.on('open', function(id){
+    qs.peerReady = true;
+    questLog('登録OK(受付ID: ' + String(id).slice(0, 12) + '…)');
+    questPeerStat('登録済み');
+    cb();
+  });
   peer.on('call', questOnCall);
   peer.on('error', questOnPeerError);
-  peer.on('disconnected', function(){ try { peer.reconnect(); } catch (_e) {} });
+  peer.on('disconnected', function(){
+    questLog('中継サーバーから切断されました → 再接続します');
+    questPeerStat('再接続中…');
+    try { peer.reconnect(); } catch (_e) {}
+  });
 }
 
 function questHostByPeerId(pid){
@@ -1019,16 +1057,13 @@ function questAddHost(codeRaw, errEl){
   if (code.length !== 6) { errEl.textContent = '6桁のコードを入力してください。'; return false; }
   if (questHostByPeerId(PEER_PREFIX + code)) { errEl.textContent = 'そのコードにはすでに接続しています。'; return false; }
   errEl.textContent = '';
-  var host = { idx: qs.nextHost++, code: code, conn: null, screens: [], helperOn: false, state: 'connecting', dialTries: 1 };
+  var host = { idx: qs.nextHost++, code: code, conn: null, screens: [], helperOn: false, state: 'connecting', dialTries: 0 };
   qs.hosts.push(host);
   qs.pendingHost = host;
   questUiSync();
-  host.connWatch = setTimeout(function(){ questDialTimeout(host); }, 8000);
-  questEnsurePeer(function(){
-    if (host.gone || host.state !== 'connecting' || host.conn) return; /* 二重ダイヤル防止 */
-    host.conn = qs.peer.connect(PEER_PREFIX + code, { serialization: 'json' });
-    questWireConn(host);
-  });
+  questLog('接続を開始: コード ' + code);
+  questEnsurePeer(function(){});
+  questDialTimeout(host); /* 1回目のダイヤルもここから(未登録なら待ってから) */
   return true;
 }
 
@@ -1043,6 +1078,7 @@ function questConnectingNote(msg){
    交渉中の接続を後続が殺してしまうことはない */
 function questDialTimeout(host){
   if (host.gone || host.state !== 'connecting') return;
+  clearTimeout(host.connWatch);
   if (!qs.peer || !qs.peerReady) {
     /* 中継サーバーへの登録がまだ: 回数を消費せずに待つ */
     questConnectingNote('中継サーバーに登録しています…');
@@ -1050,11 +1086,29 @@ function questDialTimeout(host){
     host.connWatch = setTimeout(function(){ questDialTimeout(host); }, 3000);
     return;
   }
+  if (qs.peer.disconnected) {
+    /* 受付が切断状態のままダイヤルしても必ず失敗する。回数を消費せず復帰を待つ */
+    questLog('受付が切断状態のため待機 → 再接続中');
+    questConnectingNote('中継サーバーへ再接続しています…');
+    try { qs.peer.reconnect(); } catch (_e) {}
+    host.connWatch = setTimeout(function(){ questDialTimeout(host); }, 3000);
+    return;
+  }
   if (host.dialTries < 3) {
     host.dialTries++;
     questDetachConn(host);
-    questConnectingNote('時間がかかっています。自動で試し直しています…(' + host.dialTries + '回目)');
+    if (host.dialTries === 1) questConnectingNote('接続しています…');
+    else questConnectingNote('時間がかかっています。自動で試し直しています…(' + host.dialTries + '回目)');
+    questLog('ダイヤル ' + host.dialTries + '回目 → vrdd-' + host.code);
     host.conn = qs.peer.connect(PEER_PREFIX + host.code, { serialization: 'json' });
+    if (!host.conn) {
+      /* PeerJSがダイヤル自体を拒否(内部切断など)。回数を戻して仕切り直す */
+      questLog('ダイヤルを開始できませんでした → 仕切り直し');
+      host.dialTries--;
+      try { qs.peer.reconnect(); } catch (_e) {}
+      host.connWatch = setTimeout(function(){ questDialTimeout(host); }, 3000);
+      return;
+    }
     questWireConn(host);
     host.connWatch = setTimeout(function(){ questDialTimeout(host); }, 8000);
     return;
@@ -1066,15 +1120,18 @@ function questDialTimeout(host){
   if (i >= 0) qs.hosts.splice(i, 1);
   questUiSync();
   if (APP.xrSync) APP.xrSync();
+  var wasReady = !!(qs.peer && qs.peerReady && !qs.peer.disconnected);
+  questLog('3回失敗 → 受付を作り直して待機');
   if (qs.hosts.length === 0) {
     /* 連続失敗のあとは受付ごと作り直す(次の手動試行を新品の状態から始める) */
     try { if (qs.peer) qs.peer.destroy(); } catch (_e) {}
     qs.peer = null;
     qs.peerReady = false;
+    questPeerStat('');
   }
-  questShowErr(qs.peerReady === false && qs.peer === null
-    ? '3回試しましたが接続できませんでした。内部の接続情報は作り直したので、少し待ってからもう一度「接続する」を押してください。毎回失敗する場合は、パソコン側ページの再読み込み、ルーターの「プライバシーセパレーター(AP隔離)」やVPNの確認を。'
-    : '3回試しましたが接続できませんでした。パソコン側のページを再読み込みして共有し直し、新しいコードで試してください。');
+  questShowErr(wasReady
+    ? '3回試しましたが、相手との通信路が開きませんでした。下の診断ログの最後の「経路:」を確認してください(checkingやfailedで止まる場合、ルーターのAP隔離やVPNが原因のことが多いです)。少し待ってもう一度試すこともできます。'
+    : 'Quest側が中継サーバーに登録できていません。QuestのWi-Fiを確認して、このページを再読み込みしてください(中継サーバーの混雑のこともあります)。');
 }
 
 /* 現役の接続を安全に置き換える(古い方のcloseイベントは無視されるよう、先に切り離す) */
@@ -1084,10 +1141,28 @@ function questDetachConn(host){
   if (old) { try { old.close(); } catch (_e) {} }
 }
 
+function questWatchIce(host, conn){
+  var tries = 0;
+  var t = setInterval(function(){
+    tries++;
+    var pcn = conn.peerConnection;
+    if (pcn) {
+      clearInterval(t);
+      pcn.addEventListener('iceconnectionstatechange', function(){
+        if (host.conn === conn) questLog('経路: ' + pcn.iceConnectionState);
+      });
+    } else if (tries > 24 || host.conn !== conn) {
+      clearInterval(t);
+    }
+  }, 250);
+}
+
 function questWireConn(host){
   var conn = host.conn;
+  questWatchIce(host, conn);
   conn.on('open', function(){
     if (host.gone || host.conn !== conn) { try { conn.close(); } catch (_e) {} return; }
+    questLog('接続できました(PC ' + host.code + ')');
     if (qs.pendingHost === host) qs.pendingHost = null;
     host.state = 'open';
     host.retryUntil = 0;
@@ -1113,6 +1188,7 @@ function questWireConn(host){
     /* 自分が現役でなければ(置き換え済みの古いダイヤル)、何もしない。
        ダイヤル中の失敗はダイヤル側のタイマーが管理する */
     if (host.conn !== conn) return;
+    questLog('接続が閉じました(PC ' + host.code + ')');
     if (host.state === 'connecting') return;
     questConnLost(host);
   });
@@ -1237,6 +1313,7 @@ function questDropHost(host, msg){
 
 function questOnPeerError(err){
   var t = err && err.type;
+  questLog('エラー: ' + (t || '不明'));
   if (t === 'peer-unavailable') {
     var host = qs.pendingHost;
     var m = /vrdd-(\d{6})/.exec(err.message || '');
@@ -1346,7 +1423,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-03p';
+var APP_VER = '2026-08-03q';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
