@@ -28,7 +28,10 @@ public static class VRMouse {
     public const uint LEFTUP    = 0x0004;
     public const uint RIGHTDOWN = 0x0008;
     public const uint RIGHTUP   = 0x0010;
+    public const uint MIDDLEDOWN = 0x0020;
+    public const uint MIDDLEUP   = 0x0040;
     public const uint WHEEL     = 0x0800;
+    public const uint HWHEEL    = 0x01000;
 }
 '@
 Add-Type -TypeDefinition $csrc
@@ -71,7 +74,7 @@ foreach ($mm in $mons) {
 $port = 8765
 # Helper version (integer). Bump this AND HELPER_VER_REQUIRED in
 # index.html together whenever the helper protocol changes.
-$helperVer = 1
+$helperVer = 3
 $paired = $null
 
 try {
@@ -209,15 +212,24 @@ while ($true) {
                                 [System.Windows.Forms.Cursor]::Position = $rp
                             }
                             'dn' {
+                                # b: 0=left, 1=middle (helper v2+), 2=right
                                 if ([int]$e.b -eq 2) { [VRMouse]::mouse_event([VRMouse]::RIGHTDOWN, 0, 0, 0, 0) }
+                                elseif ([int]$e.b -eq 1) { [VRMouse]::mouse_event([VRMouse]::MIDDLEDOWN, 0, 0, 0, 0) }
                                 else { [VRMouse]::mouse_event([VRMouse]::LEFTDOWN, 0, 0, 0, 0) }
                             }
                             'up' {
                                 if ([int]$e.b -eq 2) { [VRMouse]::mouse_event([VRMouse]::RIGHTUP, 0, 0, 0, 0) }
+                                elseif ([int]$e.b -eq 1) { [VRMouse]::mouse_event([VRMouse]::MIDDLEUP, 0, 0, 0, 0) }
                                 else { [VRMouse]::mouse_event([VRMouse]::LEFTUP, 0, 0, 0, 0) }
                             }
                             'sc' {
-                                [VRMouse]::mouse_event([VRMouse]::WHEEL, 0, 0, ([int]$e.d) * 120, 0)
+                                # d = vertical, h = horizontal (helper v3+).
+                                # If horizontal feels reversed on a real PC,
+                                # flip the sign of $h below (tuning point).
+                                $dv = 0; try { $dv = [int]$e.d } catch { }
+                                $hv2 = 0; try { $hv2 = [int]$e.h } catch { }
+                                if ($dv -ne 0) { [VRMouse]::mouse_event([VRMouse]::WHEEL, 0, 0, $dv * 120, 0) }
+                                if ($hv2 -ne 0) { [VRMouse]::mouse_event([VRMouse]::HWHEEL, 0, 0, $hv2 * 120, 0) }
                             }
                             'key' {
                                 $k = [string]$e.k

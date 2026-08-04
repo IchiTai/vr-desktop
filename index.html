@@ -258,6 +258,9 @@ footer.site a{color:var(--muted);text-decoration:underline}
 @media(prefers-reduced-motion:reduce){
   *{animation:none !important;transition:none !important}
 }
+#tvRipple{position:fixed;width:44px;height:44px;margin:-22px 0 0 -22px;border:3px solid var(--accent);border-radius:50%;pointer-events:none;opacity:0;z-index:60}
+#tvRipple.go{animation:tvRip .4s ease-out}
+@keyframes tvRip{0%{opacity:.9;transform:scale(.4)}100%{opacity:0;transform:scale(1.5)}}
 </style>
 </head>
 <body>
@@ -327,6 +330,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
       <div class="statusrow"><span class="dot dot-off" id="dotShare"></span><span class="lbl">画面の共有</span></div>
       <div class="statusrow"><span class="dot dot-off" id="dotQuest"></span><span class="lbl" id="lblQuest">見る側の接続待ち</span></div>
       <div class="statusrow"><span class="dot dot-off" id="dotHelper"></span><span class="lbl" id="helperLabel">操作モード OFF(見るだけ)</span></div>
+      <div class="notice-warn hidden" id="helperDiag"></div>
       <div class="hint" id="helperHint">
         VRやスマホからパソコンを操作したいときは、<b>操作ヘルパー</b>をこのパソコンで起動しておきます。<br>
         Windows: <a href="helper-windows.bat" download>helper-windows.bat</a> / Mac: <a href="helper-mac.py" download>helper-mac.py</a><br>
@@ -408,6 +412,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
   <div class="tv-top">
     <div class="tv-tabs" id="tvTabs"></div>
     <span class="tv-stats hidden" id="tvStats"></span>
+    <button class="btn-ghost btn-sm" id="tvModeBtn" title="カーソルの移動方法(タップで切替)"></button>
     <button class="btn-ghost btn-sm" id="tvKeys">⌨</button>
     <button class="btn-ghost btn-sm" id="tvFull">全画面</button>
     <button class="btn-ghost btn-sm" id="tvSet">設定</button>
@@ -425,6 +430,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
     <button class="btn-ghost btn-sm" data-k="apptab">切替</button>
   </div>
   <div class="tv-stage" id="tvStage">
+    <div id="tvRipple"></div>
     <div class="tv-zoom" id="tvZoom"><video id="tvVideo" autoplay playsinline muted></video></div>
     <div class="tv-touch" id="tvTouch"></div>
     <div class="tv-note hidden" id="tvNote">操作モード OFF(見るだけ)</div>
@@ -465,6 +471,10 @@ footer.site a{color:var(--muted);text-decoration:underline}
         </select>
       </div>
       <div class="set-row">
+        <label>ポインターの安定化(手ぶれ補正)</label>
+        <input type="checkbox" id="chkPtrStab" style="width:18px;height:18px;accent-color:var(--accent)">
+      </div>
+      <div class="set-row">
         <label>スクロールの速さ</label>
         <select class="monsel" id="selScrollSpd">
           <option value="0">ゆっくり</option>
@@ -486,6 +496,14 @@ footer.site a{color:var(--muted);text-decoration:underline}
         </select>
       </div>
       <p class="set-note">形式は<b>次に接続したときから</b>反映されます。切替後はいったん切断してつなぎ直してください。いま使われている形式は品質表示の「形式」で確認できます。</p>
+      <div class="set-row">
+        <label>画面の描画方式(VR)</label>
+        <select class="monsel" id="selRender">
+          <option value="layers">くっきり合成(Media Layers・標準)</option>
+          <option value="classic">従来</option>
+        </select>
+      </div>
+      <p class="set-note">標準の方式は、平面の画面を合成器が直接描くため文字がくっきりし、消費電力も下がります(対応機のみ・湾曲画面は当面従来)。表示に不具合が出たときは「従来」に切り替えてください(即時反映)。</p>
     </div>
     <div id="setPaneEnv" class="hidden">
       <div id="envVrOnly">
@@ -560,8 +578,8 @@ window.__libsReady = (function(){
     });
   }
   return load([
-    'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
-    'https://unpkg.com/three@0.128.0/build/three.min.js'
+    'https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js',
+    'https://unpkg.com/three@0.149.0/build/three.min.js'
   ]).then(function(){
     return load([
       'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js',
@@ -581,7 +599,7 @@ window.__libsReady = (function(){
 var HELPER_URL = 'http://127.0.0.1:8765';
 /* 要求するヘルパーの版。ヘルパー側の HELPER_VER($helperVer)を上げたら
    ここも同じ値に上げること。応答に hv がない=この仕組みより古いヘルパー */
-var HELPER_VER_REQUIRED = 1;
+var HELPER_VER_REQUIRED = 3;
 var PEER_PREFIX = 'vrdd-';
 
 /* 接続の共通設定。STUN(住所確認)だけを明示し、PeerJS既定に含まれる
@@ -880,6 +898,7 @@ async function pcPingHelper(){
   var on = false;
   var monitors = [];
   var hv = 0;
+  var t0 = performance.now();
   try {
     var ctl = new AbortController();
     var t = setTimeout(function(){ ctl.abort(); }, 3000);
@@ -893,8 +912,22 @@ async function pcPingHelper(){
         hv = (j && typeof j.hv === 'number') ? j.hv : 0;
         if (j && j.os) pc.helperOs = j.os; /* 'mac' | 'win'。リモートズームの修飾キー選びに使う */
       } catch (_e) {}
+    } else {
+      /* HTTPは届いたが失敗(多重起動の別プロセス等) */
+      pc.lastPingFail = { name: 'HTTP ' + r.status, msg: r.statusText || '', 
+                          ms: Math.round(performance.now() - t0),
+                          at: new Date().toLocaleTimeString() };
     }
-  } catch (_e) { on = false; }
+  } catch (e) {
+    on = false;
+    /* 勝手にOFFの原因調べ(既知の問題c): 失敗の中身を捨てずに控える。
+       ブラウザの仕様でJSに渡るのは概要のみ(net::ERR_…の詳細は取れない)が、
+       失敗までの時間で「即時=遮断/拒否」「3秒=無応答」の系統は確実に分かる */
+    pc.lastPingFail = { name: (e && e.name) || 'Error',
+                        msg: String((e && e.message) || e || ''),
+                        ms: Math.round(performance.now() - t0),
+                        at: new Date().toLocaleTimeString() };
+  }
 
   /* ドラッグ中の混雑による一時的な無応答では、操作モードを落とさない(2回連続で確定) */
   if (!on) {
@@ -921,6 +954,22 @@ async function pcPingHelper(){
     show($('helperHint'), !on);
     pcSendHelperState();
     pcRenderScreens();
+  }
+
+  /* 診断行: OFFの間だけ、直近の失敗の中身と推定を出し続ける(既知の問題cの採取) */
+  var dg = $('helperDiag');
+  if (!on && pc.lastPingFail) {
+    var f = pc.lastPingFail;
+    var hint = (f.ms < 50 && f.name.indexOf('HTTP') !== 0)
+      ? ' → 通信が遮断/拒否されています(ブラウザの許可設定が有力。ページの再読み込みで再許可を)'
+      : (f.ms >= 2900
+        ? ' → ヘルパーが応答していません(固まりか多重起動。ヘルパーを起動し直してください)'
+        : '');
+    dg.textContent = '直近の失敗: ' + f.name + (f.msg ? ': ' + f.msg : '')
+      + '(' + f.ms + 'ms・' + (pc.pingFails || 0) + '回連続・' + f.at + ')' + hint;
+    show(dg, true);
+  } else {
+    show(dg, false);
   }
 }
 
@@ -975,6 +1024,9 @@ function pcOnData(msg){
       q.push(out);
     }
   } else if (msg.t === 'dn' || msg.t === 'up') {
+    /* 中ボタン(b:1)は版2のヘルパーから。旧ヘルパーは b:1 を左と解釈して
+       誤クリックするため、版が足りなければここで黙って捨てる(安全側) */
+    if (msg.b === 1 && (pc.helperVer || 0) < 2) return;
     if (msg.t === 'dn') {
       /* 画面番号つき(タッチ)なら毎回その画面で判定。なし(XR)は直前の移動で
          更新済みの関門に従う。離す信号は絶対に落とさない */
@@ -985,7 +1037,7 @@ function pcOnData(msg){
   } else if (msg.t === 'sc') {
     if (msg.s !== undefined) { if (pcCtlGate(pcFindScreen(msg.s))) return; }
     else if (pc.ctlBlock) return;
-    pc.inputQueue.push({ t: 'sc', d: msg.d });
+    pc.inputQueue.push({ t: 'sc', d: msg.d | 0, h: msg.h | 0 });
   } else if (msg.t === 'q') {
     pcSetQuality(msg.p);
   } else if (msg.t === 'key') {
@@ -1586,7 +1638,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-04g';
+var APP_VER = '2026-08-04q';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1653,7 +1705,9 @@ function loadS(){
   s.vol = (typeof s.vol === 'number' && s.vol >= 0 && s.vol <= 1) ? s.vol : 1;
   s.scrollDir = (s.scrollDir === -1) ? -1 : 1;
   s.scrollSpd = ([0, 1, 2].indexOf(s.scrollSpd) >= 0) ? s.scrollSpd : 1;
+  s.ptrStab = (s.ptrStab === false) ? false : true; /* ポインターの安定化(手ぶれ補正) */
   s.codec = (s.codec === 'vp8') ? 'vp8' : 'h264'; /* 映像の圧縮形式。h264=ハードウェア復号優先 */
+  s.renderMode = (s.renderMode === 'classic') ? 'classic' : 'layers'; /* VRの画面の描画方式 */
   s.stick = (s.stick === 'right') ? 'right'
     : (s.km && s.km.stick === 'right') ? 'right' : 'left'; /* 旧保存からの引き継ぎ */
   if (!kmValid(s.km2) || kmIsOldDefault(s.km2)) s.km2 = kmDefault();
@@ -1867,9 +1921,11 @@ function statsRefreshUi(){
 var setRole = 'q'; /* 'pc' or 'q' */
 var setTab = 'ctl';
 
-function openSettings(role){
+function openSettings(role, tab){
   setRole = role;
-  setTab = (role === 'pc' || !qs.xrOk) ? 'pic' : 'ctl';
+  /* tab指定があればそれを最初に(タッチビューアの⚙は 'env': タッチで使う
+     設定=カーソルの移動方法・スクロールの向き・低遅延が環境タブに集まっている) */
+  setTab = tab || ((role === 'pc' || !qs.xrOk) ? 'pic' : 'ctl');
   renderSettings();
   show($('setModal'), true);
 }
@@ -1930,9 +1986,11 @@ function renderKm(){
   });
   $('selTrig').value = S.trig;
   $('chkKbFwd').checked = S.kbfwd;
+  $('chkPtrStab').checked = S.ptrStab;
   $('selStick').value = S.stick;
   $('selScrollDir').value = String(S.scrollDir);
   $('selCodec').value = S.codec;
+  $('selRender').value = S.renderMode;
   $('selScrollSpd').value = String(S.scrollSpd);
 }
 
@@ -2013,6 +2071,10 @@ function initSettingsUi(){
       renderSettings();
     });
   });
+  $('chkPtrStab').addEventListener('change', function(){
+    S.ptrStab = $('chkPtrStab').checked;
+    saveS();
+  });
   $('chkKbFwd').addEventListener('change', function(){
     S.kbfwd = $('chkKbFwd').checked;
     saveS();
@@ -2033,6 +2095,10 @@ function initSettingsUi(){
   });
   $('selCodec').addEventListener('change', function(){
     S.codec = ($('selCodec').value === 'vp8') ? 'vp8' : 'h264';
+    saveS();
+  });
+  $('selRender').addEventListener('change', function(){
+    S.renderMode = ($('selRender').value === 'classic') ? 'classic' : 'layers';
     saveS();
   });
   $('selScrollSpd').addEventListener('change', function(){
@@ -2058,6 +2124,7 @@ function initSettingsUi(){
   $('selPtrMode').addEventListener('change', function(){
     S.ptrMode = ($('selPtrMode').value === 'rel') ? 'rel' : 'abs';
     saveS();
+    tvUpdateModeBtn();
   });
   $('chkAniso').addEventListener('change', function(){
     S.aniso = $('chkAniso').checked;
@@ -2159,8 +2226,14 @@ var tv = {
 
 function tvPtrCount(){ return Object.keys(tv.ptrs).length; }
 
+/* ツールバーの切替ボタン: いまの方式名を表示。設定画面の選択肢と双方向に同期 */
+function tvUpdateModeBtn(){
+  $('tvModeBtn').textContent = (S.ptrMode === 'rel') ? 'なぞる' : 'そのまま';
+}
+
 function tvOpen(){
   if (tv.open) { tvSync(); return; }
+  tvUpdateModeBtn();
   tv.open = true;
   show($('touchView'), true);
   document.body.style.overflow = 'hidden';
@@ -2208,6 +2281,7 @@ function tvSync(){
   tv.slot = sel.slot;
   tv.video = sel.sc.video;
   tv.wheelAcc = 0; /* スクロール/ズームの蓄積は画面をまたいで持ち越さない */
+  tv.wheelAccX = 0;
   tv.zoomAcc = 0;
   if (changed || $('tvVideo').srcObject !== sel.sc.stream) {
     $('tvVideo').srcObject = sel.sc.stream;
@@ -2320,6 +2394,36 @@ function tvSendRel(dx, dy, mult){
   hostSend(tv.host, { t: 'mvr', x: sx, y: sy, s: tv.slot });
 }
 
+/* ドラッグ開始の視覚合図: 指(カーソル)の位置に0.4秒の波紋を1回出す。
+   長押しドラッグ・連続タップ保持ドラッグ・マウスの長押しドラッグで共通 */
+function tvDragCue(x, y){
+  var r = $('tvRipple');
+  r.style.left = x + 'px';
+  r.style.top = y + 'px';
+  r.classList.remove('go');
+  void r.offsetWidth; /* アニメを最初から再生し直すための再計算 */
+  r.classList.add('go');
+}
+
+/* 3本指同時タップの確定: 全部の指が離れた時に、候補(tv.tri)が生きていて
+   300ms以内・ジェスチャ未開始なら中クリックを送る */
+function tvTriConfirm(){
+  if (tv.tri && !tv.twoKind && performance.now() - tv.tri.t < 300 && tvCanControl()) {
+    if (tvIsRel()) {
+      hostSend(tv.host, { t: 'dn', b: 1, s: tv.slot });
+      hostSend(tv.host, { t: 'up', b: 1 });
+    } else {
+      var uv3 = tvUv(tv.tri.x, tv.tri.y);
+      if (uv3.inside) {
+        tvSendMv(uv3);
+        hostSend(tv.host, { t: 'dn', b: 1, s: tv.slot });
+        hostSend(tv.host, { t: 'up', b: 1 });
+      }
+    }
+  }
+  tv.tri = null;
+}
+
 function tvEndDrag(){
   if (tv.mode === 'drag' && tvCanControl()) hostSend(tv.host, { t: 'up', b: 0 });
   if (tv.holdTimer) { clearTimeout(tv.holdTimer); tv.holdTimer = null; }
@@ -2352,6 +2456,17 @@ function tvMouseDown(e){
     }
     hostSend(tv.host, { t: 'dn', b: 2, s: tv.slot });
     tv.m = { btn: 2 };
+    return;
+  }
+  if (e.button === 1) { /* 中ボタン(ホイールクリック)はそのまま転送 */
+    if (!tvCanControl()) return;
+    if (!tvIsRel()) {
+      var uvm = tvUv(e.clientX, e.clientY);
+      if (!uvm.inside) return;
+      tvSendMv(uvm);
+    }
+    hostSend(tv.host, { t: 'dn', b: 1, s: tv.slot });
+    tv.m = { btn: 1 };
     return;
   }
   if (e.button !== 0) return;
@@ -2393,7 +2508,10 @@ function tvMouseMove(e){
       tv.m.phase = 'glide';
     } else {
       tv.m.phase = 'drag';
-      if (tvCanControl()) hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
+      if (tvCanControl()) {
+        hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
+        tvDragCue(e.clientX, e.clientY);
+      }
     }
   }
   if (tv.m.phase === 'glide' || tv.m.phase === 'drag') tvSendRel(dx, dy, REL_MOUSE);
@@ -2405,6 +2523,7 @@ function tvMouseUp(e){
   tv.m = null;
   if (!tvCanControl()) return;
   if (m.btn === 2) { hostSend(tv.host, { t: 'up', b: 2 }); return; }
+  if (m.btn === 1) { hostSend(tv.host, { t: 'up', b: 1 }); return; }
   if (m.abs || m.phase === 'drag') { hostSend(tv.host, { t: 'up', b: 0 }); return; }
   if (m.phase === 'pending' && performance.now() - m.t0 < 320) {
     hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
@@ -2425,12 +2544,38 @@ function tvDown(e){
     tv.ignoreSingle = false;
     tv.mode = '';
     tv.start = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId };
+    /* 連続タップ保持ドラッグ: タップの直後(320ms以内・40px以内)にもう一度触れたら、
+       その場でボタンを押してドラッグに入る。すぐ離せば dn→up が2回目のクリックに
+       なるので、従来のダブルクリックはそのまま成立する(調整点: 320ms / 40px) */
+    var lt = tv.lastTap;
+    tv.lastTap = null;
+    if (lt && performance.now() - lt.t < 320 &&
+        Math.hypot(e.clientX - lt.x, e.clientY - lt.y) < 40) {
+      var okStart = false;
+      if (tvIsRel()) {
+        if (tvCanControl()) { hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot }); okStart = true; }
+      } else {
+        var uvT = tvUv(e.clientX, e.clientY);
+        if (uvT.inside && tvCanControl()) {
+          tvSendMv(uvT);
+          hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
+          okStart = true;
+        }
+      }
+      if (okStart) {
+        tv.mode = 'drag';
+        tvDragCue(e.clientX, e.clientY);
+        if (navigator.vibrate) { try { navigator.vibrate(15); } catch (_e) {} }
+        return;
+      }
+    }
     tv.holdTimer = setTimeout(function(){
       if (tvPtrCount() === 1 && tv.mode === '' && !tv.ignoreSingle) {
         tv.mode = 'drag';
         if (tvIsRel()) {
           if (tvCanControl()) {
             hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
+            tvDragCue(tv.start.x, tv.start.y);
             if (navigator.vibrate) { try { navigator.vibrate(15); } catch (_e) {} }
           } else {
             tv.mode = '';
@@ -2440,6 +2585,7 @@ function tvDown(e){
           if (uv.inside && tvCanControl()) {
             tvSendMv(uv);
             hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
+            tvDragCue(tv.start.x, tv.start.y);
             if (navigator.vibrate) { try { navigator.vibrate(15); } catch (_e) {} }
           } else {
             tv.mode = '';
@@ -2460,9 +2606,20 @@ function tvDown(e){
       mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2,
       smx: (a.x + b.x) / 2, smy: (a.y + b.y) / 2,
       t: performance.now(),
-      acc: 0
+      acc: 0,
+      acc2: 0 /* 横スクロールの蓄積(版3) */
     };
   } else {
+    /* 3本指: 同時タップなら中クリック(CRD/Jumpと同じ割当)。
+       2本指のジェスチャが始まる前(twoKindが空)の3本目だけを候補にする */
+    if (n === 3 && tv.mode === 'two' && tv.two && !tv.twoKind) {
+      var ids3 = Object.keys(tv.ptrs);
+      var cx = 0, cy = 0;
+      ids3.forEach(function(k){ cx += tv.ptrs[k].x; cy += tv.ptrs[k].y; });
+      tv.tri = { t: performance.now(), x: cx / 3, y: cy / 3 };
+    } else {
+      tv.tri = null;
+    }
     tv.ignoreSingle = true;
   }
 }
@@ -2504,6 +2661,7 @@ function tvMove(e){
     if (!tv.twoKind) {
       if (Math.abs(d / tv.two.d - 1) > 0.09 && Math.abs(d - tv.two.d) > 24) tv.twoKind = 'pinch';
       else if (Math.hypot(mx - tv.two.smx, my - tv.two.smy) > 12) tv.twoKind = (tv.z > 1.02) ? 'pan' : 'scroll';
+      if (tv.twoKind) tv.tri = null; /* ジェスチャ確定後の3本目は中クリックにしない */
     }
 
     if (tv.twoKind === 'pinch') {
@@ -2526,6 +2684,13 @@ function tvMove(e){
         if (tvCanControl()) hostSend(tv.host, { t: 'sc', d: dir, s: tv.slot });
         tv.two.acc -= (tv.two.acc > 0 ? 46 : -46);
       }
+      /* 横(版3のヘルパーから)。等倍のときだけここに来る(ズーム中はpan) */
+      tv.two.acc2 += mx - tv.two.mx;
+      while (Math.abs(tv.two.acc2) >= 46) {
+        var dirH = (tv.two.acc2 > 0 ? 1 : -1) * S.scrollDir;
+        if (tvCanControl()) hostSend(tv.host, { t: 'sc', h: dirH, s: tv.slot });
+        tv.two.acc2 -= (tv.two.acc2 > 0 ? 46 : -46);
+      }
     }
     tv.two.mx = mx;
     tv.two.my = my;
@@ -2545,7 +2710,7 @@ function tvUp(e){
       /* 2本指タップ = 右クリック */
       var dur = performance.now() - tv.two.t;
       var moved = Math.hypot(tv.two.mx - tv.two.smx, tv.two.my - tv.two.smy);
-      if (!tv.twoKind && dur < 300 && moved < 12) {
+      if (!tv.twoKind && !tv.tri && dur < 300 && moved < 12) {
         if (tvIsRel()) {
           if (tvCanControl()) {
             hostSend(tv.host, { t: 'dn', b: 2, s: tv.slot });
@@ -2565,11 +2730,12 @@ function tvUp(e){
       tv.two = null;
       tv.ignoreSingle = true; /* 残った1本は無視して、全部離れたらリセット */
     }
-    if (n === 0) { tv.mode = ''; tv.twoKind = ''; tv.two = null; tv.ignoreSingle = false; }
+    if (n === 0) { tv.mode = ''; tv.twoKind = ''; tv.two = null; tv.ignoreSingle = false; tvTriConfirm(); }
     return;
   }
 
   if (n === 0) {
+    tvTriConfirm();
     if (!tv.ignoreSingle) {
       if (tv.mode === 'drag') {
         tvEndDrag();
@@ -2580,6 +2746,7 @@ function tvUp(e){
             if (tvCanControl()) {
               hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
               hostSend(tv.host, { t: 'up', b: 0 });
+              tv.lastTap = { t: performance.now(), x: was.x, y: was.y };
             }
           } else {
             var uv = tvUv(was.x, was.y);
@@ -2587,6 +2754,7 @@ function tvUp(e){
               tvSendMv(uv);
               hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
               hostSend(tv.host, { t: 'up', b: 0 });
+              tv.lastTap = { t: performance.now(), x: was.x, y: was.y };
             }
           }
         }
@@ -2625,11 +2793,20 @@ function initTouchUi(){
     /* 移動量を蓄積し、約50pxごとに1ノッチ送る(タッチ2本指の46px蓄積と同じ型)。
        トラックパッドの細かい連続イベントも、ホイールマウスの1目盛(約100px)も、
        これで自然な速さになる。deltaMode=1(行単位で報告するブラウザ)は約33px/行に換算 */
-    var dy = e.deltaY * (e.deltaMode === 1 ? 33 : 1);
+    var unit = (e.deltaMode === 1 ? 33 : 1);
+    var dy = e.deltaY * unit;
+    var dxw = e.deltaX * unit;
+    /* Shiftを押しながらの縦回しは横として扱う(チルトなしマウスの定番操作) */
+    if (e.shiftKey && !dxw && dy) { dxw = dy; dy = 0; }
     tv.wheelAcc = (tv.wheelAcc || 0) + dy;
     while (Math.abs(tv.wheelAcc) >= 50) {
       hostSend(tv.host, { t: 'sc', d: (tv.wheelAcc > 0 ? 1 : -1) * S.scrollDir, s: tv.slot });
       tv.wheelAcc -= (tv.wheelAcc > 0 ? 50 : -50);
+    }
+    tv.wheelAccX = (tv.wheelAccX || 0) + dxw;
+    while (Math.abs(tv.wheelAccX) >= 50) {
+      hostSend(tv.host, { t: 'sc', h: (tv.wheelAccX > 0 ? 1 : -1) * S.scrollDir, s: tv.slot });
+      tv.wheelAccX -= (tv.wheelAccX > 0 ? 50 : -50);
     }
   }, { passive: false });
 
@@ -2653,7 +2830,14 @@ function initTouchUi(){
     if (e.key === 'Enter') { e.preventDefault(); $('tvSend').click(); }
   });
   $('tvClose').addEventListener('click', tvClose);
-  $('tvSet').addEventListener('click', function(){ openSettings('q'); });
+  $('tvSet').addEventListener('click', function(){ openSettings('q', 'env'); });
+  $('tvModeBtn').addEventListener('click', function(){
+    S.ptrMode = (S.ptrMode === 'rel') ? 'abs' : 'rel';
+    saveS();
+    tvUpdateModeBtn();
+    $('selPtrMode').value = S.ptrMode;
+    if (navigator.vibrate) { try { navigator.vibrate(15); } catch (_e) {} }
+  });
   $('tvZoomReset').addEventListener('click', tvZoomReset);
   $('tvFull').addEventListener('click', function(){
     if (document.fullscreenElement) {
@@ -2692,6 +2876,7 @@ var xr = {
   ph: { right: null, left: null },     /* 手ごとのポインター状態 */
   grab: { right: null, left: null },   /* {scr, dist, delta} */
   lastHost: null,
+  lastSlot: null,
   pressed: { click: null, rclick: null },
   lastSent: { key: '', x: -1, y: -1, tm: 0 },
   phys: {}, prevPhys: {},
@@ -3211,6 +3396,8 @@ function xrCreateScreen(d){
   };
   if (d.video.videoWidth > 0) s.aspect = d.video.videoWidth / d.video.videoHeight;
   s.mesh = new THREE.Mesh(xrMakeScreenGeo(xrScreenW(s), s.aspect, s.curved), mat);
+  s.mesh.userData.w = xrScreenW(s);
+  s.mesh.userData.h = xrScreenW(s) / s.aspect;
   s.mesh.userData.ref = s;
   d.video.addEventListener('resize', function(){
     if (d.video.videoWidth > 0) {
@@ -3227,6 +3414,8 @@ function xrRebuildGeos(){
   xr.screens.forEach(function(s){
     var old = s.mesh.geometry;
     s.mesh.geometry = xrMakeScreenGeo(xrScreenW(s), s.aspect, s.curved);
+    s.mesh.userData.w = xrScreenW(s);
+    s.mesh.userData.h = xrScreenW(s) / s.aspect;
     if (old) old.dispose();
     xrPlaceBar(s);
   });
@@ -3314,6 +3503,8 @@ function xrBarActivate(s, idx){
     s.curved = !s.curved;
     var old = s.mesh.geometry;
     s.mesh.geometry = xrMakeScreenGeo(xrScreenW(s), s.aspect, s.curved);
+    s.mesh.userData.w = xrScreenW(s);
+    s.mesh.userData.h = xrScreenW(s) / s.aspect;
     if (old) old.dispose();
   } else if (idx === 1) {
     s.video.muted = !s.video.muted;
@@ -3519,13 +3710,24 @@ async function xrEnter(){
   try {
     /* 描画解像度(スーパーサンプリング)。セッション開始前にのみ設定できる */
     try { xr.renderer.xr.setFramebufferScaleFactor(S.rscale || 1); } catch (_e2) {}
-    var session = await navigator.xr.requestSession(mode, { optionalFeatures: ['local-floor', 'hand-tracking'] });
+    var session = await navigator.xr.requestSession(mode, { optionalFeatures: ['local-floor', 'hand-tracking', 'layers'] });
     xr.mode = mode;
     xr.session = session;
+    /* Media Layers(第1弾・04q): threeがlayers経路(XRProjectionLayer)を使い、かつ
+       XRMediaBindingがある環境でだけ有効。無ければ全画面が従来描画のまま(安全側) */
+    xr.projLayer = null;
+    xr.mediaOk = false;
+    xr.mediaBinding = null;
+    xr.mediaLayers = [];
     session.addEventListener('end', xrOnSessionEnd);
     session.addEventListener('selectstart', xrOnSelectStart);
     session.addEventListener('selectend', xrOnSelectEnd);
     await xr.renderer.xr.setSession(session);
+    try {
+      xr.projLayer = (session.renderState.layers && session.renderState.layers[0]) || null;
+      xr.mediaOk = !!(xr.projLayer && window.XRMediaBinding);
+      if (xr.mediaOk) xr.mediaBinding = new XRMediaBinding(session);
+    } catch (_e) { xr.mediaOk = false; }
     xr.needsRecenter = true;
     xr.hudPinned = false;
     xr.hudUntil = performance.now() + 12000;
@@ -3555,6 +3757,16 @@ function xrOnSelectEnd(e){
 }
 
 function xrOnSessionEnd(){
+  if (xr.mediaLayers) {
+    xr.mediaLayers.forEach(function(e){
+      try { e.layer.destroy(); } catch (_e) {}
+      if (e.s.mesh && e.s.mesh.material === xr.holeMat) e.s.mesh.material = e.s.mat;
+    });
+    xr.mediaLayers = [];
+  }
+  xr.mediaOk = false;
+  xr.mediaBinding = null;
+  xr.projLayer = null;
   xr.session = null;
   if (xr.renderer) xr.renderer.setAnimationLoop(null);
   xrReleaseAllButtons();
@@ -3935,14 +4147,61 @@ function xrPollInput(dt){
            番号が分からないので、従来どおり関門の現在値に従う */
         var scMsg = { t: 'sc', d: (sv > 0 ? 1 : -1) * S.scrollDir };
         if (hov) scMsg.s = hov.scr.slot;
+        else if (xr.lastSlot != null) scMsg.s = xr.lastSlot; /* 外れた直後も番号つきで毎回判定 */
         hostSend(target, scMsg);
         xr.lastScroll = now;
+      }
+    }
+    /* 横スクロール(版3のヘルパーから)。縦とは発火間隔を別に持つ */
+    var sh = sAx.ax;
+    if (Math.abs(sh) > 0.5 && now - (xr.lastScrollH || 0) > SCROLL_MS[S.scrollSpd]) {
+      var hov2s = xrActiveHover();
+      var target2 = hov2s ? hov2s.scr.host : xr.lastHost;
+      if (target2 && target2.helperOn) {
+        var scMsgH = { t: 'sc', h: (sh > 0 ? 1 : -1) * S.scrollDir };
+        if (hov2s) scMsgH.s = hov2s.scr.slot;
+        else if (xr.lastSlot != null) scMsgH.s = xr.lastSlot;
+        hostSend(target2, scMsgH);
+        xr.lastScrollH = now;
       }
     }
   }
 }
 
 /* ---------- 両手ポインター ---------- */
+/* ポインターの安定化(One Euroフィルタ): 止まっているときは強く、速く動かす
+   ときはほぼ素通しになる平滑化を、レーザーの向きの3成分にかける。
+   表示の点・画面のカーソル・メニューの当たり判定が同じ値で一致して安定する。
+   調整点: EURO_MINCUT(静止時の効き。小さいほど強い) / EURO_BETA(速い動きへの
+   追従。大きいほど機敏)。0.2秒以上途切れたらリセットして古い値に引かれない */
+var EURO_MINCUT = 1.2;
+var EURO_BETA = 6.0; /* 掃引実測: 6.0で速い動きの遅れ3.2度・静止時の揺れ1/4。
+                        小さくしすぎると速い動きが遅れる(0.04では16.7度) */
+function euroAlpha(cutoff, dt){
+  var tau = 1 / (2 * Math.PI * cutoff);
+  return 1 / (1 + tau / dt);
+}
+function xrStabDir(hand, dir, nowMs){
+  if (!xr.euroF) xr.euroF = {};
+  var st = xr.euroF[hand];
+  var t = nowMs / 1000;
+  if (!st || t - st.t > 0.2) {
+    xr.euroF[hand] = { t: t, x: dir.x, y: dir.y, z: dir.z, dx: 0, dy: 0, dz: 0 };
+    return dir;
+  }
+  var dt = Math.max(t - st.t, 0.001);
+  st.t = t;
+  var aD = euroAlpha(1.0, dt); /* 速度の推定側は1Hz固定 */
+  var vx = (dir.x - st.x) / dt; st.dx += aD * (vx - st.dx);
+  var vy = (dir.y - st.y) / dt; st.dy += aD * (vy - st.dy);
+  var vz = (dir.z - st.z) / dt; st.dz += aD * (vz - st.dz);
+  st.x += euroAlpha(EURO_MINCUT + EURO_BETA * Math.abs(st.dx), dt) * (dir.x - st.x);
+  st.y += euroAlpha(EURO_MINCUT + EURO_BETA * Math.abs(st.dy), dt) * (dir.y - st.y);
+  st.z += euroAlpha(EURO_MINCUT + EURO_BETA * Math.abs(st.dz), dt) * (dir.z - st.z);
+  dir.set(st.x, st.y, st.z).normalize();
+  return dir;
+}
+
 function xrUpdatePointerFor(hand){
   var p = xrEmptyPh();
   var L = xr.lasers[hand];
@@ -3963,6 +4222,7 @@ function xrUpdatePointerFor(hand){
   xr.tmpMat.identity().extractRotation(ctrl.matrixWorld);
   var origin = xr.tmpV1.setFromMatrixPosition(ctrl.matrixWorld);
   var dir = xr.tmpV2.set(0, 0, -1).applyMatrix4(xr.tmpMat).normalize();
+  if (S.ptrStab) xrStabDir(hand, dir, performance.now());
   xr.raycaster.set(origin, dir);
 
   var busyDrag = !!(xr.press || xr.pressed.click || xr.pressed.rclick);
@@ -3975,7 +4235,7 @@ function xrUpdatePointerFor(hand){
     if (s.bar && !busyDrag) meshes.push(s.bar.mesh); /* 透明でも当たり判定は生きている */
     meshes.push(s.mesh);
   });
-  var hits = xr.raycaster.intersectObjects(meshes);
+  var hits = xr.raycaster.intersectObjects(meshes, false); /* r133で既定が再帰=子まで当たるに変わったため明示(three r149更新) */
 
   var len = 4;
   if (hits.length) {
@@ -4003,6 +4263,7 @@ function xrUpdatePointerFor(hand){
     } else if (obj.userData.ref && hit.uv) {
       p.hover = { scr: obj.userData.ref, uv: hit.uv, dist: hit.distance };
       xr.lastHost = obj.userData.ref.host;
+      xr.lastSlot = obj.userData.ref.slot; /* フォールバックのscにも番号を付けるため対で控える(既知の問題aの穴埋め) */
     }
     L.dot.position.copy(hit.point);
     L.dot.visible = true;
@@ -4659,9 +4920,85 @@ APP.xrLimitsChanged = function(){
 };
 
 /* ---------- 毎フレーム ---------- */
+/* ---- Media Layers の同期(毎フレーム1回) ----
+   平面の画面を合成器のQuadレイヤーで直接描く。三段構え:
+   1) 望まれる集合の計算(設定・対応・平面・映像準備済み・明るさ未調整・上限内)
+   2) 集合の出入りがあったときだけ layers 配列を組み直す(奥→手前、projectionが最前面)
+   3) 位置・寸法は変化したレイヤーだけ更新(署名比較)
+   調整点: 実機で寸法が半分/2倍に見えたら width/height を2倍/半分に。
+   表裏が逆なら transform の向きにY軸180度を掛ける */
+var MEDIA_MAX = 14; /* Questのレイヤー上限(16)からprojection分を引いた安全枠 */
+function xrScreenLayerWanted(s){
+  return S.renderMode !== 'classic' && !s.curved && s.mesh && s.video &&
+         s.video.readyState >= 2 && s.dim >= 0.999; /* 明るさを下げた画面は従来描画(レイヤーに明るさ調整が無い) */
+}
+function xrSyncMediaLayers(){
+  if (!xr.mediaOk || !xr.session) return;
+  var changed = false;
+  var want = [];
+  for (var i = 0; i < xr.screens.length; i++) {
+    if (want.length >= MEDIA_MAX) break;
+    if (xrScreenLayerWanted(xr.screens[i])) want.push(xr.screens[i]);
+  }
+  for (var j = xr.mediaLayers.length - 1; j >= 0; j--) {
+    var e = xr.mediaLayers[j];
+    if (want.indexOf(e.s) < 0) {
+      try { e.layer.destroy(); } catch (_e) {}
+      if (e.s.mesh && e.s.mesh.material === xr.holeMat) e.s.mesh.material = e.s.mat;
+      xr.mediaLayers.splice(j, 1);
+      changed = true;
+    }
+  }
+  want.forEach(function(s){
+    for (var k = 0; k < xr.mediaLayers.length; k++) if (xr.mediaLayers[k].s === s) return;
+    try {
+      var layer = xr.mediaBinding.createQuadLayer(s.video, {
+        space: xr.renderer.xr.getReferenceSpace(), width: 1, height: 1
+      });
+      if (!xr.holeMat) {
+        /* 穴あけ材質: RGBA(0,0,0,0)を直書きして、背景に「窓」を開ける。
+           メッシュ自体は残すので、当たり判定・つかみ・バーは無改修で動く */
+        xr.holeMat = new THREE.MeshBasicMaterial({
+          color: 0x000000, opacity: 0, transparent: true,
+          blending: THREE.NoBlending, side: THREE.DoubleSide
+        });
+      }
+      s.mesh.material = xr.holeMat;
+      xr.mediaLayers.push({ s: s, layer: layer, sig: '' });
+      changed = true;
+    } catch (_e) { /* 作成に失敗した画面は従来描画のまま */ }
+  });
+  if (!xr.tmpQ) xr.tmpQ = new THREE.Quaternion();
+  xr.mediaLayers.forEach(function(e){
+    var m = e.s.mesh;
+    m.getWorldPosition(xr.tmpV1);
+    m.getWorldQuaternion(xr.tmpQ);
+    var w = (m.userData.w || 1) * m.scale.x;
+    var h = (m.userData.h || 1) * m.scale.y;
+    var sig = xr.tmpV1.x.toFixed(3) + ',' + xr.tmpV1.y.toFixed(3) + ',' + xr.tmpV1.z.toFixed(3) + ','
+      + xr.tmpQ.x.toFixed(3) + ',' + xr.tmpQ.y.toFixed(3) + ',' + xr.tmpQ.z.toFixed(3) + ',' + xr.tmpQ.w.toFixed(3) + ','
+      + w.toFixed(3) + ',' + h.toFixed(3);
+    if (sig === e.sig) return;
+    e.sig = sig;
+    e.layer.transform = new XRRigidTransform(
+      { x: xr.tmpV1.x, y: xr.tmpV1.y, z: xr.tmpV1.z },
+      { x: xr.tmpQ.x, y: xr.tmpQ.y, z: xr.tmpQ.z, w: xr.tmpQ.w }
+    );
+    e.layer.width = w;
+    e.layer.height = h;
+  });
+  if (changed) {
+    var arr = [];
+    for (var n = 0; n < xr.mediaLayers.length; n++) arr.push(xr.mediaLayers[n].layer);
+    arr.push(xr.projLayer);
+    try { xr.session.updateRenderState({ layers: arr }); } catch (_e) {}
+  }
+}
+
 function xrRender(){
   var dt = Math.min(0.05, xr.clock.getDelta());
   xr.camera.getWorldPosition(xr.camPos);
+  xrSyncMediaLayers();
   xrPollInput(dt);
   xrUpdatePointers();
   xrPressTick();

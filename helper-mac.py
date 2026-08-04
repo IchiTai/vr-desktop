@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PORT = 8765
 # ヘルパーの版(通し番号)。ヘルパーの仕様を変えたら +1 し、
 # index.html の HELPER_VER_REQUIRED も同じ値に上げること
-HELPER_VER = 1
+HELPER_VER = 3  # 版2: 中ボタン(b:1) / 版3: 横スクロール(sc の h)
 
 
 def ensure_pyautogui():
@@ -178,12 +178,17 @@ def do_move_rel(dx, dy):
     do_move(min(max(cx + dx, x0), x1), min(max(cy + dy, y0), y1))
 
 
-def do_button(down, right):
+def do_button(down, btn):
+    # btn: 0=左, 1=中(版2から), 2=右
     if QZ is not None:
         try:
-            if right:
+            if btn == 2:
                 t = QZ.kCGEventRightMouseDown if down else QZ.kCGEventRightMouseUp
                 b = QZ.kCGMouseButtonRight
+                clicks = 1
+            elif btn == 1:
+                t = QZ.kCGEventOtherMouseDown if down else QZ.kCGEventOtherMouseUp
+                b = QZ.kCGMouseButtonCenter
                 clicks = 1
             else:
                 t = QZ.kCGEventLeftMouseDown if down else QZ.kCGEventLeftMouseUp
@@ -199,13 +204,13 @@ def do_button(down, right):
             ev = QZ.CGEventCreateMouseEvent(None, t, (STATE["x"], STATE["y"]), b)
             QZ.CGEventSetIntegerValueField(ev, QZ.kCGMouseEventClickState, clicks)
             qz_post(ev)
-            STATE["r" if right else "l"] = down
+            STATE["r" if btn == 2 else "l"] = down
             return
         except Exception:
             pass
     fn = pyautogui.mouseDown if down else pyautogui.mouseUp
-    fn(button="right" if right else "left", _pause=False)
-    STATE["r" if right else "l"] = down
+    fn(button=("right" if btn == 2 else "middle" if btn == 1 else "left"), _pause=False)
+    STATE["r" if btn == 2 else "l"] = down
 
 
 # ---- キーボード送信 ----
@@ -342,17 +347,22 @@ def do_txt(s):
         pass
 
 
-def do_scroll(d):
+def do_scroll(d, h=0):
+    # d=縦, h=横(版3から)。横の正方向はOSごとに解釈が割れるため、
+    # 実機で逆だったら下の「int(h)」の符号を反転する(調整点)
     if QZ is not None:
         try:
             ev = QZ.CGEventCreateScrollWheelEvent(
-                None, QZ.kCGScrollEventUnitLine, 1, int(d) * 3
+                None, QZ.kCGScrollEventUnitLine, 2, int(d) * 3, int(h) * 3
             )
             qz_post(ev)
             return
         except Exception:
             pass
-    pyautogui.scroll(int(d) * 3)
+    if int(d):
+        pyautogui.scroll(int(d) * 3)
+    if int(h):
+        pyautogui.hscroll(int(h) * 3)
 
 
 paired = None
@@ -424,11 +434,11 @@ class Handler(BaseHTTPRequestHandler):
                 elif t == "mvr":
                     do_move_rel(float(e.get("x", 0) or 0), float(e.get("y", 0) or 0))
                 elif t == "dn":
-                    do_button(True, e.get("b") == 2)
+                    do_button(True, int(e.get("b", 0) or 0))
                 elif t == "up":
-                    do_button(False, e.get("b") == 2)
+                    do_button(False, int(e.get("b", 0) or 0))
                 elif t == "sc":
-                    do_scroll(e.get("d", 0))
+                    do_scroll(e.get("d", 0) or 0, e.get("h", 0) or 0)
                 elif t == "key":
                     do_key(str(e.get("k", "")))
                 elif t == "txt":
