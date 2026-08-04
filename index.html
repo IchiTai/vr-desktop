@@ -732,7 +732,7 @@ function pcCallScreenTo(item, conn){
     if (old) { try { old.close(); } catch (_e) {} }
     var call = pc.peer.call(conn.peer, item.stream, { metadata: { slot: item.slot } });
     item.calls[conn.peer] = call;
-    pcApplyQualityToCall(call, 0);
+    pcApplyQualityToCall(call, 0, true); /* 新しい通話は立ち上がり優遇つき */
   } catch (_e) {}
 }
 
@@ -1728,7 +1728,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-04x';
+var APP_VER = '2026-08-05a';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1869,7 +1869,33 @@ function pcSetQuality(p){
   });
 }
 
-function pcApplyQualityToCall(call, attempt){
+/* 立ち上がりの数秒だけ「解像度を落とさない」縛りを外す(Macの表示が遅い件・04z)。
+   画素数が多い取り込み(Retina等)では、縛ったままだと最初の映像が出るまで待たされる。
+   startup=true の間は指定を外してブラウザ任せにし、STARTUP_EASE_MS 後に本来の
+   設定へ戻す。取り込みの上限も恒久的な画質設定も変えない。
+   見立てに基づく対処なので、効かなければこの優遇ごと外して別の原因を探る */
+var STARTUP_EASE_MS = 5000;
+var STARTUP_EASE_PIXELS = 1920 * 1080; /* これを超える取り込みのときだけ効かせる */
+function pcNeedsStartupEase(call){
+  try {
+    var t = call && call.peerConnection ? null : null;
+    var item = null;
+    for (var i = 0; i < pc.screens.length; i++) {
+      var sc = pc.screens[i];
+      if (sc.calls) {
+        for (var k in sc.calls) { if (sc.calls[k] === call) { item = sc; break; } }
+      }
+      if (item) break;
+    }
+    if (!item || !item.stream) return false;
+    var vt = item.stream.getVideoTracks()[0];
+    if (!vt || !vt.getSettings) return false;
+    var st = vt.getSettings();
+    return !!(st.width && st.height && (st.width * st.height) > STARTUP_EASE_PIXELS);
+  } catch (_e) { return false; }
+}
+
+function pcApplyQualityToCall(call, attempt, startup){
   if (attempt > 12) return;
   var q = QUALITY[pc.quality || S.q] || QUALITY.balance;
   var pcon = call.peerConnection;
@@ -1888,7 +1914,11 @@ function pcApplyQualityToCall(call, attempt){
   }
   if (q.br > 0) params.encodings[0].maxBitrate = q.br;
   else delete params.encodings[0].maxBitrate;
-  if (q.deg) params.degradationPreference = q.deg;
+  var easing = (startup === true) && pcNeedsStartupEase(call);
+  if (easing) {
+    delete params.degradationPreference; /* 立ち上がりはブラウザ任せ(控えめ) */
+    setTimeout(function(){ pcApplyQualityToCall(call, 0); }, STARTUP_EASE_MS);
+  } else if (q.deg) params.degradationPreference = q.deg;
   else delete params.degradationPreference;
   sender.setParameters(params).catch(function(){
     delete params.degradationPreference; /* 未対応ブラウザではビットレートだけ適用 */
@@ -2979,6 +3009,7 @@ var xr = {
   grab: { right: null, left: null },   /* {scr, dist, delta} */
   lastHost: null,
   lastSlot: null,
+  activeHand: 'right', /* いまの手。ボタン・スティック・トリガーに指を置いた手へ移る */
   pressed: { click: null, rclick: null },
   lastSent: { key: '', x: -1, y: -1, tm: 0 },
   phys: {}, prevPhys: {},
@@ -3099,13 +3130,13 @@ function xrBuildGrid(){
   xr.bg.ring = ring;
 }
 
-function xrEnsureSkyMesh(){
-  if (xr.bg.sky) return;
-  var geo = new THREE.SphereGeometry(45, 48, 32);
-  var mat = new THREE.MeshBasicMaterial({ side: THREE.BackSide, fog: false });
-  xr.bg.sky = new THREE.Mesh(geo, mat);
-  xr.scene.add(xr.bg.sky);
-}
+/* 背景は「無限に遠いもの」として描く(2026-08-05a)。
+   以前は半径45mの球にもようを貼っていたが、VRでは左右の目に映る像のずれから
+   その45mが知覚され、空ではなく「丸天井」に見えていた(狭く感じる原因)。
+   scene.background にテクスチャを入れると、three はカメラの向きだけを使って
+   描くため左右のずれが原理的にゼロになり、本物の空と同じ見え方になる。
+   カメラの奥行きの上限(100m)とも無関係になり、球を1枚描くより軽い。
+   球に戻さないこと */
 
 function xrSkyCanvas(){
   var c = document.createElement('canvas');
@@ -3294,43 +3325,20 @@ function xrTexSunset(){
 }
 
 /* 星空用のきらめき(視差のための手前の星) */
-function xrBuildSpark(){
-  if (xr.bg.spark) return;
-  var n = 260;
-  var pos = new Float32Array(n * 3);
-  for (var i = 0; i < n; i++) {
-    var u = Math.random() * 0.9 + 0.05;
-    var th = Math.random() * Math.PI * 2;
-    var r = Math.sqrt(Math.max(0, 1 - u * u));
-    pos[i * 3] = r * Math.cos(th) * 38;
-    pos[i * 3 + 1] = u * 38;
-    pos[i * 3 + 2] = r * Math.sin(th) * 38;
-  }
-  var g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  var m = new THREE.PointsMaterial({ color: 0xe8edff, size: 0.16, sizeAttenuation: true, transparent: true, opacity: 0.9 });
-  xr.bg.spark = new THREE.Points(g, m);
-  xr.scene.add(xr.bg.spark);
-}
-
 function xrApplyBackground(){
   var bg = S.bg;
   if (bg === 'pass' && !qs.arOk) bg = 'dark';
   if (xr.bg.grid) xr.bg.grid.visible = false;
   if (xr.bg.ring) xr.bg.ring.visible = false;
-  if (xr.bg.spark) xr.bg.spark.visible = false;
-  if (xr.bg.sky) xr.bg.sky.visible = false;
   xr.scene.fog = null;
 
+  /* もようを無限遠の背景として貼る。全天球の並び(横2048×縦1024)として読ませる */
   function dome(tex){
-    xrEnsureSkyMesh();
-    xr.bg.sky.material.map = tex;
-    xr.bg.sky.material.needsUpdate = true;
-    xr.bg.sky.visible = true;
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    xr.scene.background = tex;
   }
 
   if (bg === 'dark') {
-    xr.scene.background = new THREE.Color(0x0b0a14);
     dome(xrTexDark());
     xrBuildGrid();
     xr.bg.grid.visible = true;
@@ -3339,15 +3347,10 @@ function xrApplyBackground(){
   } else if (bg === 'black') {
     xr.scene.background = new THREE.Color(0x000000);
   } else if (bg === 'stars') {
-    xr.scene.background = new THREE.Color(0x04050b);
     dome(xrTexStars());
-    xrBuildSpark();
-    xr.bg.spark.visible = true;
   } else if (bg === 'sky') {
-    xr.scene.background = new THREE.Color(0x5f9ae2);
     dome(xrTexDay());
   } else if (bg === 'sunset') {
-    xr.scene.background = new THREE.Color(0x3d2a63);
     dome(xrTexSunset());
   } else {
     xr.scene.background = null;
@@ -4039,10 +4042,20 @@ function xrPickHover(hand){
   return null;
 }
 
+/* 「いまの手」のホバーだけを返す。以前は常に右手を先に見ていたため、
+   左手を使っていても右手が何かを指していれば右手に持っていかれた。
+   使う手がつかみ中のときだけ、もう一方に譲る */
 function xrActiveHover(){
-  if (!xr.grab.right && xr.ph.right.hover) return xr.ph.right.hover;
-  if (!xr.grab.left && xr.ph.left.hover) return xr.ph.left.hover;
+  var a = xr.activeHand === 'left' ? 'left' : 'right';
+  var b = (a === 'right') ? 'left' : 'right';
+  if (!xr.grab[a] && xr.ph[a].hover) return xr.ph[a].hover;
+  if (xr.grab[a] && !xr.grab[b] && xr.ph[b].hover) return xr.ph[b].hover;
   return null;
+}
+
+/* その手のホバー(押し分けの判定など、手を特定したいとき用) */
+function xrHoverOf(hand){
+  return (!xr.grab[hand] && xr.ph[hand] && xr.ph[hand].hover) ? xr.ph[hand].hover : null;
 }
 
 function kmAnyPressed(action){
@@ -4076,7 +4089,10 @@ function xrPressFinish(byUp){
 function xrPressTick(){
   var pr = xr.press;
   if (!pr) return;
-  var hov = xrActiveHover();
+  /* 押した手のホバーで見る。以前は xrActiveHover() を見ていたため、
+     左手で押しても右手の向き次第で判定が変わり、長押しスクロールに
+     入れなかったり、右手の動きでスクロールしたりしていた */
+  var hov = xrHoverOf(pr.hand || xr.activeHand);
   var cur = null;
   if (hov && hov.scr.host === pr.hostObj && hov.scr.slot === pr.slot) {
     cur = { x: clamp(hov.uv.x, 0, 1), y: clamp(1 - hov.uv.y, 0, 1) };
@@ -4126,7 +4142,7 @@ function xrActDown(action, hand){
             hostObj: hov.scr.host, slot: hov.scr.slot,
             x0: clamp(hov.uv.x, 0, 1), y0: clamp(1 - hov.uv.y, 0, 1),
             py: clamp(1 - hov.uv.y, 0, 1),
-            t: performance.now(), mode: '', count: 1, acc: 0
+            t: performance.now(), mode: '', count: 1, acc: 0, hand: hand
           };
         }
       }
@@ -4198,6 +4214,9 @@ function xrPollInput(dt){
     [0, 1, 3, 4, 5].forEach(function(k){
       newPhys[pre + k] = !!(gp.buttons[k] && gp.buttons[k].pressed);
     });
+    /* 押す前でも、トリガーに指を置けば「いまの手」が移る。
+       使っていない側のレーザーは消えるので、これがないと狙いを付けられない */
+    if (gp.buttons[0] && gp.buttons[0].touched) xr.activeHand = hand;
     axesByHand[hand] = {
       ax: gp.axes.length > 2 ? gp.axes[2] : 0,
       ay: gp.axes.length > 3 ? gp.axes[3] : 0
@@ -4209,6 +4228,7 @@ function xrPollInput(dt){
     if (cur === prev) return;
     var hand = id.charAt(0) === 'r' ? 'right' : 'left';
     var action = S.km2[id] || '';
+    if (cur) xr.activeHand = hand; /* 押した手が「いまの手」になる */
     if (cur) xrActDown(action, hand);
     else xrActUp(action, hand);
   });
@@ -4256,13 +4276,22 @@ function xrPollInput(dt){
     }
   }
 
-  var overUi = xr.ph.right.onMenu || xr.ph.left.onMenu || xr.ph.right.onHud || xr.ph.left.onHud
-    || xr.ph.right.onKeys || xr.ph.left.onKeys || xr.ph.right.onPad || xr.ph.left.onPad;
+  /* 以前は左右どちらかがUIを指していれば止めていたため、
+     もう一方の手がHUDを向いているだけでスクロールが丸ごと止まっていた */
+  var uiHand = xr.ph[xr.activeHand === 'left' ? 'left' : 'right'];
+  var overUi = uiHand.onMenu || uiHand.onHud || uiHand.onKeys || uiHand.onPad;
   var sAx = axesByHand[scrHand];
   if (sAx && xr.mouseEnabled && !overUi) {
     var sv = -sAx.ay;
     var now = performance.now();
-    if (Math.abs(sv) > 0.5 && now - xr.lastScroll > SCROLL_MS[S.scrollSpd]) {
+    /* 倒し量に応じて間隔を縮める(浅く倒せばゆっくり、深く倒せば速く)。
+       しきい値0.4と最速0.35倍は実機での調整点 */
+    var STICK_MIN = 0.4;
+    var stickMs = function(mag){
+      var f = 1 - 0.65 * clamp((Math.abs(mag) - STICK_MIN) / (1 - STICK_MIN), 0, 1);
+      return SCROLL_MS[S.scrollSpd] * f;
+    };
+    if (Math.abs(sv) > STICK_MIN && now - xr.lastScroll > stickMs(sv)) {
       var hov = xrActiveHover();
       var target = hov ? hov.scr.host : xr.lastHost;
       if (target && target.helperOn) {
@@ -4277,7 +4306,7 @@ function xrPollInput(dt){
     }
     /* 横スクロール(版3のヘルパーから)。縦とは発火間隔を別に持つ */
     var sh = sAx.ax;
-    if (Math.abs(sh) > 0.5 && now - (xr.lastScrollH || 0) > SCROLL_MS[S.scrollSpd]) {
+    if (Math.abs(sh) > STICK_MIN && now - (xr.lastScrollH || 0) > stickMs(sh)) {
       var hov2s = xrActiveHover();
       var target2 = hov2s ? hov2s.scr.host : xr.lastHost;
       if (target2 && target2.helperOn) {
@@ -4393,7 +4422,10 @@ function xrUpdatePointerFor(hand){
   } else {
     L.dot.visible = false;
   }
-  L.line.visible = xr.screens.length > 0;
+  /* 使っていない側は消す。両方が生きて見えると、どちらが効くのか分からない */
+  var isActive = (hand === (xr.activeHand === 'left' ? 'left' : 'right'));
+  if (!isActive) { L.dot.visible = false; }
+  L.line.visible = isActive && xr.screens.length > 0;
   L.line.position.copy(origin);
   L.line.quaternion.setFromRotationMatrix(xr.tmpMat);
   L.line.scale.set(1, 1, len);
