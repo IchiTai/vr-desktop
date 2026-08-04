@@ -888,9 +888,26 @@ function pcCreatePeer(attempt){
 }
 
 /* --- 操作ヘルパー(同じパソコンで動く小さなプログラム)との橋渡し --- */
+/* 生存確認は「前回が終わってから次を予約する」方式(04r)。
+   一定間隔の連打だと、詰まったときに前回を見捨てる瞬間に次が出て、
+   見捨てられた接続が相手に溜まり続ける(既知の問題cの増幅要因) */
+var PING_MS = 3000;      /* 正常時の間隔 */
+var PING_MS_MAX = 12000; /* 失敗が続いたときの上限。相手が立ち直る余地を作る */
+var PING_TIMEOUT_MS = 1500; /* 打ち切り。正常時の応答は数ミリ秒 */
+function pcSchedulePing(){
+  if (pc.stopped) return;
+  var n = pc.pingFails || 0;
+  var wait = (n < 2) ? PING_MS : Math.min(PING_MS_MAX, PING_MS * Math.pow(2, n - 1));
+  pc.pingTimer = setTimeout(pcPingLoop, wait); /* 積まずに最新の1件だけ持つ(停止時は pc.pingTimer を解除) */
+}
+async function pcPingLoop(){
+  if (pc.stopped) return;
+  try { await pcPingHelper(); } catch (_e) {}
+  pcSchedulePing();
+}
 function pcStartHelperLoop(){
-  pcPingHelper();
-  pc.timers.push(setInterval(pcPingHelper, 3000));
+  pc.stopped = false;
+  pcPingLoop();
   pc.timers.push(setInterval(pcFlushInput, 33));
 }
 
@@ -901,7 +918,7 @@ async function pcPingHelper(){
   var t0 = performance.now();
   try {
     var ctl = new AbortController();
-    var t = setTimeout(function(){ ctl.abort(); }, 3000);
+    var t = setTimeout(function(){ ctl.abort(); }, PING_TIMEOUT_MS);
     var r = await fetch(HELPER_URL + '/ping', { method: 'GET', signal: ctl.signal });
     clearTimeout(t);
     if (r.ok) {
@@ -962,7 +979,7 @@ async function pcPingHelper(){
     var f = pc.lastPingFail;
     var hint = (f.ms < 50 && f.name.indexOf('HTTP') !== 0)
       ? ' → 通信が遮断/拒否されています(ブラウザの許可設定が有力。ページの再読み込みで再許可を)'
-      : (f.ms >= 2900
+      : (f.ms >= PING_TIMEOUT_MS - 100
         ? ' → ヘルパーが応答していません(固まりか多重起動。ヘルパーを起動し直してください)'
         : '');
     dg.textContent = '直近の失敗: ' + f.name + (f.msg ? ': ' + f.msg : '')
@@ -1009,6 +1026,11 @@ function pcKeysAllowed(){
 }
 
 function pcOnData(msg){
+  pcOnDataInner(msg);
+  pcTrimQueue(); /* どの種類の操作でも、積んだ直後に必ず上限を効かせる */
+}
+
+function pcOnDataInner(msg){
   if (!msg || !msg.t) return;
   if (!pc.helperOn && msg.t !== 'q') return; /* ヘルパーOFF中は操作をためない */
   if ((msg.t === 'key' || msg.t === 'txt' || msg.t === 'kb' || msg.t === 'ch')
@@ -1065,17 +1087,49 @@ function pcOnData(msg){
   }
 }
 
+/* 操作の送信。生存確認と同じ考え方で、前の便が終わるまで次を出さない。
+   33msごとに無条件で発射すると、ヘルパーが遅れたときに同時実行が
+   際限なく増え、接続の山でヘルパー側を詰まらせる(既知の問題cの主因) */
+var INPUT_TIMEOUT_MS = 2000; /* ヘルパーは中身を300msまで待って処理に入るので余裕をみた値 */
+var INPUT_QUEUE_MAX = 500;   /* 待ち行列の上限。超えたら古い「移動」から捨てる */
+function pcTrimQueue(){
+  var q = pc.inputQueue;
+  if (q.length <= INPUT_QUEUE_MAX) return;
+  /* 移動は最新のものだけ効けばよいので、古い移動から間引く。
+     押す・離す・キーは取りこぼすと操作が壊れるので残す */
+  var keep = [];
+  for (var i = 0; i < q.length; i++) {
+    if (q.length - i <= INPUT_QUEUE_MAX / 2) { keep.push(q[i]); continue; }
+    if (q[i].t !== 'mv' && q[i].t !== 'mvr') keep.push(q[i]);
+  }
+  /* それでも多いときは、古いほうから機械的に落とす */
+  if (keep.length > INPUT_QUEUE_MAX) keep = keep.slice(keep.length - INPUT_QUEUE_MAX);
+  pc.inputQueue = keep;
+}
 async function pcFlushInput(){
+  if (pc.inputBusy) return;              /* 前の便が飛んでいる間は出さない */
   if (!pc.helperOn || pc.inputQueue.length === 0) return;
   var batch = pc.inputQueue;
   pc.inputQueue = [];
+  pc.inputBusy = true;
+  var ctl = new AbortController();
+  var t = setTimeout(function(){ ctl.abort(); }, INPUT_TIMEOUT_MS);
   try {
     await fetch(HELPER_URL + '/input', {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(batch)
+      body: JSON.stringify(batch),
+      signal: ctl.signal
     });
-  } catch (_e) {}
+  } catch (_e) {
+    /* 送れなかった便は先頭へ戻す。捨てるとボタンを離す合図が失われ、
+       押しっぱなしになることがある。順序も保たれる */
+    pc.inputQueue = batch.concat(pc.inputQueue);
+    pcTrimQueue();
+  } finally {
+    clearTimeout(t);
+    pc.inputBusy = false;
+  }
 }
 
 function pcStop(){
@@ -1086,8 +1140,10 @@ function pcStop(){
   pc.screens = [];
   if (pc.peer) { try { pc.peer.destroy(); } catch (_e) {} pc.peer = null; }
   pc.conns = [];
-  pc.timers.forEach(clearInterval);
+  pc.stopped = true;
+  pc.timers.forEach(function(id){ clearInterval(id); clearTimeout(id); });
   pc.timers = [];
+  if (pc.pingTimer) { clearTimeout(pc.pingTimer); pc.pingTimer = null; }
   pc.inputQueue = [];
   pc.helperOn = false;
   pc.ctlBlock = false;
@@ -1638,7 +1694,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-04q';
+var APP_VER = '2026-08-04s';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -3760,7 +3816,9 @@ function xrOnSessionEnd(){
   if (xr.mediaLayers) {
     xr.mediaLayers.forEach(function(e){
       try { e.layer.destroy(); } catch (_e) {}
-      if (e.s.mesh && e.s.mesh.material === xr.holeMat) e.s.mesh.material = e.s.mat;
+      if (e.s.mesh && e.s.mesh.material === xr.holeMat && xr.screens.indexOf(e.s) >= 0) {
+        e.s.mesh.material = e.s.mat; /* 既に消えた画面は材質もテクスチャも破棄済みなので触らない */
+      }
     });
     xr.mediaLayers = [];
   }
@@ -4944,7 +5002,9 @@ function xrSyncMediaLayers(){
     var e = xr.mediaLayers[j];
     if (want.indexOf(e.s) < 0) {
       try { e.layer.destroy(); } catch (_e) {}
-      if (e.s.mesh && e.s.mesh.material === xr.holeMat) e.s.mesh.material = e.s.mat;
+      if (e.s.mesh && e.s.mesh.material === xr.holeMat && xr.screens.indexOf(e.s) >= 0) {
+        e.s.mesh.material = e.s.mat; /* 既に消えた画面は材質もテクスチャも破棄済みなので触らない */
+      }
       xr.mediaLayers.splice(j, 1);
       changed = true;
     }

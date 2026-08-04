@@ -75,6 +75,10 @@ $port = 8765
 # Helper version (integer). Bump this AND HELPER_VER_REQUIRED in
 # index.html together whenever the helper protocol changes.
 $helperVer = 3
+# Build date. Shown at startup so you can confirm the file was replaced.
+# Bump this whenever this file changes (the version number above only
+# changes when the agreement with the page changes).
+$helperBuild = '2026-08-04'
 $paired = $null
 
 try {
@@ -91,7 +95,7 @@ try {
 Write-Host ""
 Write-Host "  ================================================"
 Write-Host "   VR Desktop - Control Helper (Windows)"
-Write-Host ("   Helper version : " + $helperVer)
+Write-Host ("   Helper version : " + $helperVer + "   (updated " + $helperBuild + ")")
 Write-Host "  ================================================"
 Write-Host ("   Monitors    : " + $mons.Count)
 for ($mi = 0; $mi -lt $mons.Count; $mi++) {
@@ -112,7 +116,12 @@ while ($true) {
         $client = $listener.AcceptTcpClient()
         $client.NoDelay = $true
         $stream = $client.GetStream()
-        $stream.ReadTimeout = 2000
+        # Loopback only: a real request arrives right after connect, so a short
+        # wait is enough. Keeping this small stops one empty connection (Chrome
+        # opens sockets ahead of time) from stalling every ping behind it.
+        # Tuning point: if long text sends ever get cut off, raise this to 1000.
+        $stream.ReadTimeout = 300
+        $stream.WriteTimeout = 1000
 
         $ms = New-Object System.IO.MemoryStream
         $buf = New-Object byte[] 8192
@@ -142,8 +151,28 @@ while ($true) {
             }
         }
 
+        $origin = $hdr['origin']
+        if (-not $origin) { $origin = '*' }
+
+        # Check the caller and the declared size BEFORE reading the body,
+        # so an unpaired page cannot make us read a huge payload.
+        if ($path -eq '/input' -and $method -eq 'POST' -and
+            $paired -and $origin -ne '*' -and $origin -ne $paired) {
+            $rb = [System.Text.Encoding]::ASCII.GetBytes(
+                "HTTP/1.1 403 Forbidden`r`nContent-Length: 0`r`nConnection: close`r`n`r`n")
+            $stream.Write($rb, 0, $rb.Length); $stream.Flush()
+            $client.Close(); continue
+        }
+
         $clen = 0
         if ($hdr['content-length']) { $clen = [int]$hdr['content-length'] }
+        # Upper bound. A real batch is a few KB (the page caps text at 1000 chars).
+        if ($clen -gt 262144) {
+            $rb = [System.Text.Encoding]::ASCII.GetBytes(
+                "HTTP/1.1 413 Payload Too Large`r`nContent-Length: 0`r`nConnection: close`r`n`r`n")
+            $stream.Write($rb, 0, $rb.Length); $stream.Flush()
+            $client.Close(); continue
+        }
         while (($ms.Length - ($headerEnd + 4)) -lt $clen) {
             $n = $stream.Read($buf, 0, $buf.Length)
             if ($n -le 0) { break }
@@ -156,9 +185,6 @@ while ($true) {
             $take = [Math]::Min($clen, $avail)
             $body = [System.Text.Encoding]::UTF8.GetString($all, $headerEnd + 4, $take)
         }
-
-        $origin = $hdr['origin']
-        if (-not $origin) { $origin = '*' }
 
         $status = '200 OK'
         $resBody = '{"ok":1}'

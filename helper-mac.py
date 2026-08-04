@@ -370,6 +370,10 @@ paired = None
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    # 接続を開いたまま使い回す方式なので、相手が黙ったままの接続に
+    # スレッドを取られ続けないよう時間切れを設ける。生存確認は3秒ごとに
+    # 来るので、30秒あれば使用中の接続が切れることはない。
+    timeout = 30
 
     def log_message(self, *args):
         pass
@@ -418,6 +422,9 @@ class Handler(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length", 0) or 0)
         except ValueError:
             n = 0
+        if n > 262144:
+            self._reply(413, b'{"ok":0}')
+            return
         raw = self.rfile.read(n) if n > 0 else b"[]"
         try:
             events = json.loads(raw.decode("utf-8"))
