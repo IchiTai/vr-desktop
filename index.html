@@ -511,6 +511,14 @@ footer.site a{color:var(--muted);text-decoration:underline}
         </select>
       </div>
       <p class="set-note">ぼかしは<b>ページを読み込み直したときから</b>反映されます。VRの中の操作ガイドに出る「描画」の数字(1秒あたりのコマ数)を見ながら切り替えると、効き目が分かります。数字が低い(60を大きく下回る)ときは「なし」を試してください。</p>
+      <div class="set-row">
+        <label>操作の機敏さ優先</label>
+        <select class="monsel" id="selLowLat">
+          <option value="on">する(標準)</option>
+          <option value="off">しない(ブラウザ任せ)</option>
+        </select>
+      </div>
+      <p class="set-note">映像の受け取り側の溜め(揺らぎ吸収用のバッファ)を最小にするようブラウザへ希望します。<b>次に接続したときから</b>反映。映像の乱れ(コマ飛び)が増えたと感じたら「しない」に戻してください。</p>
       <p class="set-note">標準の方式は、平面の画面を合成器が直接描くため文字がくっきりし、消費電力も下がります(対応機のみ・湾曲画面は当面従来)。表示に不具合が出たときは「従来」に切り替えてください(即時反映)。</p>
     </div>
     <div id="setPaneEnv" class="hidden">
@@ -600,7 +608,7 @@ window.__libsReady = (function(){
 'use strict';
 /* ================================================================
    VR Desktop - core
-   役割: 画面の役割分岐 / PC側(複数画面の共有・コード発行・操作ヘルパー中継) /
+   役割: 画面の役割分岐 / PC側(複数画面の共有・コード発行・操作ヘルパーへの橋渡し) /
          Quest側(複数パソコンへの接続・映像受信)
    ================================================================ */
 
@@ -1192,7 +1200,7 @@ async function questInit(){
     ? ''
     : 'この機器はVR表示に対応していないため、接続後は「タッチで見る」で表示と操作ができます。';
   refreshSettingsUi(); /* VR対応が判明したら、開いている設定の表示も合わせる */
-  /* 接続ボタンを押す前に、中継サーバーへの登録(受付)を先に済ませておく。
+  /* 接続ボタンを押す前に、待ち合わせサーバーへの登録(受付)を先に済ませておく。
      初回接続の待ち時間の大半はこれだったため */
   questEnsurePeer(function(){});
 }
@@ -1212,7 +1220,7 @@ function questLog(msg){
 
 function questPeerStat(txt){
   var el = $('qPeerStat');
-  if (el) el.textContent = txt ? ('中継サーバー: ' + txt) : '';
+  if (el) el.textContent = txt ? ('待ち合わせサーバー: ' + txt) : '';
 }
 
 function questEnsurePeer(cb){
@@ -1382,6 +1390,24 @@ function questLogRouteType(host, conn){
   } catch (_e) {}
 }
 
+/* 受信の溜め(ジッタバッファ)を最小に希望する(既知の問題(e)の遅延対策・04w)。
+   新API jitterBufferTarget(ミリ秒・Chrome 124以降)→旧API playoutDelayHint(秒)の
+   二段構え。どちらも値は「希望」で、実際の溜めは回線状況に応じてブラウザが決める。
+   映像の乱れが増えたら設定「操作の機敏さ優先」をOFF(次の接続から) */
+function questTuneLatency(call){
+  if (S.lowLat === false) return;
+  try {
+    var pcn = call.peerConnection;
+    if (!pcn || !pcn.getReceivers) return;
+    pcn.getReceivers().forEach(function(r){
+      try {
+        if ('jitterBufferTarget' in r) r.jitterBufferTarget = 0;
+        else if ('playoutDelayHint' in r) r.playoutDelayHint = 0;
+      } catch (_e) {}
+    });
+  } catch (_e2) {}
+}
+
 function questWatchIce(host, conn){
   var tries = 0;
   var t = setInterval(function(){
@@ -1509,7 +1535,7 @@ function questOnCall(call){
   if (!host) { try { call.close(); } catch (_e) {} return; }
   var slot = (call.metadata && call.metadata.slot != null) ? call.metadata.slot : 0;
   call.answer(null, { sdpTransform: preferH264 });
-  call.on('stream', function(stream){ questAddScreen(host, slot, stream, call); });
+  call.on('stream', function(stream){ questTuneLatency(call); questAddScreen(host, slot, stream, call); });
   call.on('close', function(){
     /* 再接続で作り直した新しい画面を、古い接続の後始末で消さない */
     var cur = null;
@@ -1702,7 +1728,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-04u';
+var APP_VER = '2026-08-04x';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1773,6 +1799,7 @@ function loadS(){
   s.codec = (s.codec === 'vp8') ? 'vp8' : 'h264'; /* 映像の圧縮形式。h264=ハードウェア復号優先 */
   s.renderMode = (s.renderMode === 'classic') ? 'classic' : 'layers'; /* VRの画面の描画方式 */
   s.aa = (s.aa === false) ? false : true; /* VRのぼかし(4サンプル)。切ると描画が軽くなる */
+  s.lowLat = (s.lowLat === false) ? false : true; /* 受信の溜めを最小に希望(操作の機敏さ優先) */
   s.stick = (s.stick === 'right') ? 'right'
     : (s.km && s.km.stick === 'right') ? 'right' : 'left'; /* 旧保存からの引き継ぎ */
   if (!kmValid(s.km2) || kmIsOldDefault(s.km2)) s.km2 = kmDefault();
@@ -2057,6 +2084,7 @@ function renderKm(){
   $('selCodec').value = S.codec;
   $('selRender').value = S.renderMode;
   $('selAA').value = (S.aa === false) ? 'off' : 'on';
+  $('selLowLat').value = (S.lowLat === false) ? 'off' : 'on';
   $('selScrollSpd').value = String(S.scrollSpd);
 }
 
@@ -2169,6 +2197,10 @@ function initSettingsUi(){
   });
   $('selAA').addEventListener('change', function(){
     S.aa = ($('selAA').value !== 'off');
+    saveS();
+  });
+  $('selLowLat').addEventListener('change', function(){
+    S.lowLat = ($('selLowLat').value !== 'off');
     saveS();
   });
   $('selScrollSpd').addEventListener('change', function(){
@@ -3812,6 +3844,7 @@ async function xrEnter(){
     await xr.renderer.xr.setSession(session);
     xr.mediaTries = 0; /* 描画層は毎フレーム取り直しを試みる(下の xrEnsureMedia) */
     xr.fps = 0; xr.frameCount = 0; xr.fpsAt = 0; xr.hudFps = undefined; /* 計測を初期化 */
+    xr.mediaTrash = []; /* 破棄待ちのレイヤー((d)③対策) */
     xr.needsRecenter = true;
     xr.hudPinned = false;
     xr.hudUntil = performance.now() + 12000;
@@ -3849,6 +3882,10 @@ function xrOnSessionEnd(){
       }
     });
     xr.mediaLayers = [];
+  }
+  if (xr.mediaTrash) {
+    xr.mediaTrash.forEach(function(tr){ try { tr.layer.destroy(); } catch (_e) {} });
+    xr.mediaTrash = [];
   }
   xr.mediaOk = false;
   xr.mediaBinding = null;
@@ -5039,6 +5076,18 @@ function xrEnsureMedia(){
 function xrSyncMediaLayers(){
   xrEnsureMedia();
   if (!xr.mediaOk || !xr.session) return;
+  /* 破棄待ちの処理((d)③): 組み直しの反映は次フレームなので、その瞬間の合成に
+     まだ使われている可能性があるレイヤーを即 destroy すると、平面/湾曲の連続
+     切替でVRごと落ちる。組み直しを先に反映し、2フレーム待ってから捨てる */
+  if (xr.mediaTrash && xr.mediaTrash.length) {
+    for (var ti = xr.mediaTrash.length - 1; ti >= 0; ti--) {
+      xr.mediaTrash[ti].frames++;
+      if (xr.mediaTrash[ti].frames >= 2) {
+        try { xr.mediaTrash[ti].layer.destroy(); } catch (_e) {}
+        xr.mediaTrash.splice(ti, 1);
+      }
+    }
+  }
   var changed = false;
   var want = [];
   for (var i = 0; i < xr.screens.length; i++) {
@@ -5048,7 +5097,8 @@ function xrSyncMediaLayers(){
   for (var j = xr.mediaLayers.length - 1; j >= 0; j--) {
     var e = xr.mediaLayers[j];
     if (want.indexOf(e.s) < 0) {
-      try { e.layer.destroy(); } catch (_e) {}
+      xr.mediaTrash = xr.mediaTrash || [];
+      xr.mediaTrash.push({ layer: e.layer, frames: 0 });
       if (e.s.mesh && e.s.mesh.material === xr.holeMat && xr.screens.indexOf(e.s) >= 0) {
         e.s.mesh.material = e.s.mat; /* 既に消えた画面は材質もテクスチャも破棄済みなので触らない */
       }
@@ -5075,6 +5125,20 @@ function xrSyncMediaLayers(){
       changed = true;
     } catch (_e) { /* 作成に失敗した画面は従来描画のまま */ }
   });
+  /* 奥→手前の並べ替え((d)②): レイヤー同士に奥行き判定はなく(仕様)、配列順で
+     合成される。画面の並び順のままだと、奥の画面が配列で後ろにいるとき、
+     重なった部分を乗っ取る(=映像がもう片方に移って見える)。毎フレーム
+     視点からの距離を測り、順序が入れ替わった瞬間だけ配列を組み直す */
+  if (xr.mediaLayers.length > 1) {
+    xr.mediaLayers.forEach(function(e2){
+      e2.s.mesh.getWorldPosition(xr.tmpV1);
+      e2.dist = xr.tmpV1.distanceTo(xr.camPos);
+    });
+    var sorted = xr.mediaLayers.slice().sort(function(a, b){ return b.dist - a.dist; });
+    for (var si = 0; si < sorted.length; si++) {
+      if (sorted[si] !== xr.mediaLayers[si]) { xr.mediaLayers = sorted; changed = true; break; }
+    }
+  }
   if (!xr.tmpQ) xr.tmpQ = new THREE.Quaternion();
   xr.mediaLayers.forEach(function(e){
     var m = e.s.mesh;
@@ -5091,8 +5155,11 @@ function xrSyncMediaLayers(){
       { x: xr.tmpV1.x, y: xr.tmpV1.y, z: xr.tmpV1.z },
       { x: xr.tmpQ.x, y: xr.tmpQ.y, z: xr.tmpQ.z, w: xr.tmpQ.w }
     );
-    e.layer.width = w;
-    e.layer.height = h;
+    /* 実機の観測(2026-08-05)で、全幅指定だと拡大表示になった=Quadの
+       width/heightは「半分の幅」で解釈される。逆に縮んで見えたら 2 で割るのを
+       やめる(調整点)。表裏が逆なら上のquatにY軸180度(調整点・未発症) */
+    e.layer.width = w / 2;
+    e.layer.height = h / 2;
   });
   if (changed) {
     var arr = [];
