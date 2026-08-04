@@ -519,7 +519,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
         </select>
       </div>
       <p class="set-note">映像の受け取り側の溜め(揺らぎ吸収用のバッファ)を最小にするようブラウザへ希望します。<b>次に接続したときから</b>反映。映像の乱れ(コマ飛び)が増えたと感じたら「しない」に戻してください。</p>
-      <p class="set-note">標準の方式は、平面の画面を合成器が直接描くため文字がくっきりし、消費電力も下がります(対応機のみ・湾曲画面は当面従来)。表示に不具合が出たときは「従来」に切り替えてください(即時反映)。</p>
+      <p class="set-note">標準の方式は、平面の画面を合成器が直接描くため文字がくっきりし、消費電力も下がります(対応機のみ)。<b>湾曲の画面はこの方式を使えません</b>(合成器が湾曲の映像を描けないため)。くっきりさせたい画面は「平面」にしてください。表示に不具合が出たときは「従来」に切り替えてください(即時反映)。</p>
     </div>
     <div id="setPaneEnv" class="hidden">
       <div id="envVrOnly">
@@ -536,14 +536,15 @@ footer.site a{color:var(--muted);text-decoration:underline}
           <input type="file" id="fileVid" accept="video/*">
         </div>
         <div class="set-row">
-          <label>映像の立体視の並び</label>
+          <label>映像の形式</label>
           <select class="monsel" id="selPanoStereo">
-            <option value="mono">平面 360度(標準)</option>
-            <option value="tb">上下 360度(立体・左目が上)</option>
-            <option value="lr">左右 VR180(立体・左目が左)</option>
+            <option value="mono">ふつうの360度(標準)</option>
+            <option value="tb">上下に2つ並び(360度)</option>
+            <option value="lr">左右に2つ並び(VR180)</option>
           </select>
         </div>
-        <p class="set-note">映像も<b>この端末から出ません</b>。保存はしないので、読み込み直すと元の背景に戻ります。立体視の並びは<b>選び直すと映像を貼り直します</b>。左右並びの映像は横180度ぶん(VR180)が主流なので、そのように扱います。</p>
+        <p class="set-note">映像も<b>この端末から出ません</b>。保存はしないので、読み込み直すと元の背景に戻ります。形式は<b>選び直すと映像を貼り直します</b>。左右に2つ並んだ映像は横180度ぶん(VR180)が主流なので、そのように扱います。</p>
+        <p class="set-note">2つ並びの映像が<b>立体に見えるかどうか</b>は、VRの操作ガイドの「全天球:」の後ろで分かります。<b>「合成器」</b>なら左右の目に別々の絵が出て立体に見えます。<b>「背景」</b>のときは左目のぶんだけを両目で見る形になり、立体には見えません(形と向きは正しく出ます)。どちらになるかは機器とブラウザ次第で、自動で決まります。</p>
         <p class="notice-warn hidden" id="bgVidErr"></p>
         <div class="set-row" style="margin-top:8px">
           <label>画面の最大距離 <span id="valMaxD" style="color:var(--muted)"></span></label>
@@ -1748,7 +1749,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-05k';
+var APP_VER = '2026-08-05m';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -3014,7 +3015,7 @@ function initTouchUi(){
    - ボタン→機能の割り当て(km2)。同じ機能を複数ボタンに割当可
    - グリップで画面をつかんで自由に移動(「固定」した画面は不動)
    - 画面にレーザーを当てると上に「平面/湾曲・ミュート・固定」ボタン
-   - 背景6種(パススルー含む) / VR内設定メニュー / 配置の記憶
+   - 背景8種(パススルー・全天球の写真/映像を含む) / VR内設定メニュー / 配置の記憶
    ================================================================ */
 
 var xr = {
@@ -3457,11 +3458,18 @@ function xrPanoSphere(){
   if (S.panoStereo === 'tb') { tex.repeat.set(1, 0.5); tex.offset.set(0, 0.5); }
   else if (S.panoStereo === 'lr') { tex.repeat.set(0.5, 1); tex.offset.set(0, 0); half = true; }
   /* VR180は横180度ぶんしかないので、球も半周だけにする。
-     360度として全周に巻くと横に2倍へ引き伸ばされて破綻する */
-  var geo = half
-    ? new THREE.SphereGeometry(90, 48, 32, -Math.PI / 2, Math.PI)
-    : new THREE.SphereGeometry(90, 48, 32);
-  var mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false });
+     360度として全周に巻くと横に2倍へ引き伸ばされて破綻する。
+     巻き始めの角度は「絵の横の中心が正面(-Z)に来る」ように決める。
+       three の球: x = -r cos(φ) sin(θ) / z = r sin(φ) sin(θ)、φ = 巻き始め + u×巻く長さ
+       絵の中心は u=0.5 なので、巻き始め = -π/2 - 巻く長さ/2
+     指定しないと、360度では絵の中心が真右に、VR180では真左に来る
+     (2026-08-05kの実機で「上下は右に90度、左右は左に90度ずれる」として発症)。
+     さらに x を反転しないと絵が左右あべこべになる(uが増えるほど左へ進んでしまう)。
+     反転すると裏表も入れ替わるので、材質は BackSide ではなく既定の表向きにする */
+  var phiLen = half ? Math.PI : Math.PI * 2;
+  var geo = new THREE.SphereGeometry(90, 48, 32, -Math.PI / 2 - phiLen / 2, phiLen);
+  geo.scale(-1, 1, 1);
+  var mat = new THREE.MeshBasicMaterial({ map: tex, fog: false });
   xr.bg.panoVidTex = tex;
   xr.bg.panoSphere = new THREE.Mesh(geo, mat);
   xr.scene.add(xr.bg.panoSphere);
