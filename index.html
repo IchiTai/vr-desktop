@@ -538,12 +538,12 @@ footer.site a{color:var(--muted);text-decoration:underline}
         <div class="set-row">
           <label>映像の立体視の並び</label>
           <select class="monsel" id="selPanoStereo">
-            <option value="mono">平面(標準)</option>
-            <option value="tb">上下(左目が上)</option>
-            <option value="lr">左右(左目が左)</option>
+            <option value="mono">平面 360度(標準)</option>
+            <option value="tb">上下 360度(立体・左目が上)</option>
+            <option value="lr">左右 VR180(立体・左目が左)</option>
           </select>
         </div>
-        <p class="set-note">映像も<b>この端末から出ません</b>。保存はしないので、読み込み直すと元の背景に戻ります。立体視の並びは<b>選び直すと映像を貼り直します</b>。</p>
+        <p class="set-note">映像も<b>この端末から出ません</b>。保存はしないので、読み込み直すと元の背景に戻ります。立体視の並びは<b>選び直すと映像を貼り直します</b>。左右並びの映像は横180度ぶん(VR180)が主流なので、そのように扱います。</p>
         <p class="notice-warn hidden" id="bgVidErr"></p>
         <div class="set-row" style="margin-top:8px">
           <label>画面の最大距離 <span id="valMaxD" style="color:var(--muted)"></span></label>
@@ -1748,7 +1748,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-05j';
+var APP_VER = '2026-08-05k';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2298,13 +2298,7 @@ function initSettingsUi(){
     saveS();
     if (S.bg === 'video' && xr.bg && xr.bg.panoVid) {
       /* 並びを変えたら貼り直す(レイヤーも球も作り直しになる) */
-      if (xr.bg.panoLayer) { try { xr.bg.panoLayer.destroy(); } catch (_e) {} xr.bg.panoLayer = null; }
-      if (xr.bg.panoSphere) {
-        xr.scene.remove(xr.bg.panoSphere);
-        try { xr.bg.panoSphere.geometry.dispose(); xr.bg.panoSphere.material.dispose(); } catch (_e) {}
-        xr.bg.panoSphere = null;
-      }
-      if (xr.bg.panoVidTex) { try { xr.bg.panoVidTex.dispose(); } catch (_e) {} xr.bg.panoVidTex = null; }
+      xrPanoDrop();
       APP.xrBgChanged();
     }
   });
@@ -3422,19 +3416,29 @@ function xrSetPanoVideo(file){
 }
 
 function xrClearPanoVideo(){
+  xrPanoDrop();
+  if (xr.bg.panoVid) { try { xr.bg.panoVid.pause(); } catch (_e) {} xr.bg.panoVid = null; }
+  if (xr.bg.panoVidUrl) { try { URL.revokeObjectURL(xr.bg.panoVidUrl); } catch (_e) {} xr.bg.panoVidUrl = null; }
+  xr.panoWay = '';
+}
+
+/* 全天球の映像の「見せ物」を全部片付ける。作る前に必ずこれを通すこと。
+   番人を置かずに作ると、xrApplyBackground が呼ばれるたびに球が積み増され、
+   同じ位置に重なった球どうしで前後が毎コマ入れ替わって画面が激しく乱れる
+   (2026-08-05j の実機で発生。片付けは最後の1個しか知らないので、背景を
+   切り替えても古い球が映像を流し続けた) */
+function xrPanoDrop(){
   if (xr.bg.panoLayer) {
     try { xr.bg.panoLayer.destroy(); } catch (_e) {}
     xr.bg.panoLayer = null;
-    xrPanoLayerSync(); /* layers配列から外す */
+    xrPanoLayerSync();
   }
-  if (xr.bg.panoVidTex) { try { xr.bg.panoVidTex.dispose(); } catch (_e) {} xr.bg.panoVidTex = null; }
   if (xr.bg.panoSphere) {
     xr.scene.remove(xr.bg.panoSphere);
     try { xr.bg.panoSphere.geometry.dispose(); xr.bg.panoSphere.material.dispose(); } catch (_e) {}
     xr.bg.panoSphere = null;
   }
-  if (xr.bg.panoVid) { try { xr.bg.panoVid.pause(); } catch (_e) {} xr.bg.panoVid = null; }
-  if (xr.bg.panoVidUrl) { try { URL.revokeObjectURL(xr.bg.panoVidUrl); } catch (_e) {} xr.bg.panoVidUrl = null; }
+  if (xr.bg.panoVidTex) { try { xr.bg.panoVidTex.dispose(); } catch (_e) {} xr.bg.panoVidTex = null; }
   xr.panoWay = '';
 }
 
@@ -3443,12 +3447,20 @@ function xrClearPanoVideo(){
    カメラの奥行き上限100mの内側に収める。立体視の映像は片目ぶんを切り出す */
 function xrPanoSphere(){
   if (!xr.bg.panoVid) return;
+  xrPanoDrop(); /* 番人: 作る前に必ず片付ける */
   var tex = new THREE.VideoTexture(xr.bg.panoVid);
   tex.encoding = THREE.sRGBEncoding;
   tex.minFilter = THREE.LinearFilter;
+  /* 上下は360度の立体、左右はVR180(片目ぶんが横180度)。
+     どちらも左目のぶんを切り出して両目に見せる */
+  var half = false;
   if (S.panoStereo === 'tb') { tex.repeat.set(1, 0.5); tex.offset.set(0, 0.5); }
-  else if (S.panoStereo === 'lr') { tex.repeat.set(0.5, 1); tex.offset.set(0, 0); }
-  var geo = new THREE.SphereGeometry(90, 48, 32);
+  else if (S.panoStereo === 'lr') { tex.repeat.set(0.5, 1); tex.offset.set(0, 0); half = true; }
+  /* VR180は横180度ぶんしかないので、球も半周だけにする。
+     360度として全周に巻くと横に2倍へ引き伸ばされて破綻する */
+  var geo = half
+    ? new THREE.SphereGeometry(90, 48, 32, -Math.PI / 2, Math.PI)
+    : new THREE.SphereGeometry(90, 48, 32);
   var mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false });
   xr.bg.panoVidTex = tex;
   xr.bg.panoSphere = new THREE.Mesh(geo, mat);
@@ -3459,11 +3471,13 @@ function xrPanoSphere(){
 /* 合成器の全天球レイヤーを作る。作れなければ false を返して逃げ道へ */
 function xrPanoLayerTry(){
   if (!xr.mediaOk || !xr.mediaBinding || !xr.bg.panoVid) return false;
+  xrPanoDrop(); /* 番人: 作る前に必ず片付ける */
   try {
     var lay = { mono: 'mono', tb: 'stereo-top-bottom', lr: 'stereo-left-right' }[S.panoStereo] || 'mono';
-    xr.bg.panoLayer = xr.mediaBinding.createEquirectLayer(xr.bg.panoVid, {
-      space: xr.renderer.xr.getReferenceSpace(), layout: lay
-    });
+    var init = { space: xr.renderer.xr.getReferenceSpace(), layout: lay };
+    /* VR180は横180度ぶんしかない。既定(2π)のままだと引き伸ばされる */
+    if (S.panoStereo === 'lr') init.centralHorizontalAngle = Math.PI;
+    xr.bg.panoLayer = xr.mediaBinding.createEquirectLayer(xr.bg.panoVid, init);
     xr.panoWay = '合成器';
     xrPanoLayerSync();
     return true;
@@ -3486,18 +3500,9 @@ function xrApplyBackground(){
   if (xr.bg.grid) xr.bg.grid.visible = false;
   if (xr.bg.ring) xr.bg.ring.visible = false;
   xr.scene.fog = null;
-  if (bg !== 'video') {
-    /* 映像の背景から離れるときは、レイヤーも球もいったん片付ける
-       (映像そのものは xr.bg.panoVid に残るので、選び直せばまた使える) */
-    if (xr.bg.panoLayer) { try { xr.bg.panoLayer.destroy(); } catch (_e) {} xr.bg.panoLayer = null; xrPanoLayerSync(); }
-    if (xr.bg.panoSphere) {
-      xr.scene.remove(xr.bg.panoSphere);
-      try { xr.bg.panoSphere.geometry.dispose(); xr.bg.panoSphere.material.dispose(); } catch (_e) {}
-      xr.bg.panoSphere = null;
-    }
-    if (xr.bg.panoVidTex) { try { xr.bg.panoVidTex.dispose(); } catch (_e) {} xr.bg.panoVidTex = null; }
-    xr.panoWay = '';
-  }
+  /* 映像の背景から離れるときは片付ける
+     (映像そのものは xr.bg.panoVid に残るので、選び直せばまた使える) */
+  if (bg !== 'video') xrPanoDrop();
 
   /* もようを無限遠の背景として貼る。全天球の並び(横2048×縦1024)として読ませる */
   function dome(tex){
