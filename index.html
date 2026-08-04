@@ -465,13 +465,6 @@ footer.site a{color:var(--muted);text-decoration:underline}
         </select>
       </div>
       <div class="set-row">
-        <label>スクロールの向き</label>
-        <select class="monsel" id="selScrollDir">
-          <option value="1">標準</option>
-          <option value="-1">逆にする</option>
-        </select>
-      </div>
-      <div class="set-row">
         <label>スクロールの速さ</label>
         <select class="monsel" id="selScrollSpd">
           <option value="0">ゆっくり</option>
@@ -485,6 +478,14 @@ footer.site a{color:var(--muted);text-decoration:underline}
     <div id="setPanePic" class="hidden">
       <div class="optgrid" id="qGrid"></div>
       <p class="set-note" id="qNote">見る側で変えると、共有中のパソコンにもすぐ反映されます。文字がにじむときは「くっきり」、動画がカクつくときは「なめらか」を試してください。</p>
+      <div class="set-row">
+        <label>映像の圧縮形式(見る側のみ)</label>
+        <select class="monsel" id="selCodec">
+          <option value="h264">H.264優先(ハードウェア復号・標準)</option>
+          <option value="vp8">従来(VP8)</option>
+        </select>
+      </div>
+      <p class="set-note">形式は<b>次に接続したときから</b>反映されます。切替後はいったん切断してつなぎ直してください。いま使われている形式は品質表示の「形式」で確認できます。</p>
     </div>
     <div id="setPaneEnv" class="hidden">
       <div id="envVrOnly">
@@ -511,6 +512,13 @@ footer.site a{color:var(--muted);text-decoration:underline}
           <input type="checkbox" id="chkAniso" style="width:18px;height:18px;accent-color:var(--accent)">
         </div>
         <p class="set-note">描画解像度は、次にVRへ入るときに反映されます。これらはVRの中の設定メニュー(標準では左手のXボタン)からもその場で変えられます。背景も即時に切り替わりますが、パススルーとの行き来だけはVRの入り直しで反映されます(対応機のみ)。</p>
+      </div>
+      <div class="set-row">
+        <label>スクロールの向き</label>
+        <select class="monsel" id="selScrollDir">
+          <option value="1">標準</option>
+          <option value="-1">逆にする</option>
+        </select>
       </div>
       <div class="set-row">
         <label>カーソルの移動方法(タッチで見る)</label>
@@ -832,7 +840,7 @@ function pcCreatePeer(attempt){
     conn.on('open', function(){
       if (pc.conns.indexOf(conn) < 0) return;
       pcUpdateViewerLabel();
-      try { conn.send({ t: 'helper', on: pc.helperOn }); } catch (_e) {}
+      try { conn.send({ t: 'helper', on: pc.helperOn, os: pc.helperOs || '' }); } catch (_e) {}
       pc.screens.forEach(function(item){ pcCallScreenTo(item, conn); });
     });
     conn.on('data', function(m){ if (pc.conns.indexOf(conn) >= 0) pcOnData(m); });
@@ -883,6 +891,7 @@ async function pcPingHelper(){
         var j = await r.json();
         if (j && j.monitors && j.monitors.length) monitors = j.monitors;
         hv = (j && typeof j.hv === 'number') ? j.hv : 0;
+        if (j && j.os) pc.helperOs = j.os; /* 'mac' | 'win'。リモートズームの修飾キー選びに使う */
       } catch (_e) {}
     }
   } catch (_e) { on = false; }
@@ -928,7 +937,7 @@ function pcUpdateViewerLabel(){
 }
 
 function pcSendHelperState(){
-  pcBroadcast({ t: 'helper', on: pc.helperOn });
+  pcBroadcast({ t: 'helper', on: pc.helperOn, os: pc.helperOs || '' });
 }
 
 /* 「操作しない」(mon<0)に設定された画面かどうかで、操作の関門を開け閉めする。
@@ -1299,6 +1308,7 @@ function questWireConn(host){
     if (!m || host.conn !== conn) return;
     if (m.t === 'helper') {
       host.helperOn = !!m.on;
+      host.helperOs = m.os || host.helperOs || '';
       questUiSync();
       if (APP.xrHud) APP.xrHud();
     } else if (m.t === 'del') {
@@ -1347,11 +1357,42 @@ function questConnLost(host){
   }, 3500);
 }
 
+/* 応答文(SDP)の映像形式の並びを、H.264(Quest 3でハードウェア復号される)が
+   先頭に来るよう入れ替える。送る側は応答の並び順に従うので、これだけで
+   PC側もヘルパーも無改造のまま形式が切り替わる。VP8は2番手に残すので、
+   H.264で交渉できない相手でも従来どおりつながる。
+   解析に失敗したときは、元のSDPをそのまま返す(安全側) */
+function preferH264(sdp){
+  try {
+    if (S.codec !== 'h264') return sdp;
+    var lines = sdp.split('\r\n');
+    var h264 = {}, rtxOf = {};
+    lines.forEach(function(l){
+      var m = l.match(/^a=rtpmap:(\d+)\s+H264\//i);
+      if (m) h264[m[1]] = true;
+      var r = l.match(/^a=fmtp:(\d+)\s+apt=(\d+)/);
+      if (r) rtxOf[r[1]] = r[2]; /* 再送用の番号 → 本体の番号 */
+    });
+    if (!Object.keys(h264).length) return sdp; /* H.264候補なし */
+    for (var i = 0; i < lines.length; i++) {
+      var mm = lines[i].match(/^(m=video\s+\S+\s+\S+)\s+(.+)$/);
+      if (!mm) continue;
+      var pts = mm[2].split(' ');
+      var first = [], rest = [];
+      pts.forEach(function(pt){
+        if (h264[pt] || h264[rtxOf[pt]]) first.push(pt); else rest.push(pt);
+      });
+      lines[i] = mm[1] + ' ' + first.concat(rest).join(' ');
+    }
+    return lines.join('\r\n');
+  } catch (_e) { return sdp; }
+}
+
 function questOnCall(call){
   var host = questHostByPeerId(call.peer);
   if (!host) { try { call.close(); } catch (_e) {} return; }
   var slot = (call.metadata && call.metadata.slot != null) ? call.metadata.slot : 0;
-  call.answer();
+  call.answer(null, { sdpTransform: preferH264 });
   call.on('stream', function(stream){ questAddScreen(host, slot, stream, call); });
   call.on('close', function(){
     /* 再接続で作り直した新しい画面を、古い接続の後始末で消さない */
@@ -1545,7 +1586,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-04e';
+var APP_VER = '2026-08-04g';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1612,6 +1653,7 @@ function loadS(){
   s.vol = (typeof s.vol === 'number' && s.vol >= 0 && s.vol <= 1) ? s.vol : 1;
   s.scrollDir = (s.scrollDir === -1) ? -1 : 1;
   s.scrollSpd = ([0, 1, 2].indexOf(s.scrollSpd) >= 0) ? s.scrollSpd : 1;
+  s.codec = (s.codec === 'vp8') ? 'vp8' : 'h264'; /* 映像の圧縮形式。h264=ハードウェア復号優先 */
   s.stick = (s.stick === 'right') ? 'right'
     : (s.km && s.km.stick === 'right') ? 'right' : 'left'; /* 旧保存からの引き継ぎ */
   if (!kmValid(s.km2) || kmIsOldDefault(s.km2)) s.km2 = kmDefault();
@@ -1749,7 +1791,7 @@ async function questStatsTick(){
   }
   for (var i = 0; i < qs.hosts.length; i++) {
     var h = qs.hosts[i];
-    var bps = 0, fps = 0, w = 0, hh = 0, got = false, rtt = null, route = null;
+    var bps = 0, fps = 0, w = 0, hh = 0, got = false, rtt = null, route = null, codec = '';
     for (var k = 0; k < h.screens.length; k++) {
       var sc = h.screens[k];
       if (!sc.call || !sc.call.peerConnection) continue;
@@ -1770,6 +1812,8 @@ async function questStatsTick(){
               hh = rep.frameHeight || 0;
               got = true;
             }
+          } else if (rep.type === 'codec' && !codec && /video\//.test(rep.mimeType || '')) {
+            codec = String(rep.mimeType).replace('video/', '');
           } else if (rep.type === 'transport' && rep.selectedCandidatePairId) {
             selId = rep.selectedCandidatePairId;
           } else if (rep.type === 'candidate-pair') {
@@ -1803,7 +1847,8 @@ async function questStatsTick(){
       : route === 'net' ? ' / 経路: 直接' : '';
     h.statText = got
       ? ('受信 ' + (Math.max(0, bps) / 1e6).toFixed(1) + ' Mbps / ' + fps + 'fps / ' + w + '×' + hh
-         + (rtt !== null ? ' / 往復' + rtt + 'ms' : '') + routeJp)
+         + (rtt !== null ? ' / 往復' + rtt + 'ms' : '') + routeJp
+         + (codec ? ' / 形式: ' + codec : ''))
       : '計測中…';
   }
   statsRefreshUi();
@@ -1887,6 +1932,7 @@ function renderKm(){
   $('chkKbFwd').checked = S.kbfwd;
   $('selStick').value = S.stick;
   $('selScrollDir').value = String(S.scrollDir);
+  $('selCodec').value = S.codec;
   $('selScrollSpd').value = String(S.scrollSpd);
 }
 
@@ -1983,6 +2029,10 @@ function initSettingsUi(){
   });
   $('selScrollDir').addEventListener('change', function(){
     S.scrollDir = ($('selScrollDir').value === '-1') ? -1 : 1;
+    saveS();
+  });
+  $('selCodec').addEventListener('change', function(){
+    S.codec = ($('selCodec').value === 'vp8') ? 'vp8' : 'h264';
     saveS();
   });
   $('selScrollSpd').addEventListener('change', function(){
@@ -2157,6 +2207,8 @@ function tvSync(){
   tv.host = sel.host;
   tv.slot = sel.slot;
   tv.video = sel.sc.video;
+  tv.wheelAcc = 0; /* スクロール/ズームの蓄積は画面をまたいで持ち越さない */
+  tv.zoomAcc = 0;
   if (changed || $('tvVideo').srcObject !== sel.sc.stream) {
     $('tvVideo').srcObject = sel.sc.stream;
     if (changed) tvZoomReset();
@@ -2556,16 +2608,17 @@ function initTouchUi(){
   t.addEventListener('wheel', function(e){
     e.preventDefault();
     /* トラックパッドのピンチは、ブラウザからは「Ctrl+ホイール」の形で届く。
-       タッチのピンチと同じ計算で、カーソル位置を中心に手元でズームする */
+       相手のPCへズームのキー(Windows: Ctrl+『=』/『-』、Mac: Cmd+『=』/『-』)を送る。
+       ブラウザや多くのアプリの標準ズームと同じ。効き量の調整点はしきい値70 */
     if (e.ctrlKey) {
-      var k = Math.exp(-e.deltaY * 0.003);
-      var nz = clamp(tv.z * k, 1, 5);
-      var mx = e.clientX, my = e.clientY;
-      tv.tx = mx - (mx - tv.tx) * (nz / tv.z);
-      tv.ty = my - (my - tv.ty) * (nz / tv.z);
-      tv.z = nz;
-      tvClampPan();
-      tvApplyTransform();
+      if (!tvCanControl()) return;
+      tv.zoomAcc = (tv.zoomAcc || 0) + e.deltaY;
+      while (Math.abs(tv.zoomAcc) >= 70) {
+        var zin = tv.zoomAcc < 0; /* 指を広げる=deltaY負=拡大 */
+        var mod = (tv.host && tv.host.helperOs === 'mac') ? 8 : 1; /* 8=Cmd, 1=Ctrl(不明時はCtrl) */
+        hostSend(tv.host, { t: 'kb', c: zin ? 'Equal' : 'Minus', m: mod });
+        tv.zoomAcc -= (tv.zoomAcc > 0 ? 70 : -70);
+      }
       return;
     }
     if (!tvCanControl()) return;
