@@ -52,9 +52,26 @@ foreach ($m in $mons) {
     $monParts += ('{"x":' + $b.X + ',"y":' + $b.Y + ',"w":' + $b.Width + ',"h":' + $b.Height + '}')
 }
 $monJson = '[' + ($monParts -join ',') + ']'
-$pingBody = '{"ok":1,"os":"win","monitors":' + $monJson + '}'
+$pingBody = '{"ok":1,"os":"win","hv":' + $helperVer + ',"monitors":' + $monJson + '}'
+
+# All monitors merged into one rectangle.
+# Used to keep trackpad-style (relative) moves from leaving the desktop.
+$bx0 = $mons[0].Bounds.X
+$by0 = $mons[0].Bounds.Y
+$bx1 = $mons[0].Bounds.X + $mons[0].Bounds.Width - 1
+$by1 = $mons[0].Bounds.Y + $mons[0].Bounds.Height - 1
+foreach ($mm in $mons) {
+    $bb = $mm.Bounds
+    if ($bb.X -lt $bx0) { $bx0 = $bb.X }
+    if ($bb.Y -lt $by0) { $by0 = $bb.Y }
+    if (($bb.X + $bb.Width - 1) -gt $bx1) { $bx1 = $bb.X + $bb.Width - 1 }
+    if (($bb.Y + $bb.Height - 1) -gt $by1) { $by1 = $bb.Y + $bb.Height - 1 }
+}
 
 $port = 8765
+# Helper version (integer). Bump this AND HELPER_VER_REQUIRED in
+# index.html together whenever the helper protocol changes.
+$helperVer = 1
 $paired = $null
 
 try {
@@ -71,6 +88,7 @@ try {
 Write-Host ""
 Write-Host "  ================================================"
 Write-Host "   VR Desktop - Control Helper (Windows)"
+Write-Host ("   Helper version : " + $helperVer)
 Write-Host "  ================================================"
 Write-Host ("   Monitors    : " + $mons.Count)
 for ($mi = 0; $mi -lt $mons.Count; $mi++) {
@@ -173,6 +191,23 @@ while ($true) {
                                 $pt = New-Object System.Drawing.Point -ArgumentList $px, $py
                                 [System.Windows.Forms.Cursor]::Position = $pt
                             }
+                            'mvr' {
+                                # Trackpad style: shift from wherever the cursor is now.
+                                # The real position is read every time, so moving the
+                                # physical mouse never throws the next move off.
+                                # Absolute assignment (not MOUSEEVENTF_MOVE) keeps the
+                                # distance exact: pointer speed and acceleration
+                                # settings would otherwise change how far it travels.
+                                $cp = [System.Windows.Forms.Cursor]::Position
+                                $rx = $cp.X + [int]$e.x
+                                $ry = $cp.Y + [int]$e.y
+                                if ($rx -lt $bx0) { $rx = $bx0 }
+                                if ($rx -gt $bx1) { $rx = $bx1 }
+                                if ($ry -lt $by0) { $ry = $by0 }
+                                if ($ry -gt $by1) { $ry = $by1 }
+                                $rp = New-Object System.Drawing.Point -ArgumentList $rx, $ry
+                                [System.Windows.Forms.Cursor]::Position = $rp
+                            }
                             'dn' {
                                 if ([int]$e.b -eq 2) { [VRMouse]::mouse_event([VRMouse]::RIGHTDOWN, 0, 0, 0, 0) }
                                 else { [VRMouse]::mouse_event([VRMouse]::LEFTDOWN, 0, 0, 0, 0) }
@@ -212,13 +247,28 @@ while ($true) {
                             }
                             'txt' {
                                 $s = [string]$e.s
+                                # Cap at 1000 chars, same as the sender (index.html).
+                                if ($s.Length -gt 1000) { $s = $s.Substring(0, 1000) }
                                 if ($s.Length -gt 0) {
+                                    # Save the old text so it can be restored
+                                    # (images etc. cannot be saved as text).
+                                    $prev = ''
+                                    try { $prev = Get-Clipboard -Raw } catch { }
+                                    if ($null -eq $prev) { $prev = '' }
                                     try { Set-Clipboard -Value $s } catch { }
                                     Start-Sleep -Milliseconds 80
                                     [VRMouse]::keybd_event(17, 0, 0, 0)
                                     [VRMouse]::keybd_event(86, 0, 0, 0)
                                     [VRMouse]::keybd_event(86, 0, 2, 0)
                                     [VRMouse]::keybd_event(17, 0, 2, 0)
+                                    # Restoring too early would paste the OLD text:
+                                    # the app reads the clipboard slightly after
+                                    # Ctrl+V. Wait, then put the old text back.
+                                    Start-Sleep -Milliseconds 250
+                                    try {
+                                        if ($prev -eq '') { Set-Clipboard -Value $null }
+                                        else { Set-Clipboard -Value $prev }
+                                    } catch { }
                                 }
                             }
                             'kb' {

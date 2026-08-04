@@ -3,7 +3,7 @@
 # ----------------------------------------------------------------
 # VR Desktop 操作ヘルパー (Mac)
 # このパソコンの中だけで動く小さな受け口 (127.0.0.1:8765) を開き、
-# 画面共有ページから届いたマウス操作を実行します。
+# 画面共有ページから届いたマウスとキーボードの操作を実行します。
 # 複数モニターに対応します(操作にはモニター番号が添えられます)。
 # インストール作業は不要です。終了するには control + C か、
 # ターミナルのウィンドウを閉じます。
@@ -16,6 +16,9 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = 8765
+# ヘルパーの版(通し番号)。ヘルパーの仕様を変えたら +1 し、
+# index.html の HELPER_VER_REQUIRED も同じ値に上げること
+HELPER_VER = 1
 
 
 def ensure_pyautogui():
@@ -25,16 +28,31 @@ def ensure_pyautogui():
     except ImportError:
         pass
     print()
-    print("初回セットアップ: マウス操作用の部品 (pyautogui) を取り込みます。")
+    print("初回セットアップ: 操作用の部品 (pyautogui) を取り込みます。")
     print("数分かかることがあります。そのままお待ちください…")
-    try:
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "--user", "--quiet", "pyautogui"]
-        )
-    except Exception:
+
+    base = [sys.executable, "-m", "pip", "install", "--user", "--quiet", "pyautogui"]
+    # 1回目は今までどおり。これで通る環境の挙動は変えない。
+    # 2回目は --break-system-packages を足す。Homebrew などの新しい Python は
+    # 「externally-managed-environment」という保護で1回目を拒むため。
+    # このフラグは古い pip にはなく、付けると逆に失敗する。だから最初からは付けない。
+    for attempt in (base, base + ["--break-system-packages"]):
+        try:
+            subprocess.check_call(attempt)
+            break
+        except Exception:
+            continue
+    else:
         print()
-        print("部品を取り込めませんでした。")
-        print("インターネット接続を確認して、もう一度実行してください。")
+        print("部品を取り込めませんでした。次のどちらかが原因です。")
+        print("  1. インターネットにつながっていない")
+        print("  2. この Python が部品の追加を拒む設定になっている")
+        print()
+        print("ターミナルに次の1行を貼り付けて実行すると、様子がわかります。")
+        print(f"  {sys.executable} -m pip install --user pyautogui")
+        print("「externally-managed-environment」と出たら 2 が原因です。")
+        print("その場合は、上の行の末尾に --break-system-packages を足して")
+        print("もう一度実行してから、ヘルパーを起動し直してください。")
         try:
             input("Enterキーで終了 ")
         except EOFError:
@@ -88,7 +106,20 @@ def get_monitors():
 
 
 MONITORS = get_monitors()
-PING_BODY = json.dumps({"ok": 1, "os": "mac", "monitors": MONITORS}).encode("utf-8")
+PING_BODY = json.dumps({"ok": 1, "os": "mac", "hv": HELPER_VER, "monitors": MONITORS}).encode("utf-8")
+
+
+def get_bound():
+    """全モニターをまとめて囲む長方形。
+    トラックパッド式の移動で、カーソルが画面の外へ出ないようにする枠として使う"""
+    x0 = min(m["x"] for m in MONITORS)
+    y0 = min(m["y"] for m in MONITORS)
+    x1 = max(m["x"] + m["w"] for m in MONITORS) - 1
+    y1 = max(m["y"] + m["h"] for m in MONITORS) - 1
+    return x0, y0, x1, y1
+
+
+BOUND = get_bound()
 
 # いまのボタン状態と位置(ドラッグとダブルクリックの判定に使う)
 STATE = {"l": False, "r": False, "x": 0.0, "y": 0.0}
@@ -121,6 +152,32 @@ def do_move(x, y):
     pyautogui.moveTo(x, y, _pause=False)
 
 
+def cursor_pos():
+    """いまカーソルがある場所を、そのつど OS に聞く。
+    自分で覚えた位置ではなく OS に聞くので、途中で実物のマウスを
+    動かされても、次の相対移動でカーソルが飛ばない"""
+    if QZ is not None:
+        try:
+            p = QZ.CGEventGetLocation(QZ.CGEventCreate(None))
+            return float(p.x), float(p.y)
+        except Exception:
+            pass
+    try:
+        p = pyautogui.position()
+        return float(p[0]), float(p[1])
+    except Exception:
+        pass
+    return STATE["x"], STATE["y"]  # どちらも失敗したときの保険
+
+
+def do_move_rel(dx, dy):
+    """トラックパッド式の移動。いまの位置から dx, dy だけずらす。
+    do_move を通すので、ボタンを押したままならドラッグとして出る"""
+    cx, cy = cursor_pos()
+    x0, y0, x1, y1 = BOUND
+    do_move(min(max(cx + dx, x0), x1), min(max(cy + dy, y0), y1))
+
+
 def do_button(down, right):
     if QZ is not None:
         try:
@@ -150,8 +207,6 @@ def do_button(down, right):
     fn(button="right" if right else "left", _pause=False)
     STATE["r" if right else "l"] = down
 
-
-import subprocess
 
 # ---- キーボード送信 ----
 KEYCODE = {"enter": 36, "esc": 53, "tab": 48, "left": 123, "right": 124,
@@ -264,13 +319,25 @@ def do_ch(s):
 
 def do_txt(s):
     # 日本語も確実に入るよう、クリップボード経由で貼り付ける
+    # 送信側(index.html)と同じ1000字で切り詰める(独立した自衛の上限)
+    s = s[:1000]
     try:
+        # 元の内容を文字として控える(画像などは控えられない)
+        try:
+            prev = subprocess.run(["pbpaste"], capture_output=True,
+                                  timeout=2).stdout
+        except Exception:
+            prev = b""
         subprocess.run(["pbcopy"], input=s.encode("utf-8"), check=False)
         time.sleep(0.06)
         if QZ is not None:
             _qz_key(9, QZ.kCGEventFlagMaskCommand)  # Cmd+V
         else:
             pyautogui.hotkey("command", "v", _pause=False)
+        # すぐ戻すとアプリが読む前に書き換わり、古い内容が貼り付いてしまう。
+        # 前面アプリが貼り付けを終えるのを待ってから元の文字内容へ戻す
+        time.sleep(0.25)
+        subprocess.run(["pbcopy"], input=prev, check=False)
     except Exception:
         pass
 
@@ -354,6 +421,8 @@ class Handler(BaseHTTPRequestHandler):
                     nx = max(0.0, min(1.0, float(e.get("x", 0))))
                     ny = max(0.0, min(1.0, float(e.get("y", 0))))
                     do_move(m["x"] + nx * (m["w"] - 1), m["y"] + ny * (m["h"] - 1))
+                elif t == "mvr":
+                    do_move_rel(float(e.get("x", 0) or 0), float(e.get("y", 0) or 0))
                 elif t == "dn":
                     do_button(True, e.get("b") == 2)
                 elif t == "up":
@@ -377,6 +446,7 @@ def main():
     print()
     print("  ================================================")
     print("   VR Desktop 操作ヘルパー (Mac)")
+    print(f"   ヘルパーの版: {HELPER_VER}")
     print("  ================================================")
     print(f"   モニター  : {len(MONITORS)}枚")
     for i, m in enumerate(MONITORS):

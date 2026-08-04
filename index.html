@@ -322,14 +322,13 @@ footer.site a{color:var(--muted);text-decoration:underline}
       <p class="code-hint">接続コード</p>
       <div class="codebox" id="codeBox"></div>
       <p class="code-hint" id="pcCodeHint">コードを発行しています…</p>
-      <div class="notice-warn hidden" id="pcPermWarn"></div>
     </div>
     <div class="panel">
       <div class="statusrow"><span class="dot dot-off" id="dotShare"></span><span class="lbl">画面の共有</span></div>
       <div class="statusrow"><span class="dot dot-off" id="dotQuest"></span><span class="lbl" id="lblQuest">見る側の接続待ち</span></div>
       <div class="statusrow"><span class="dot dot-off" id="dotHelper"></span><span class="lbl" id="helperLabel">操作モード OFF(見るだけ)</span></div>
       <div class="hint" id="helperHint">
-        VRやスマホからマウスを動かしたいときは、<b>操作ヘルパー</b>をこのパソコンで起動しておきます。<br>
+        VRやスマホからパソコンを操作したいときは、<b>操作ヘルパー</b>をこのパソコンで起動しておきます。<br>
         Windows: <a href="helper-windows.bat" download>helper-windows.bat</a> / Mac: <a href="helper-mac.py" download>helper-mac.py</a><br>
         はじめての起動手順は<a href="guide.html#helper" target="_blank" rel="noopener">使い方ガイド</a>にあります。起動すると、この欄が自動でONに変わります。
       </div>
@@ -409,7 +408,6 @@ footer.site a{color:var(--muted);text-decoration:underline}
   <div class="tv-top">
     <div class="tv-tabs" id="tvTabs"></div>
     <span class="tv-stats hidden" id="tvStats"></span>
-    <button class="btn-ghost btn-sm" id="tvMode" title="カーソルの移動方法">絶対</button>
     <button class="btn-ghost btn-sm" id="tvKeys">⌨</button>
     <button class="btn-ghost btn-sm" id="tvFull">全画面</button>
     <button class="btn-ghost btn-sm" id="tvSet">設定</button>
@@ -516,13 +514,6 @@ footer.site a{color:var(--muted);text-decoration:underline}
       </div>
       <div class="set-row">
         <label>カーソルの移動方法(タッチで見る)</label>
-        <select class="monsel" id="selTvMode">
-          <option value="abs">絶対(指やカーソルの位置へ)</option>
-          <option value="rel">相対(トラックパッド式)</option>
-        </select>
-      </div>
-      <div class="set-row">
-        <label>タッチ/マウスのカーソル移動(タッチで見る)</label>
         <select class="monsel" id="selPtrMode">
           <option value="abs">そのまま(触れた場所・マウス位置へ)</option>
           <option value="rel">なぞって動かす(トラックパッド式)</option>
@@ -580,7 +571,19 @@ window.__libsReady = (function(){
    ================================================================ */
 
 var HELPER_URL = 'http://127.0.0.1:8765';
+/* 要求するヘルパーの版。ヘルパー側の HELPER_VER($helperVer)を上げたら
+   ここも同じ値に上げること。応答に hv がない=この仕組みより古いヘルパー */
+var HELPER_VER_REQUIRED = 1;
 var PEER_PREFIX = 'vrdd-';
+
+/* 接続の共通設定。STUN(住所確認)だけを明示し、PeerJS既定に含まれる
+   TURN(中継サーバー)を除外する。中継の候補が設定にないので、映像と操作は
+   直結でしか流れない(決定事項: 通信は直接通信のみ)。
+   ここに turn: を書き足さないこと。 */
+var PEER_OPTS = {
+  debug: 1,
+  config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+};
 
 var APP = {};
 
@@ -611,7 +614,8 @@ var pc = {
   screens: [],        /* {slot, stream, call, mon} */
   nextSlot: 1,
   helperOn: false, monitors: [], monSig: '',
-  inputQueue: [], timers: []
+  inputQueue: [], timers: [],
+  ctlBlock: false     /* 「操作しない」画面を見ている間は、操作を通さない */
 };
 
 async function pcCapture(errId){
@@ -802,11 +806,11 @@ function pcCreatePeer(attempt){
   renderCode(pc.code);
   $('pcCodeHint').textContent = 'コードを発行しています…';
 
-  var peer = new Peer(PEER_PREFIX + pc.code, { debug: 1 });
+  var peer = new Peer(PEER_PREFIX + pc.code, PEER_OPTS);
   pc.peer = peer;
 
   peer.on('open', function(){
-    $('pcCodeHint').textContent = 'Questのブラウザでこのページを開き、上のコードを入力してください。';
+    $('pcCodeHint').textContent = '見る側の機器(Quest・スマホなど)でこのページを開き、上のコードを入力してください。';
   });
 
   peer.on('disconnected', function(){ try { peer.reconnect(); } catch (_e) {} });
@@ -867,6 +871,7 @@ function pcStartHelperLoop(){
 async function pcPingHelper(){
   var on = false;
   var monitors = [];
+  var hv = 0;
   try {
     var ctl = new AbortController();
     var t = setTimeout(function(){ ctl.abort(); }, 3000);
@@ -877,6 +882,7 @@ async function pcPingHelper(){
       try {
         var j = await r.json();
         if (j && j.monitors && j.monitors.length) monitors = j.monitors;
+        hv = (j && typeof j.hv === 'number') ? j.hv : 0;
       } catch (_e) {}
     }
   } catch (_e) { on = false; }
@@ -890,15 +896,19 @@ async function pcPingHelper(){
   }
 
   var sig = JSON.stringify(monitors);
-  var changed = (on !== pc.helperOn) || (sig !== pc.monSig);
+  var changed = (on !== pc.helperOn) || (sig !== pc.monSig) || (hv !== (pc.helperVer || 0));
   pc.helperOn = on;
   pc.monitors = monitors;
   pc.monSig = sig;
+  pc.helperVer = hv;
   if (changed) {
     setDot('dotHelper', on ? 'on' : 'off');
-    $('helperLabel').textContent = on
-      ? '操作モード ON(VRからマウスを動かせます)'
-      : '操作モード OFF(見るだけ)';
+    var oldHelper = on && hv < HELPER_VER_REQUIRED;
+    $('helperLabel').textContent = !on
+      ? '操作モード OFF(見るだけ)'
+      : (oldHelper
+        ? '操作モード ON(ヘルパーが古い → 再ダウンロード推奨)'
+        : '操作モード ON(VRからマウスを動かせます)');
     show($('helperHint'), !on);
     pcSendHelperState();
     pcRenderScreens();
@@ -913,7 +923,7 @@ function pcUpdateViewerLabel(){
     $('lblQuest').textContent = (n === 1) ? 'Questと接続中' : '見る側 ' + n + '台と接続中';
   } else if (pc.screens.length) {
     setDot('dotQuest', 'wait');
-    $('lblQuest').textContent = 'Questの接続待ち';
+    $('lblQuest').textContent = '見る側の接続待ち';
   }
 }
 
@@ -921,13 +931,33 @@ function pcSendHelperState(){
   pcBroadcast({ t: 'helper', on: pc.helperOn });
 }
 
+/* 「操作しない」(mon<0)に設定された画面かどうかで、操作の関門を開け閉めする。
+   閉じたときは true を返す。移動の種類が増えても、判定はここ1箇所だけを直せばよい */
+function pcCtlGate(item){
+  pc.ctlBlock = !!(item && item.mon < 0);
+  return pc.ctlBlock;
+}
+
+/* キー入力(key/txt/kb/ch)はPC単位で判定する。キーは画面ではなく前面の
+   ウィンドウに届くため、画面ごとの関門とは単位が合わない。共有中の全画面が
+   「操作しない」なら、このPCは純粋な閲覧対象とみなしてキーも止める。
+   画面を1枚も共有していない間は従来どおり通す(誤って全部止めない) */
+function pcKeysAllowed(){
+  if (!pc.screens.length) return true;
+  for (var i = 0; i < pc.screens.length; i++) {
+    if (pc.screens[i].mon >= 0) return true;
+  }
+  return false;
+}
+
 function pcOnData(msg){
   if (!msg || !msg.t) return;
   if (!pc.helperOn && msg.t !== 'q') return; /* ヘルパーOFF中は操作をためない */
+  if ((msg.t === 'key' || msg.t === 'txt' || msg.t === 'kb' || msg.t === 'ch')
+      && !pcKeysAllowed()) return;
   if (msg.t === 'mv') {
     var item = pcFindScreen(msg.s);
-    if (item && item.mon < 0) { pc.ctlBlock = true; return; } /* 「操作しない」画面 */
-    pc.ctlBlock = false;
+    if (pcCtlGate(item)) return;
     var out = { t: 'mv', x: msg.x, y: msg.y, s: item ? item.mon : 0 };
     var q = pc.inputQueue;
     if (q.length && q[q.length - 1].t === 'mv' && q[q.length - 1].s === out.s) {
@@ -936,10 +966,16 @@ function pcOnData(msg){
       q.push(out);
     }
   } else if (msg.t === 'dn' || msg.t === 'up') {
-    if (pc.ctlBlock && msg.t === 'dn') return; /* 離す信号は絶対に落とさない */
+    if (msg.t === 'dn') {
+      /* 画面番号つき(タッチ)なら毎回その画面で判定。なし(XR)は直前の移動で
+         更新済みの関門に従う。離す信号は絶対に落とさない */
+      if (msg.s !== undefined) { if (pcCtlGate(pcFindScreen(msg.s))) return; }
+      else if (pc.ctlBlock) return;
+    }
     pc.inputQueue.push({ t: msg.t, b: msg.b });
   } else if (msg.t === 'sc') {
-    if (pc.ctlBlock) return;
+    if (msg.s !== undefined) { if (pcCtlGate(pcFindScreen(msg.s))) return; }
+    else if (pc.ctlBlock) return;
     pc.inputQueue.push({ t: 'sc', d: msg.d });
   } else if (msg.t === 'q') {
     pcSetQuality(msg.p);
@@ -954,6 +990,7 @@ function pcOnData(msg){
     var s3 = String(msg.s || '').slice(0, 8);
     if (s3) pc.inputQueue.push({ t: 'ch', s: s3 });
   } else if (msg.t === 'mvr') {
+    if (pcCtlGate(pcFindScreen(msg.s))) return;
     /* 相対移動: 連続するぶんは1つにまとめてヘルパーの負荷を抑える */
     var rdx = clamp(msg.x | 0, -3000, 3000);
     var rdy = clamp(msg.y | 0, -3000, 3000);
@@ -992,6 +1029,7 @@ function pcStop(){
   pc.timers = [];
   pc.inputQueue = [];
   pc.helperOn = false;
+  pc.ctlBlock = false;
   pc.monSig = '';
   var box = $('pcScreens');
   if (box) box.innerHTML = '';
@@ -1001,7 +1039,7 @@ function pcStop(){
   setDot('dotShare', 'off');
   setDot('dotQuest', 'off');
   setDot('dotHelper', 'off');
-  $('lblQuest').textContent = 'Questの接続待ち';
+  $('lblQuest').textContent = '見る側の接続待ち';
   $('helperLabel').textContent = '操作モード OFF(見るだけ)';
 }
 
@@ -1058,9 +1096,9 @@ function questEnsurePeer(cb){
     else qs.peer.on('open', function(){ cb(); });
     return;
   }
-  questLog('中継サーバーの受付を作成しています…');
+  questLog('待ち合わせサーバーの受付を作成しています…');
   questPeerStat('登録中…');
-  var peer = new Peer({ debug: 1 });
+  var peer = new Peer(PEER_OPTS);
   qs.peer = peer;
   peer.on('open', function(id){
     qs.peerReady = true;
@@ -1071,7 +1109,7 @@ function questEnsurePeer(cb){
   peer.on('call', questOnCall);
   peer.on('error', questOnPeerError);
   peer.on('disconnected', function(){
-    questLog('中継サーバーから切断されました → 再接続します');
+    questLog('待ち合わせサーバーから切断されました → 再接続します');
     questPeerStat('再接続中…');
     try { peer.reconnect(); } catch (_e) {}
   });
@@ -1149,17 +1187,17 @@ function questDialGiveUp(host, why){
   questUiSync();
   if (APP.xrSync) APP.xrSync();
   questLog('接続をあきらめました(' + why + ')');
-  questShowErr('直接の通信路を' + Math.round(DIAL_TOTAL_MS / 1000) + '秒待ちましたが作れませんでした。①QuestとPCを同じWi-Fi名(SSID)につなぐ ②ルーターの「プライバシーセパレーター(AP隔離)」をOFF ③PCのVPNを切る、を確認して、もう一度試してください。');
+  questShowErr('直接の通信路を' + Math.round(DIAL_TOTAL_MS / 1000) + '秒待ちましたが作れませんでした。①見る側の端末とPCを同じWi-Fi名(SSID)につなぐ ②ルーターの「プライバシーセパレーター(AP隔離)」をOFF ③PCのVPNを切る、を確認して、もう一度試してください。外の回線から試している場合は、回線の種類によって直結できないことがあります。');
 }
 
 function questDialTick(host){
   if (host.gone || host.state !== 'connecting') return;
   if (Date.now() > host.dialDeadline) { questDialGiveUp(host, '時間切れ'); return; }
   if (!qs.peer || !qs.peerReady) {
-    questConnectingNote('中継サーバーに登録しています…');
+    questConnectingNote('待ち合わせサーバーに登録しています…');
     questEnsurePeer(function(){});
   } else if (qs.peer.disconnected) {
-    questConnectingNote('中継サーバーへ再接続しています…');
+    questConnectingNote('待ち合わせサーバーへ再接続しています…');
     try { qs.peer.reconnect(); } catch (_e) {}
   } else if (!host.conn) {
     questConnectingNote('接続しています…');
@@ -1202,10 +1240,16 @@ function questLogRouteType(host, conn){
         }
         if (!pair) return;
         var lc = cands[pair.localCandidateId];
-        var ty = lc && lc.candidateType;
-        if (ty === 'host') {
+        var rc = cands[pair.remoteCandidateId];
+        var lt = lc && lc.candidateType;
+        var rt = rc && rc.candidateType;
+        /* 経路は自分側と相手側の出口の組で決まる。どちらか片方でも
+           relay(中継サーバー経由)なら、映像は中継を通っている */
+        if (lt === 'relay' || rt === 'relay') {
+          questLog('経路の種類: ⚠ 中継サーバー経由(直結ではない)。この表示が出たら設定のTURN除外が効いていない');
+        } else if (lt === 'host' && (rt === 'host' || !rt)) {
           questLog('経路の種類: 同一ネットワーク直結');
-        } else if (ty) {
+        } else if (lt || rt) {
           questLog('経路の種類: 直結(NAT越え)');
         }
       }).catch(function(){});
@@ -1418,7 +1462,7 @@ function questOnPeerError(err){
     }
     questShowErr('このコードのパソコンが見つかりません。コードと、パソコン側で共有中かを確認してください。');
   } else if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') {
-    questShowErr('接続サービスにつながりません。QuestがWi-Fiにつながっているか確認して、ページを再読み込みしてください。');
+    questShowErr('接続サービスにつながりません。この端末がインターネットにつながっているか確認して、ページを再読み込みしてください。');
   } else if (t && t !== 'disconnected') {
     questShowErr('接続サービスでエラーが起きました(種類: ' + t + ')。両方のページを再読み込みして、もう一度試してください。');
   }
@@ -1501,7 +1545,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-03u';
+var APP_VER = '2026-08-04d';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1575,8 +1619,7 @@ function loadS(){
   s.lowLat = (s.lowLat !== false); /* 低遅延モード: 初期ON */
   s.trig = (s.trig === 'plain') ? 'plain' : 'vd';
   s.kbfwd = (s.kbfwd !== false); /* BTキーボード直送: 初期ON */
-  s.ptrMode = (s.ptrMode === 'rel') ? 'rel' : 'abs'; /* タッチ/マウスのカーソル移動 */
-  s.tvMode = (s.tvMode === 'rel') ? 'rel' : 'abs'; /* タッチで見るのカーソル移動方式 */
+  s.ptrMode = (s.ptrMode === 'rel') ? 'rel' : 'abs'; /* カーソルの移動方法(タッチで見る) */
   s.rscale = ([1, 1.15, 1.3].indexOf(+s.rscale) >= 0) ? +s.rscale : 1.15; /* VR描画解像度 */
   s.aniso = (s.aniso !== false); /* 文字のちらつき低減: 初期ON */
   if (!Array.isArray(s.slots) || s.slots.length !== 3) s.slots = [null, null, null];
@@ -1899,7 +1942,6 @@ function renderEnv(){
   });
   $('chkStats').checked = S.stats;
   $('chkLowLat').checked = S.lowLat;
-  $('selTvMode').value = S.tvMode;
   $('selRScale').value = String(S.rscale);
   $('chkAniso').checked = S.aniso;
   $('selPtrMode').value = S.ptrMode;
@@ -1971,11 +2013,6 @@ function initSettingsUi(){
     S.aniso = $('chkAniso').checked;
     saveS();
     if (APP.xrAnisoChanged) APP.xrAnisoChanged();
-  });
-  $('selTvMode').addEventListener('change', function(){
-    S.tvMode = ($('selTvMode').value === 'rel') ? 'rel' : 'abs';
-    saveS();
-    if (APP.tvModeChanged) APP.tvModeChanged();
   });
   $('chkLowLat').addEventListener('change', function(){
     S.lowLat = $('chkLowLat').checked;
@@ -2223,9 +2260,12 @@ function tvSendRel(dx, dy, mult){
   tv.relY += dy * mult / Math.max(1, tv.z);
   var ix = Math.trunc(tv.relX), iy = Math.trunc(tv.relY);
   if (!ix && !iy) return;
-  tv.relX -= ix;
-  tv.relY -= iy;
-  hostSend(tv.host, { t: 'mvr', x: clamp(ix, -300, 300), y: clamp(iy, -300, 300) });
+  /* 1通の上限±300で切り詰めた分は残差に残し、次回(33ms後)に持ち越す。
+     こうすると指を動かした距離が最終的に全部届く */
+  var sx = clamp(ix, -300, 300), sy = clamp(iy, -300, 300);
+  tv.relX -= sx;
+  tv.relY -= sy;
+  hostSend(tv.host, { t: 'mvr', x: sx, y: sy, s: tv.slot });
 }
 
 function tvEndDrag(){
@@ -2258,7 +2298,7 @@ function tvMouseDown(e){
       if (!uvr.inside) return;
       tvSendMv(uvr);
     }
-    hostSend(tv.host, { t: 'dn', b: 2 });
+    hostSend(tv.host, { t: 'dn', b: 2, s: tv.slot });
     tv.m = { btn: 2 };
     return;
   }
@@ -2267,7 +2307,7 @@ function tvMouseDown(e){
     var uv0 = tvUv(e.clientX, e.clientY);
     if (uv0.inside && tvCanControl()) {
       tvSendMv(uv0);
-      hostSend(tv.host, { t: 'dn', b: 0 });
+      hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
     }
     tv.m = { btn: 0, abs: true };
     return;
@@ -2301,7 +2341,7 @@ function tvMouseMove(e){
       tv.m.phase = 'glide';
     } else {
       tv.m.phase = 'drag';
-      if (tvCanControl()) hostSend(tv.host, { t: 'dn', b: 0 });
+      if (tvCanControl()) hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
     }
   }
   if (tv.m.phase === 'glide' || tv.m.phase === 'drag') tvSendRel(dx, dy, REL_MOUSE);
@@ -2315,7 +2355,7 @@ function tvMouseUp(e){
   if (m.btn === 2) { hostSend(tv.host, { t: 'up', b: 2 }); return; }
   if (m.abs || m.phase === 'drag') { hostSend(tv.host, { t: 'up', b: 0 }); return; }
   if (m.phase === 'pending' && performance.now() - m.t0 < 320) {
-    hostSend(tv.host, { t: 'dn', b: 0 });
+    hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
     hostSend(tv.host, { t: 'up', b: 0 });
   }
 }
@@ -2338,7 +2378,7 @@ function tvDown(e){
         tv.mode = 'drag';
         if (tvIsRel()) {
           if (tvCanControl()) {
-            hostSend(tv.host, { t: 'dn', b: 0 });
+            hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
             if (navigator.vibrate) { try { navigator.vibrate(15); } catch (_e) {} }
           } else {
             tv.mode = '';
@@ -2347,7 +2387,7 @@ function tvDown(e){
           var uv = tvUv(tv.start.x, tv.start.y);
           if (uv.inside && tvCanControl()) {
             tvSendMv(uv);
-            hostSend(tv.host, { t: 'dn', b: 0 });
+            hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
             if (navigator.vibrate) { try { navigator.vibrate(15); } catch (_e) {} }
           } else {
             tv.mode = '';
@@ -2431,7 +2471,7 @@ function tvMove(e){
       tv.two.acc += my - tv.two.my;
       while (Math.abs(tv.two.acc) >= 46) {
         var dir = (tv.two.acc > 0 ? 1 : -1) * S.scrollDir;
-        if (tvCanControl()) hostSend(tv.host, { t: 'sc', d: dir });
+        if (tvCanControl()) hostSend(tv.host, { t: 'sc', d: dir, s: tv.slot });
         tv.two.acc -= (tv.two.acc > 0 ? 46 : -46);
       }
     }
@@ -2456,14 +2496,14 @@ function tvUp(e){
       if (!tv.twoKind && dur < 300 && moved < 12) {
         if (tvIsRel()) {
           if (tvCanControl()) {
-            hostSend(tv.host, { t: 'dn', b: 2 });
+            hostSend(tv.host, { t: 'dn', b: 2, s: tv.slot });
             hostSend(tv.host, { t: 'up', b: 2 });
           }
         } else {
           var uv2 = tvUv(tv.two.smx, tv.two.smy);
           if (uv2.inside && tvCanControl()) {
             tvSendMv(uv2);
-            hostSend(tv.host, { t: 'dn', b: 2 });
+            hostSend(tv.host, { t: 'dn', b: 2, s: tv.slot });
             hostSend(tv.host, { t: 'up', b: 2 });
           }
         }
@@ -2486,14 +2526,14 @@ function tvUp(e){
         if (dur1 < 320) {
           if (tvIsRel()) {
             if (tvCanControl()) {
-              hostSend(tv.host, { t: 'dn', b: 0 });
+              hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
               hostSend(tv.host, { t: 'up', b: 0 });
             }
           } else {
             var uv = tvUv(was.x, was.y);
             if (uv.inside && tvCanControl()) {
               tvSendMv(uv);
-              hostSend(tv.host, { t: 'dn', b: 0 });
+              hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
               hostSend(tv.host, { t: 'up', b: 0 });
             }
           }
@@ -2519,7 +2559,7 @@ function initTouchUi(){
     var now = performance.now();
     if (now - tv.lastWheel < 40) return;
     tv.lastWheel = now;
-    hostSend(tv.host, { t: 'sc', d: (e.deltaY > 0 ? 1 : -1) * S.scrollDir });
+    hostSend(tv.host, { t: 'sc', d: (e.deltaY > 0 ? 1 : -1) * S.scrollDir, s: tv.slot });
   }, { passive: false });
 
   $('tvKeys').addEventListener('click', function(){
@@ -3622,7 +3662,7 @@ function xrPressFinish(byUp){
   }
   if (pr.mode === '' && byUp && performance.now() - pr.t < 420) {
     hostSend(pr.hostObj, { t: 'mv', x: xrR4(pr.x0), y: xrR4(pr.y0), s: pr.slot });
-    hostSend(pr.hostObj, { t: 'dn', b: 0 });
+    hostSend(pr.hostObj, { t: 'dn', b: 0, s: pr.slot });
     hostSend(pr.hostObj, { t: 'up', b: 0 });
   }
 }
@@ -3642,7 +3682,7 @@ function xrPressTick(){
       if (now - pr.t < 300) {
         pr.mode = 'drag'; /* すぐ動かした = テキスト選択などのドラッグ */
         hostSend(pr.hostObj, { t: 'mv', x: xrR4(pr.x0), y: xrR4(pr.y0), s: pr.slot });
-        hostSend(pr.hostObj, { t: 'dn', b: 0 });
+        hostSend(pr.hostObj, { t: 'dn', b: 0, s: pr.slot });
         xr.pressed.click = pr.hostObj;
       } else {
         pr.mode = 'scroll'; /* 長押ししてから動かした = ページをつかんでスクロール */
@@ -3653,8 +3693,8 @@ function xrPressTick(){
     pr.acc += cur.y - pr.py;
     pr.py = cur.y;
     var step = [0.017, 0.011, 0.007][S.scrollSpd];
-    while (pr.acc >= step) { hostSend(pr.hostObj, { t: 'sc', d: 1 * S.scrollDir }); pr.acc -= step; }
-    while (pr.acc <= -step) { hostSend(pr.hostObj, { t: 'sc', d: -1 * S.scrollDir }); pr.acc += step; }
+    while (pr.acc >= step) { hostSend(pr.hostObj, { t: 'sc', d: 1 * S.scrollDir, s: pr.slot }); pr.acc -= step; }
+    while (pr.acc <= -step) { hostSend(pr.hostObj, { t: 'sc', d: -1 * S.scrollDir, s: pr.slot }); pr.acc += step; }
   }
 }
 
@@ -3671,7 +3711,7 @@ function xrActDown(action, hand){
     if (hov) {
       if (xr.mouseEnabled && hov.scr.host.helperOn) {
         if (S.trig === 'plain') {
-          hostSend(hov.scr.host, { t: 'dn', b: 0 });
+          hostSend(hov.scr.host, { t: 'dn', b: 0, s: hov.scr.slot });
           xr.pressed.click = hov.scr.host;
         } else if (xr.press) {
           xr.press.count++;
@@ -3694,7 +3734,7 @@ function xrActDown(action, hand){
     if (p.onMenu || p.onHud || p.bar) return;
     var hov2 = xrPickHover(hand);
     if (hov2 && xr.mouseEnabled && hov2.scr.host.helperOn) {
-      hostSend(hov2.scr.host, { t: 'dn', b: 2 });
+      hostSend(hov2.scr.host, { t: 'dn', b: 2, s: hov2.scr.slot });
       xr.pressed.rclick = hov2.scr.host;
     }
   } else if (action === 'grab') {
@@ -3820,7 +3860,11 @@ function xrPollInput(dt){
       var hov = xrActiveHover();
       var target = hov ? hov.scr.host : xr.lastHost;
       if (target && target.helperOn) {
-        hostSend(target, { t: 'sc', d: (sv > 0 ? 1 : -1) * S.scrollDir });
+        /* ホバー中は画面番号つきで毎回関門判定。外れた直後(lastHost)は
+           番号が分からないので、従来どおり関門の現在値に従う */
+        var scMsg = { t: 'sc', d: (sv > 0 ? 1 : -1) * S.scrollDir };
+        if (hov) scMsg.s = hov.scr.slot;
+        hostSend(target, scMsg);
         xr.lastScroll = now;
       }
     }
