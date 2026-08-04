@@ -1728,7 +1728,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-05d';
+var APP_VER = '2026-08-05e';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -3731,10 +3731,13 @@ function xrDrawHud(){
   if (S.renderMode === 'classic') drawJp += '従来';
   else if (!xr.mediaOk) drawJp += 'くっきり合成: この機器では使えません';
   else {
-    var nLay = xr.mediaLayers ? xr.mediaLayers.length : 0;
-    drawJp += 'くっきり合成 ' + nLay + '枚';
-    /* 第1弾は平面のみ対象。既定は湾曲なので、切り替えないと0枚のままになる */
-    if (nLay === 0) drawJp += '(画面上部のボタンで「平面」にすると効きます)';
+    /* 種類の内訳を出す。「湾曲が数えられているのに真っ黒」なら、位置ではなく
+       合成器が映像の円柱に対応していない疑いになる(切り分けの手がかり) */
+    var nFlat = 0, nCyl = 0;
+    (xr.mediaLayers || []).forEach(function(e2){ if (e2.curved) nCyl++; else nFlat++; });
+    var nLay = nFlat + nCyl;
+    drawJp += 'くっきり合成 ' + nLay + '枚(平面' + nFlat + '・湾曲' + nCyl + ')';
+    if (nLay === 0) drawJp += ' 対象なし';
   }
   ctx.fillStyle = (xr.fps && xr.fps < 55) ? '#ff8f8f' : '#8f89a8';
   ctx.font = 'bold 26px sans-serif';
@@ -3821,7 +3824,7 @@ async function xrEnter(){
     session.addEventListener('selectend', xrOnSelectEnd);
     await xr.renderer.xr.setSession(session);
     xr.mediaTries = 0; /* 描画層は毎フレーム取り直しを試みる(下の xrEnsureMedia) */
-    xr.fps = 0; xr.frameCount = 0; xr.fpsAt = 0; xr.hudFps = undefined; /* 計測を初期化 */
+    xr.fps = 0; xr.frameCount = 0; xr.fpsAt = 0; xr.hudFps = undefined; xr.hudLayN = -1; /* 計測を初期化 */
     xr.mediaTrash = []; /* 破棄待ちのレイヤー((d)③対策) */
     xr.needsRecenter = true;
     xr.hudPinned = false;
@@ -5063,6 +5066,12 @@ APP.xrLimitsChanged = function(){
    調整点: 実機で寸法が半分/2倍に見えたら width/height を2倍/半分に。
    表裏が逆なら transform の向きにY軸180度を掛ける */
 var MEDIA_MAX = 14; /* Questのレイヤー上限(16)からprojection分を引いた安全枠 */
+/* 円柱レイヤーの位置が何を指すかは仕様の文言が曖昧(「円柱の見える部分の中心点」)。
+   0 = 板の位置をそのまま渡す(=見えている面の中心という解釈。平板レイヤーと同じ扱い)
+   +1 = 利用者側へ半径ぶん進める(=円の中心という解釈。2026-08-05dで試して真っ黒だった)
+   -1 = 反対側へ半径ぶん
+   **調整点**: 湾曲が真っ黒/位置がずれるときは、この数字だけを 0 / +1 / -1 で試す */
+var CYL_POSE_R = 0;
 function xrScreenLayerWanted(s){
   /* 平面も湾曲も同じ条件。レイヤーの種類だけ変える(第2弾・2026-08-05d) */
   return S.renderMode !== 'classic' && s.mesh && s.video &&
@@ -5185,16 +5194,13 @@ function xrSyncMediaLayers(){
     if (sig === e.sig) return;
     e.sig = sig;
     var px = xr.tmpV1.x, py = xr.tmpV1.y, pz = xr.tmpV1.z;
-    if (e.curved) {
-      /* 円柱レイヤーの位置は「円の中心」を指す。いまのメッシュは弧の中央が原点で
-         そこから奥へ膨らむ形(xrMakeScreenGeo の z = (1-cosθ)R)なので、
-         円の中心は板の位置から奥へ半径ぶん進んだ点になる。板の向きの
-         「奥」= 回転させた (0,0,1) 方向。
-         調整点: 画面が手前/奥へ大きくずれたら、この足し算の符号を反転する */
+    if (e.curved && CYL_POSE_R !== 0) {
       var rad = w / Math.max(0.001, ang);
       if (!xr.tmpV2b) xr.tmpV2b = new THREE.Vector3();
-      xr.tmpV2b.set(0, 0, 1).applyQuaternion(xr.tmpQ);
-      px += xr.tmpV2b.x * rad; py += xr.tmpV2b.y * rad; pz += xr.tmpV2b.z * rad;
+      xr.tmpV2b.set(0, 0, 1).applyQuaternion(xr.tmpQ); /* 板の向きの「利用者側」 */
+      px += xr.tmpV2b.x * rad * CYL_POSE_R;
+      py += xr.tmpV2b.y * rad * CYL_POSE_R;
+      pz += xr.tmpV2b.z * rad * CYL_POSE_R;
     }
     e.layer.transform = new XRRigidTransform(
       { x: px, y: py, z: pz },
@@ -5236,9 +5242,12 @@ function xrRender(){
      隠れていて描き直しを飛ばすと、二度と機会が来ないため(表示が固まる)。
      71と72の往復で毎秒描き直すと、その転送自体が引っかかりを生むので、
      2以上の差か、まだ一度も出していないときだけ描き直す */
+  var layN = xr.mediaLayers ? xr.mediaLayers.length : 0;
   if (xr.hud && xr.hud.visible &&
-      (xr.hudFps === undefined || Math.abs((xr.fps || 0) - xr.hudFps) >= 2)) {
+      (xr.hudFps === undefined || Math.abs((xr.fps || 0) - xr.hudFps) >= 2
+       || layN !== xr.hudLayN)) {
     xr.hudFps = xr.fps || 0;
+    xr.hudLayN = layN; /* 枚数が変わったときも描き直す(内訳の表示のため) */
     xrDrawHud();
   }
   xr.camera.getWorldPosition(xr.camPos);
