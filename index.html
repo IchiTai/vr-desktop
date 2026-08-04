@@ -1545,7 +1545,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-04d';
+var APP_VER = '2026-08-04e';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2103,7 +2103,7 @@ var tv = {
   lastMv: 0,
   unmuteTried: false,
   relX: 0, relY: 0,
-  lastWheel: 0,
+  wheelAcc: 0,
   m: null /* マウス用の押し分け状態 */
 };
 
@@ -2555,11 +2555,29 @@ function initTouchUi(){
   t.addEventListener('contextmenu', function(e){ e.preventDefault(); });
   t.addEventListener('wheel', function(e){
     e.preventDefault();
+    /* トラックパッドのピンチは、ブラウザからは「Ctrl+ホイール」の形で届く。
+       タッチのピンチと同じ計算で、カーソル位置を中心に手元でズームする */
+    if (e.ctrlKey) {
+      var k = Math.exp(-e.deltaY * 0.003);
+      var nz = clamp(tv.z * k, 1, 5);
+      var mx = e.clientX, my = e.clientY;
+      tv.tx = mx - (mx - tv.tx) * (nz / tv.z);
+      tv.ty = my - (my - tv.ty) * (nz / tv.z);
+      tv.z = nz;
+      tvClampPan();
+      tvApplyTransform();
+      return;
+    }
     if (!tvCanControl()) return;
-    var now = performance.now();
-    if (now - tv.lastWheel < 40) return;
-    tv.lastWheel = now;
-    hostSend(tv.host, { t: 'sc', d: (e.deltaY > 0 ? 1 : -1) * S.scrollDir, s: tv.slot });
+    /* 移動量を蓄積し、約50pxごとに1ノッチ送る(タッチ2本指の46px蓄積と同じ型)。
+       トラックパッドの細かい連続イベントも、ホイールマウスの1目盛(約100px)も、
+       これで自然な速さになる。deltaMode=1(行単位で報告するブラウザ)は約33px/行に換算 */
+    var dy = e.deltaY * (e.deltaMode === 1 ? 33 : 1);
+    tv.wheelAcc = (tv.wheelAcc || 0) + dy;
+    while (Math.abs(tv.wheelAcc) >= 50) {
+      hostSend(tv.host, { t: 'sc', d: (tv.wheelAcc > 0 ? 1 : -1) * S.scrollDir, s: tv.slot });
+      tv.wheelAcc -= (tv.wheelAcc > 0 ? 50 : -50);
+    }
   }, { passive: false });
 
   $('tvKeys').addEventListener('click', function(){
