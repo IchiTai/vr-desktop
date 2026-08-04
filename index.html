@@ -503,6 +503,14 @@ footer.site a{color:var(--muted);text-decoration:underline}
           <option value="classic">従来</option>
         </select>
       </div>
+      <div class="set-row">
+        <label>VRのぼかし(ふちのギザギザ取り)</label>
+        <select class="monsel" id="selAA">
+          <option value="on">あり(標準)</option>
+          <option value="off">なし(描画が軽くなる)</option>
+        </select>
+      </div>
+      <p class="set-note">ぼかしは<b>ページを読み込み直したときから</b>反映されます。VRの中の操作ガイドに出る「描画」の数字(1秒あたりのコマ数)を見ながら切り替えると、効き目が分かります。数字が低い(60を大きく下回る)ときは「なし」を試してください。</p>
       <p class="set-note">標準の方式は、平面の画面を合成器が直接描くため文字がくっきりし、消費電力も下がります(対応機のみ・湾曲画面は当面従来)。表示に不具合が出たときは「従来」に切り替えてください(即時反映)。</p>
     </div>
     <div id="setPaneEnv" class="hidden">
@@ -1694,7 +1702,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-04s';
+var APP_VER = '2026-08-04u';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1764,6 +1772,7 @@ function loadS(){
   s.ptrStab = (s.ptrStab === false) ? false : true; /* ポインターの安定化(手ぶれ補正) */
   s.codec = (s.codec === 'vp8') ? 'vp8' : 'h264'; /* 映像の圧縮形式。h264=ハードウェア復号優先 */
   s.renderMode = (s.renderMode === 'classic') ? 'classic' : 'layers'; /* VRの画面の描画方式 */
+  s.aa = (s.aa === false) ? false : true; /* VRのぼかし(4サンプル)。切ると描画が軽くなる */
   s.stick = (s.stick === 'right') ? 'right'
     : (s.km && s.km.stick === 'right') ? 'right' : 'left'; /* 旧保存からの引き継ぎ */
   if (!kmValid(s.km2) || kmIsOldDefault(s.km2)) s.km2 = kmDefault();
@@ -2047,6 +2056,7 @@ function renderKm(){
   $('selScrollDir').value = String(S.scrollDir);
   $('selCodec').value = S.codec;
   $('selRender').value = S.renderMode;
+  $('selAA').value = (S.aa === false) ? 'off' : 'on';
   $('selScrollSpd').value = String(S.scrollSpd);
 }
 
@@ -2155,6 +2165,10 @@ function initSettingsUi(){
   });
   $('selRender').addEventListener('change', function(){
     S.renderMode = ($('selRender').value === 'classic') ? 'classic' : 'layers';
+    saveS();
+  });
+  $('selAA').addEventListener('change', function(){
+    S.aa = ($('selAA').value !== 'off');
     saveS();
   });
   $('selScrollSpd').addEventListener('change', function(){
@@ -2972,7 +2986,9 @@ function xrBuildScene(){
     xr.params.curved = !!S.layout.curved;
   }
 
-  var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  /* ぼかしは描画の重さに直結する(three 0.149 のVR経路では、左右の目それぞれで
+     解像度いっぱいの合成をやり直す)。設定はページの読み込み時に一度だけ効く */
+  var renderer = new THREE.WebGLRenderer({ antialias: S.aa !== false, alpha: true });
   renderer.setPixelRatio(1);
   renderer.outputEncoding = THREE.sRGBEncoding;
   renderer.xr.enabled = true;
@@ -3700,6 +3716,21 @@ function xrDrawHud(){
     ctx.font = 'bold 27px sans-serif';
     ctx.fillText('☕ 休憩の時間です', 40, 112);
   }
+  /* 描画のコマ数と、いま何枚が新方式で描かれているか(不具合の切り分け用) */
+  var drawJp = '描画 ' + (xr.fps || '--') + 'fps / ';
+  if (S.renderMode === 'classic') drawJp += '従来';
+  else if (!xr.mediaOk) drawJp += 'くっきり合成: この機器では使えません';
+  else {
+    var nLay = xr.mediaLayers ? xr.mediaLayers.length : 0;
+    drawJp += 'くっきり合成 ' + nLay + '枚';
+    /* 第1弾は平面のみ対象。既定は湾曲なので、切り替えないと0枚のままになる */
+    if (nLay === 0) drawJp += '(画面上部のボタンで「平面」にすると効きます)';
+  }
+  ctx.fillStyle = (xr.fps && xr.fps < 55) ? '#ff8f8f' : '#8f89a8';
+  ctx.font = 'bold 26px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText(drawJp, W - 40, 112);
+  ctx.textAlign = 'left';
 
   var adjJp = (S.stick === 'right') ? '右' : '左';
   var scrJp = (S.stick === 'right') ? '左' : '右';
@@ -3779,11 +3810,8 @@ async function xrEnter(){
     session.addEventListener('selectstart', xrOnSelectStart);
     session.addEventListener('selectend', xrOnSelectEnd);
     await xr.renderer.xr.setSession(session);
-    try {
-      xr.projLayer = (session.renderState.layers && session.renderState.layers[0]) || null;
-      xr.mediaOk = !!(xr.projLayer && window.XRMediaBinding);
-      if (xr.mediaOk) xr.mediaBinding = new XRMediaBinding(session);
-    } catch (_e) { xr.mediaOk = false; }
+    xr.mediaTries = 0; /* 描画層は毎フレーム取り直しを試みる(下の xrEnsureMedia) */
+    xr.fps = 0; xr.frameCount = 0; xr.fpsAt = 0; xr.hudFps = undefined; /* 計測を初期化 */
     xr.needsRecenter = true;
     xr.hudPinned = false;
     xr.hudUntil = performance.now() + 12000;
@@ -4990,7 +5018,26 @@ function xrScreenLayerWanted(s){
   return S.renderMode !== 'classic' && !s.curved && s.mesh && s.video &&
          s.video.readyState >= 2 && s.dim >= 0.999; /* 明るさを下げた画面は従来描画(レイヤーに明るさ調整が無い) */
 }
+/* 描画層を three 自身の入口から取る。`session.renderState` を直接読むと、
+   WebXRの決まりで「次のフレームまで反映されない」ため、VR開始直後は空で、
+   新方式が一度も有効にならなかった(2026-08-04t で修正)。
+   XRWebGLLayer(古い方式)は framebuffer を持つので、それで見分ける */
+function xrEnsureMedia(){
+  if (xr.mediaOk || !xr.session) return;
+  if ((xr.mediaTries || 0) > 120) return; /* 数秒試して駄目なら諦める(従来描画のまま) */
+  xr.mediaTries = (xr.mediaTries || 0) + 1;
+  try {
+    var lay = xr.renderer.xr.getBaseLayer ? xr.renderer.xr.getBaseLayer() : null;
+    if (!lay || lay.framebuffer !== undefined) return; /* 未確定、または古い方式 */
+    if (!window.XRMediaBinding) { xr.mediaTries = 999; return; }
+    xr.projLayer = lay;
+    xr.mediaBinding = new XRMediaBinding(xr.session);
+    xr.mediaOk = true;
+  } catch (_e) { xr.mediaTries = 999; }
+}
+
 function xrSyncMediaLayers(){
+  xrEnsureMedia();
   if (!xr.mediaOk || !xr.session) return;
   var changed = false;
   var want = [];
@@ -5057,6 +5104,25 @@ function xrSyncMediaLayers(){
 
 function xrRender(){
   var dt = Math.min(0.05, xr.clock.getDelta());
+  /* 描画コマ数の計測。コマ落ちはそのまま操作の遅れになる(入力は1コマごとに
+     取り込むため)ので、原因の切り分けに要る */
+  xr.frameCount = (xr.frameCount || 0) + 1;
+  var fnow = performance.now();
+  if (!xr.fpsAt) xr.fpsAt = fnow;
+  if (fnow - xr.fpsAt >= 1000) {
+    xr.fps = Math.round(xr.frameCount * 1000 / (fnow - xr.fpsAt));
+    xr.frameCount = 0;
+    xr.fpsAt = fnow;
+  }
+  /* 描き直しの判定は「いま出ている値」と照らす。値が変わった瞬間にガイドが
+     隠れていて描き直しを飛ばすと、二度と機会が来ないため(表示が固まる)。
+     71と72の往復で毎秒描き直すと、その転送自体が引っかかりを生むので、
+     2以上の差か、まだ一度も出していないときだけ描き直す */
+  if (xr.hud && xr.hud.visible &&
+      (xr.hudFps === undefined || Math.abs((xr.fps || 0) - xr.hudFps) >= 2)) {
+    xr.hudFps = xr.fps || 0;
+    xrDrawHud();
+  }
   xr.camera.getWorldPosition(xr.camPos);
   xrSyncMediaLayers();
   xrPollInput(dt);
