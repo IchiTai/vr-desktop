@@ -1,0 +1,4704 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>VR Desktop | 画面をVRの大画面で</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥽</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#131120;
+  --surface:#1c1930;
+  --surface-2:#252142;
+  --line:#332e58;
+  --ink:#eceaf6;
+  --muted:#9a94b8;
+  --accent:#8f7bff;
+  --accent-soft:rgba(143,123,255,.16);
+  --ok:#3ddc97;
+  --warn:#ffb86b;
+  --err:#ff7a8a;
+  --radius:14px;
+  --font-jp:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+  --font-disp:"Space Grotesk","Zen Kaku Gothic New",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--font-jp);
+  font-size:16px;
+  line-height:1.75;
+  min-height:100vh;
+}
+/* 上端のホライズンライン: VR空間の地平線をなぞる細いグラデーション */
+.horizon{
+  height:3px;
+  background:linear-gradient(90deg,transparent 0%,var(--accent) 30%,#5ad0ff 55%,var(--accent) 75%,transparent 100%);
+  opacity:.85;
+}
+.wrap{max-width:680px;margin:0 auto;padding:28px 20px 64px}
+header.site{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:30px}
+.brand{font-family:var(--font-disp);font-weight:700;font-size:20px;letter-spacing:.04em}
+.brand .goggle{margin-right:8px}
+.brand small{display:block;font-family:var(--font-jp);font-weight:400;font-size:12px;color:var(--muted);letter-spacing:.08em;margin-top:2px}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.hidden{display:none !important}
+
+.notice{
+  background:#2c2413;border:1px solid #6b5620;color:#ffdf9e;
+  border-radius:var(--radius);padding:12px 16px;font-size:14px;margin-bottom:22px;
+}
+.notice a{color:#ffd066}
+
+h1{font-size:26px;font-weight:700;letter-spacing:.02em;line-height:1.4;margin-bottom:8px}
+.lead{color:var(--muted);font-size:15px;margin-bottom:28px}
+h2{font-size:17px;font-weight:700;margin-bottom:14px}
+.eyebrow{
+  font-family:var(--font-disp);font-size:12px;font-weight:500;letter-spacing:.22em;
+  color:var(--accent);text-transform:uppercase;margin-bottom:6px;
+}
+
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:540px){.cards{grid-template-columns:1fr}}
+.card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:22px 20px;text-align:left;cursor:pointer;color:var(--ink);
+  font-family:var(--font-jp);width:100%;
+  transition:border-color .18s ease, transform .18s ease;
+}
+.card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.card .icon{font-size:30px;display:block;margin-bottom:10px}
+.card .title{font-size:16px;font-weight:700;display:block;margin-bottom:6px}
+.card .desc{font-size:13px;color:var(--muted);line-height:1.7;display:block}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:24px 22px;margin-bottom:18px}
+.panel p{font-size:14px;color:var(--muted);margin-bottom:14px}
+.panel p.strong{color:var(--ink)}
+.steps{font-size:14px;color:var(--muted);padding-left:1.4em;margin-bottom:16px}
+.steps li{margin-bottom:6px}
+
+.btn{
+  display:inline-block;border:none;border-radius:12px;cursor:pointer;
+  font-family:var(--font-jp);font-weight:700;font-size:16px;
+  padding:14px 26px;color:#0f0d1c;background:var(--accent);
+  transition:filter .15s ease, transform .15s ease;
+}
+.btn:hover{filter:brightness(1.12)}
+.btn:active{transform:scale(.98)}
+.btn:disabled{opacity:.5;cursor:default;transform:none}
+.btn-wide{width:100%;text-align:center}
+.btn-ghost{
+  background:transparent;color:var(--ink);border:1px solid var(--line);font-weight:500;font-size:14px;padding:10px 18px;
+  border-radius:12px;cursor:pointer;font-family:var(--font-jp);
+}
+.btn-ghost:hover{border-color:var(--accent);filter:none}
+.btn-back{
+  background:transparent;border:none;color:var(--muted);cursor:pointer;
+  font-family:var(--font-jp);font-size:14px;padding:4px 0;margin-bottom:18px;
+}
+.btn-back:hover{color:var(--ink)}
+
+/* 接続コード: このページの主役 */
+.codebox{display:flex;gap:8px;justify-content:center;margin:10px 0 14px}
+.digit{
+  font-family:var(--font-disp);font-weight:700;font-size:40px;line-height:1;
+  min-width:52px;padding:16px 0;text-align:center;
+  background:var(--surface-2);border:1px solid var(--line);border-radius:10px;
+  color:var(--ink);
+  box-shadow:inset 0 0 18px rgba(143,123,255,.14), 0 0 22px rgba(143,123,255,.10);
+}
+@media(max-width:420px){.digit{min-width:42px;font-size:32px;padding:13px 0}}
+.code-hint{text-align:center;font-size:13px;color:var(--muted);margin-bottom:4px}
+
+.statusrow{display:flex;align-items:center;gap:10px;font-size:14px;padding:7px 0}
+.dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.dot-off{background:#4a4568}
+.dot-wait{background:var(--warn);animation:pulse 1.4s ease-in-out infinite}
+.dot-on{background:var(--ok)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.statusrow .lbl{color:var(--ink)}
+.statusrow .sub{color:var(--muted);font-size:12px}
+
+.hint{
+  background:var(--accent-soft);border:1px solid var(--line);border-radius:10px;
+  font-size:13px;color:var(--muted);padding:12px 14px;margin-top:12px;line-height:1.8;
+}
+.hint b{color:var(--ink)}
+
+video.preview{
+  width:100%;border-radius:10px;border:1px solid var(--line);background:#000;
+  margin-top:16px;display:block;
+}
+
+.code-input{
+  font-family:var(--font-disp);font-weight:700;font-size:40px;letter-spacing:.35em;
+  text-align:center;width:100%;padding:16px 0 16px .35em;
+  background:var(--surface-2);border:1px solid var(--line);border-radius:12px;color:var(--ink);
+  margin-bottom:16px;
+}
+.code-input::placeholder{color:#4a4568;letter-spacing:.35em}
+
+.msg-err{color:var(--err);font-size:14px;min-height:1.6em;margin-bottom:8px}
+.notice-warn{
+  margin-top:10px;padding:10px 12px;border-radius:10px;
+  background:rgba(255,184,107,.10);border:1px solid rgba(255,184,107,.45);
+  color:#ffd8a8;font-size:13px;line-height:1.8;
+}
+.diag{
+  margin-top:8px;padding:8px 10px;background:#0d0b18;border:1px solid var(--line);
+  border-radius:8px;color:var(--muted);font-size:11px;line-height:1.7;
+  white-space:pre-line;max-height:150px;overflow:auto;
+}
+.msg-info{color:var(--muted);font-size:14px;min-height:1.6em;margin-bottom:8px}
+
+.ctl-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+.ctl-table td{padding:6px 8px;border-top:1px solid var(--line);vertical-align:top}
+.ctl-table td:first-child{color:var(--accent);white-space:nowrap;font-weight:500}
+.ctl-table td:last-child{color:var(--muted)}
+
+.screenrow{margin-top:16px;border-top:1px solid var(--line);padding-top:14px}
+.screenrow:first-child{margin-top:0;border-top:none;padding-top:0}
+.screenrow-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.screenrow-name{font-weight:700;font-size:14px}
+.monsel{
+  background:var(--surface-2);color:var(--ink);border:1px solid var(--line);
+  border-radius:8px;padding:6px 8px;font-family:var(--font-jp);font-size:12px;max-width:100%;
+}
+.btn-sm{padding:6px 14px;font-size:12px}
+.screenrow-head .btn-sm,.hostrow .btn-sm{margin-left:auto}
+.hostrow{
+  display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);
+  padding:8px 0;border-bottom:1px solid var(--line);flex-wrap:wrap;
+}
+.hostrow:last-child{border-bottom:none}
+.hostrow .hstat{flex-basis:100%;font-size:11px;color:var(--muted);font-family:var(--font-disp)}
+.addbox{margin-top:12px}
+.addbox .code-input{font-size:28px;padding:10px 0 10px .35em}
+
+/* ---------- 設定モーダル ---------- */
+.modal-bg{
+  position:fixed;inset:0;background:rgba(8,7,15,.74);z-index:60;
+  display:flex;align-items:flex-start;justify-content:center;
+  padding:24px 14px;overflow-y:auto;
+}
+.modal{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  max-width:560px;width:100%;padding:20px 20px 24px;
+}
+.modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.modal-head h2{margin:0}
+.tabs{display:flex;gap:6px;margin:14px 0 16px}
+.tab{
+  border:1px solid var(--line);background:var(--surface-2);color:var(--muted);
+  border-radius:9px;padding:7px 16px;font-size:13px;font-family:var(--font-jp);cursor:pointer;
+}
+.tab.on{color:var(--ink);border-color:var(--accent);background:var(--accent-soft)}
+.set-row{
+  display:flex;align-items:center;gap:10px;padding:10px 0;
+  border-bottom:1px solid var(--line);font-size:13px;color:var(--muted);flex-wrap:wrap;
+}
+.set-row:last-child{border-bottom:none}
+.set-row label{color:var(--ink);flex:1;min-width:150px;font-size:13px}
+.set-row input[type=range]{flex:1;min-width:130px;accent-color:var(--accent)}
+.set-note{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.8}
+.optgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px}
+@media(max-width:420px){.optgrid{grid-template-columns:1fr}}
+.opt{
+  border:1px solid var(--line);background:var(--surface-2);border-radius:10px;
+  padding:10px 12px;cursor:pointer;color:var(--muted);font-size:12px;text-align:left;
+  font-family:var(--font-jp);line-height:1.6;
+}
+.opt b{display:block;color:var(--ink);font-size:13px;margin-bottom:2px}
+.opt.on{border-color:var(--accent);color:var(--ink);background:var(--accent-soft)}
+.opt:disabled{opacity:.45;cursor:default}
+
+/* ---------- タッチビューア(スマホ/タブレット/PC) ---------- */
+.tview{position:fixed;inset:0;background:#000;z-index:50;display:flex;flex-direction:column}
+.tv-top{
+  display:flex;align-items:center;gap:8px;padding:8px 10px;
+  background:rgba(19,17,32,.97);border-bottom:1px solid var(--line);flex-wrap:wrap;
+}
+.tv-tabs{display:flex;gap:6px;overflow-x:auto;flex:1;min-width:100px;scrollbar-width:none}
+.tv-tab{
+  flex:0 0 auto;border:1px solid var(--line);background:var(--surface-2);color:var(--muted);
+  border-radius:8px;padding:6px 12px;font-size:12px;font-family:var(--font-jp);cursor:pointer;
+}
+.tv-tab.on{color:var(--ink);border-color:var(--accent);background:var(--accent-soft)}
+.tv-stats{font-size:11px;color:var(--muted);font-family:var(--font-disp);white-space:nowrap}
+.tv-stage{position:relative;flex:1;overflow:hidden;touch-action:none;background:#000}
+.tv-zoom{position:absolute;inset:0;transform-origin:0 0}
+.tv-zoom video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+.tv-touch{position:absolute;inset:0;touch-action:none}
+.tv-note{
+  position:absolute;left:50%;bottom:16px;transform:translateX(-50%);
+  background:rgba(19,17,32,.92);border:1px solid var(--line);color:var(--warn);
+  font-size:12px;padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap;
+}
+.tv-float{position:absolute;right:12px;bottom:16px;background:rgba(19,17,32,.92)}
+.tv-keybar{
+  display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:8px 10px;
+  background:rgba(19,17,32,.97);border-bottom:1px solid var(--line);
+}
+.tv-keybar input{
+  flex:1;min-width:150px;background:var(--surface-2);color:var(--ink);
+  border:1px solid var(--line);border-radius:8px;padding:8px 10px;
+  font-family:var(--font-jp);font-size:14px;
+}
+
+footer.site{margin-top:36px;text-align:center;font-size:12px;color:var(--muted)}
+footer.site a{color:var(--muted);text-decoration:underline}
+
+@media(prefers-reduced-motion:reduce){
+  *{animation:none !important;transition:none !important}
+}
+</style>
+</head>
+<body>
+<div class="horizon"></div>
+<div class="wrap">
+
+<header class="site">
+  <div class="brand"><span class="goggle">🥽</span>VR Desktop<small>パソコンの画面を、VRの大画面で</small></div>
+  <div style="display:flex;gap:12px;align-items:center">
+    <button class="btn-ghost btn-sm" id="btnTopSet">⚙ 設定</button>
+    <a href="guide.html" target="_blank" rel="noopener">使い方ガイド</a>
+  </div>
+</header>
+
+<div id="noticeSetup" class="notice hidden">
+  このページはまだインターネットに公開されていません。画面共有とVR表示は「https://」で始まる公開後のURLでだけ動きます。無料での公開のやり方は<a href="guide.html" target="_blank" rel="noopener">使い方ガイド</a>にあります。
+</div>
+<div id="libError" class="notice hidden">
+  必要な部品を読み込めませんでした。インターネット接続を確認して、ページを再読み込みしてください。
+</div>
+
+<!-- ホーム: 役割を選ぶ -->
+<section id="viewHome">
+  <h1>どちらの機器で開いていますか?</h1>
+  <p class="lead">パソコン側で共有をはじめてから、見る側の機器でコードを入力します。</p>
+  <div class="cards">
+    <button class="card" id="cardPC">
+      <span class="icon">🖥️</span>
+      <span class="title">パソコン(共有する側)</span>
+      <span class="desc">Windows / Mac のブラウザで画面を共有して、6桁の接続コードを発行します。</span>
+    </button>
+    <button class="card" id="cardQuest">
+      <span class="icon">🥽</span>
+      <span class="title">Quest・スマホ・タブレット(見る側)</span>
+      <span class="desc">接続コードを入力して見ます。QuestはVRの大画面、スマホ/タブレットはタッチ操作つきの全画面で。</span>
+    </button>
+  </div>
+  <footer class="site">映像は機器の間で直接やり取りされ、外部のサーバーには保存されません。詳しくは<a href="guide.html" target="_blank" rel="noopener">使い方ガイド</a>へ。<br><span id="verHome" style="font-size:11px;opacity:.75"></span></footer>
+</section>
+
+<!-- パソコン側 -->
+<section id="viewPC" class="hidden">
+  <button class="btn-back" id="btnBackPC">← もどる</button>
+  <div class="eyebrow">PC / Mac</div>
+  <h1>画面を共有する</h1>
+
+  <div id="pcStepA">
+    <div class="panel">
+      <p class="strong">ボタンを押すと、どの画面を共有するか選ぶウィンドウが開きます。</p>
+      <ol class="steps">
+        <li>「<b>画面全体</b>」を選ぶ(VRからの操作が正しく動きます)</li>
+        <li>音も聞きたいときは「<b>音声を共有</b>」にチェック</li>
+        <li>「共有」を押す</li>
+      </ol>
+      <button class="btn btn-wide" id="btnShare">画面の共有をはじめる</button>
+      <p class="msg-err" id="shareErr"></p>
+    </div>
+  </div>
+
+  <div id="pcStepB" class="hidden">
+    <div class="panel">
+      <p class="code-hint">接続コード</p>
+      <div class="codebox" id="codeBox"></div>
+      <p class="code-hint" id="pcCodeHint">コードを発行しています…</p>
+    </div>
+    <div class="panel">
+      <div class="statusrow"><span class="dot dot-off" id="dotShare"></span><span class="lbl">画面の共有</span></div>
+      <div class="statusrow"><span class="dot dot-off" id="dotQuest"></span><span class="lbl" id="lblQuest">見る側の接続待ち</span></div>
+      <div class="statusrow"><span class="dot dot-off" id="dotHelper"></span><span class="lbl" id="helperLabel">操作モード OFF(見るだけ)</span></div>
+      <div class="hint" id="helperHint">
+        VRやスマホからパソコンを操作したいときは、<b>操作ヘルパー</b>をこのパソコンで起動しておきます。<br>
+        Windows: <a href="helper-windows.bat" download>helper-windows.bat</a> / Mac: <a href="helper-mac.py" download>helper-mac.py</a><br>
+        はじめての起動手順は<a href="guide.html#helper" target="_blank" rel="noopener">使い方ガイド</a>にあります。起動すると、この欄が自動でONに変わります。
+      </div>
+      <div id="pcScreens" style="margin-top:16px"></div>
+      <p style="margin-top:14px"><button class="btn-ghost" id="btnAddScreen">画面を追加(別のモニターを共有)</button></p>
+      <p class="msg-err" id="addErr"></p>
+      <p style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn-ghost" id="btnStop">共有をすべてやめる</button>
+        <button class="btn-ghost" id="btnPcSet">⚙ 画質の設定</button>
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- 見る側 -->
+<section id="viewQuest" class="hidden">
+  <button class="btn-back" id="btnBackQ">← もどる</button>
+  <div class="eyebrow">Quest / Phone / Tablet</div>
+  <h1>コードを入力して接続する</h1>
+
+  <div id="qStepA">
+    <div class="panel">
+      <p>パソコンの画面に表示されている6桁のコードを入力してください。</p>
+      <input class="code-input" id="codeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
+      <p class="msg-err" id="qErr"></p>
+      <p class="msg-info" id="qPeerStat" style="margin-top:2px"></p>
+      <div class="diag hidden" id="qDiag"></div>
+      <button class="btn btn-wide" id="btnConnect">接続する</button>
+      <p class="msg-info" id="xrNote" style="margin-top:10px"></p>
+    </div>
+  </div>
+
+  <div id="qStepB" class="hidden">
+    <div class="panel">
+      <p class="strong" id="qStatus">パソコンの画面を受信しています。</p>
+      <div id="qHosts"></div>
+      <p style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn-ghost btn-sm" id="btnAddPC">別のパソコンを追加</button>
+        <button class="btn-ghost btn-sm" id="btnQSet">⚙ 設定</button>
+      </p>
+      <div id="qAddBox" class="addbox hidden">
+        <input class="code-input" id="codeInput2" inputmode="numeric" maxlength="6" placeholder="000000">
+        <p class="msg-err" id="qAddErr"></p>
+        <button class="btn btn-wide" id="btnConnect2">このコードに接続する</button>
+      </div>
+      <button class="btn btn-wide" id="btnEnterVR" style="margin-top:14px">VRで見る</button>
+      <button class="btn btn-ghost btn-wide" id="btnTouch" style="margin-top:10px">タッチで見る(スマホ/タブレット)</button>
+      <p class="msg-info hidden" id="qMuteNote" style="margin-top:10px">音はミュートで開始しました。映像を一度タップすると音が出ます。</p>
+      <div id="qVideos"></div>
+    </div>
+    <div class="panel">
+      <h2>VRの中での操作(標準設定)</h2>
+      <table class="ctl-table">
+        <tr><td>レーザー(両手)</td><td>当てた画面のカーソルを動かす(操作モードON時)</td></tr>
+        <tr><td>トリガー(左右) / 右Aボタン(下)</td><td>クリック。すぐ動かす=ドラッグ、長押しして動かす=スクロール</td></tr>
+        <tr><td>右手 Bボタン(上)</td><td>右クリック</td></tr>
+        <tr><td>グリップ(両手)</td><td>指した画面をつかんで移動(高さ変更もこれで。設定・ガイドのパネルもつかめます)</td></tr>
+        <tr><td>右手 スティック上下</td><td>スクロール</td></tr>
+        <tr><td>左手 スティック</td><td>上下で指した画面の遠近、左右で大きさ</td></tr>
+        <tr><td>左スティック押し込み</td><td>ポインター(レーザー)の表示/非表示</td></tr>
+        <tr><td>右スティック押し込み</td><td>キー送信パレット(Enter・コピー・貼り付けなど)</td></tr>
+        <tr><td>手(ハンドトラッキング)</td><td>指さしでレーザー、つまむ(ピンチ)=クリック。押し方の使い分けも同じ</td></tr>
+        <tr><td>Bluetoothキーボード</td><td>Questにペアリングしたキーボードで、そのままPCに入力</td></tr>
+        <tr><td>左手 X(下) / Y(上)</td><td>設定メニュー / 画面を整列して正面に呼び直す</td></tr>
+        <tr><td>何もない所をクリック</td><td>操作ガイドの表示/非表示</td></tr>
+        <tr><td>画面のすぐ上にレーザー</td><td>「平面/湾曲・ミュート・固定・追従・明るさ」のボタンが現れる</td></tr>
+      </table>
+      <p class="msg-info" style="margin-top:10px;margin-bottom:0">ボタンごとの機能は「⚙ 設定 → 操作」で変えられます(同じ機能を複数のボタンに割り当ててもOK)。</p>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<!-- タッチビューア -->
+<div id="touchView" class="tview hidden">
+  <div class="tv-top">
+    <div class="tv-tabs" id="tvTabs"></div>
+    <span class="tv-stats hidden" id="tvStats"></span>
+    <button class="btn-ghost btn-sm" id="tvKeys">⌨</button>
+    <button class="btn-ghost btn-sm" id="tvFull">全画面</button>
+    <button class="btn-ghost btn-sm" id="tvSet">設定</button>
+    <button class="btn-ghost btn-sm" id="tvClose">閉じる</button>
+  </div>
+  <div class="tv-keybar hidden" id="tvKeybar">
+    <input id="tvText" placeholder="文字を入力してPCへ送る(日本語OK)">
+    <button class="btn-ghost btn-sm" id="tvSend">送信</button>
+    <button class="btn-ghost btn-sm" data-k="enter">Enter</button>
+    <button class="btn-ghost btn-sm" data-k="backspace">⌫</button>
+    <button class="btn-ghost btn-sm" data-k="esc">Esc</button>
+    <button class="btn-ghost btn-sm" data-k="tab">Tab</button>
+    <button class="btn-ghost btn-sm" data-k="copy">コピー</button>
+    <button class="btn-ghost btn-sm" data-k="paste">貼り付け</button>
+    <button class="btn-ghost btn-sm" data-k="apptab">切替</button>
+  </div>
+  <div class="tv-stage" id="tvStage">
+    <div class="tv-zoom" id="tvZoom"><video id="tvVideo" autoplay playsinline muted></video></div>
+    <div class="tv-touch" id="tvTouch"></div>
+    <div class="tv-note hidden" id="tvNote">操作モード OFF(見るだけ)</div>
+    <button class="btn-ghost btn-sm tv-float hidden" id="tvZoomReset">等倍に戻す</button>
+  </div>
+</div>
+
+<!-- 設定 -->
+<div id="setModal" class="modal-bg hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>設定 <span id="setVer" style="font-size:11px;color:var(--muted);font-weight:400"></span></h2>
+      <button class="btn-ghost btn-sm" id="setClose">閉じる</button>
+    </div>
+    <div class="tabs" id="setTabs">
+      <button class="tab" data-tab="ctl">操作</button>
+      <button class="tab" data-tab="pic">画質</button>
+      <button class="tab" data-tab="env">環境</button>
+    </div>
+    <div id="setPaneCtl" class="hidden">
+      <div id="kmRows"></div>
+      <div class="set-row">
+        <label>Bluetoothキーボードをそのまま送る</label>
+        <input type="checkbox" id="chkKbFwd" style="width:18px;height:18px;accent-color:var(--accent)">
+      </div>
+      <div class="set-row">
+        <label>トリガーのドラッグ</label>
+        <select class="monsel" id="selTrig">
+          <option value="vd">スクロール対応(長押し→動かすとスクロール)</option>
+          <option value="plain">標準(押した瞬間からドラッグ)</option>
+        </select>
+      </div>
+      <div class="set-row">
+        <label>スティックの役割</label>
+        <select class="monsel" id="selStick">
+          <option value="left">左=画面の調整 / 右=スクロール(標準)</option>
+          <option value="right">右=画面の調整 / 左=スクロール</option>
+        </select>
+      </div>
+      <div class="set-row">
+        <label>スクロールの向き</label>
+        <select class="monsel" id="selScrollDir">
+          <option value="1">標準</option>
+          <option value="-1">逆にする</option>
+        </select>
+      </div>
+      <div class="set-row">
+        <label>スクロールの速さ</label>
+        <select class="monsel" id="selScrollSpd">
+          <option value="0">ゆっくり</option>
+          <option value="1">標準</option>
+          <option value="2">速い</option>
+        </select>
+      </div>
+      <p style="margin-top:14px"><button class="btn-ghost btn-sm" id="btnKmReset">ボタン割り当てを標準に戻す</button></p>
+      <p class="set-note">ボタンごとに機能を選びます。同じ機能を複数のボタンに割り当ててもかまいませんし、「割り当てない」で空きにもできます。VRの中の操作ガイドにはいまの割り当てが表示され、そのガイドパネルをレーザーでクリックしても設定メニューが開きます。</p>
+    </div>
+    <div id="setPanePic" class="hidden">
+      <div class="optgrid" id="qGrid"></div>
+      <p class="set-note" id="qNote">見る側で変えると、共有中のパソコンにもすぐ反映されます。文字がにじむときは「くっきり」、動画がカクつくときは「なめらか」を試してください。</p>
+    </div>
+    <div id="setPaneEnv" class="hidden">
+      <div id="envVrOnly">
+        <p class="strong" style="margin-bottom:8px;color:var(--ink);font-size:14px">VRの背景</p>
+        <div class="optgrid" id="bgGrid"></div>
+        <div class="set-row" style="margin-top:8px">
+          <label>画面の最大距離 <span id="valMaxD" style="color:var(--muted)"></span></label>
+          <input type="range" id="rangeMaxD" min="3" max="30" step="1">
+        </div>
+        <div class="set-row">
+          <label>画面の最大の幅 <span id="valMaxW" style="color:var(--muted)"></span></label>
+          <input type="range" id="rangeMaxW" min="3" max="40" step="1">
+        </div>
+        <div class="set-row">
+          <label>VRの描画解像度</label>
+          <select class="monsel" id="selRScale">
+            <option value="1">標準</option>
+            <option value="1.15">高(推奨)</option>
+            <option value="1.3">最高(電池消費が増えます)</option>
+          </select>
+        </div>
+        <div class="set-row">
+          <label>文字のちらつき低減(ミップマップ)</label>
+          <input type="checkbox" id="chkAniso" style="width:18px;height:18px;accent-color:var(--accent)">
+        </div>
+        <p class="set-note">描画解像度は、次にVRへ入るときに反映されます。これらはVRの中の設定メニュー(標準では左手のXボタン)からもその場で変えられます。背景も即時に切り替わりますが、パススルーとの行き来だけはVRの入り直しで反映されます(対応機のみ)。</p>
+      </div>
+      <div class="set-row">
+        <label>カーソルの移動方法(タッチで見る)</label>
+        <select class="monsel" id="selPtrMode">
+          <option value="abs">そのまま(触れた場所・マウス位置へ)</option>
+          <option value="rel">なぞって動かす(トラックパッド式)</option>
+        </select>
+      </div>
+      <div class="set-row">
+        <label>低遅延モード(受信のため込みを最小化)</label>
+        <input type="checkbox" id="chkLowLat" style="width:18px;height:18px;accent-color:var(--accent)">
+      </div>
+      <div class="set-row">
+        <label>接続品質を表示する</label>
+        <input type="checkbox" id="chkStats" style="width:18px;height:18px;accent-color:var(--accent)">
+      </div>
+      <div class="set-row">
+        <label>音量 <span id="volVal" style="color:var(--muted)"></span></label>
+        <input type="range" id="volRange" min="0" max="100" step="5">
+      </div>
+      <p class="set-note">設定はこの端末のブラウザの中だけに保存されます(端末ごとに別々です)。</p>
+    </div>
+  </div>
+</div>
+
+<script>
+/* 外部ライブラリの読み込み(予備の読み込み先つき) */
+window.__libsReady = (function(){
+  function load(list){
+    return new Promise(function(resolve, reject){
+      (function next(i){
+        if(i >= list.length){ reject(new Error('load failed')); return; }
+        var s = document.createElement('script');
+        s.src = list[i];
+        s.onload = function(){ resolve(); };
+        s.onerror = function(){ next(i + 1); };
+        document.head.appendChild(s);
+      })(0);
+    });
+  }
+  return load([
+    'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
+    'https://unpkg.com/three@0.128.0/build/three.min.js'
+  ]).then(function(){
+    return load([
+      'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js',
+      'https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js'
+    ]);
+  });
+})();
+</script>
+<script>
+'use strict';
+/* ================================================================
+   VR Desktop - core
+   役割: 画面の役割分岐 / PC側(複数画面の共有・コード発行・操作ヘルパー中継) /
+         Quest側(複数パソコンへの接続・映像受信)
+   ================================================================ */
+
+var HELPER_URL = 'http://127.0.0.1:8765';
+/* 要求するヘルパーの版。ヘルパー側の HELPER_VER($helperVer)を上げたら
+   ここも同じ値に上げること。応答に hv がない=この仕組みより古いヘルパー */
+var HELPER_VER_REQUIRED = 1;
+var PEER_PREFIX = 'vrdd-';
+
+/* 接続の共通設定。STUN(住所確認)だけを明示し、PeerJS既定に含まれる
+   TURN(中継サーバー)を除外する。中継の候補が設定にないので、映像と操作は
+   直結でしか流れない(決定事項: 通信は直接通信のみ)。
+   ここに turn: を書き足さないこと。 */
+var PEER_OPTS = {
+  debug: 1
+  /* テスト版: 接続設定をアップロード時の既定(TURN込み)に戻している。
+     原因切り分け専用。確認が済んだら必ず削除すること */
+};
+
+var APP = {};
+
+/* ---------- 小道具 ---------- */
+function $(id){ return document.getElementById(id); }
+function show(el, on){ if(el) el.classList.toggle('hidden', !on); }
+function setView(name){
+  ['viewHome', 'viewPC', 'viewQuest'].forEach(function(v){ show($(v), v === name); });
+  /* 右上の⚙は、その画面の役割に合う設定だけを開く(ホームでは非表示) */
+  var ts = $('btnTopSet');
+  if (ts) {
+    show(ts, name !== 'viewHome');
+    ts.setAttribute('data-role', name === 'viewPC' ? 'pc' : 'q');
+  }
+}
+function setDot(id, state){
+  var el = $(id);
+  el.classList.remove('dot-off', 'dot-wait', 'dot-on');
+  el.classList.add('dot-' + state);
+}
+function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+
+/* ================================================================
+   PC側(共有する側)
+   ================================================================ */
+var pc = {
+  peer: null, conns: [], code: '',
+  screens: [],        /* {slot, stream, call, mon} */
+  nextSlot: 1,
+  helperOn: false, monitors: [], monSig: '',
+  inputQueue: [], timers: [],
+  ctlBlock: false     /* 「操作しない」画面を見ている間は、操作を通さない */
+};
+
+async function pcCapture(errId){
+  try {
+    return await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        frameRate: { ideal: 60, max: 60 },
+        width: { max: 2560 },
+        height: { max: 1600 }
+      },
+      audio: true
+    });
+  } catch (e) {
+    var el = $(errId);
+    if (e && e.name === 'NotAllowedError') {
+      el.textContent = '共有がキャンセルされました。もう一度ボタンを押してください。公開したURL(https)で開いているかも確認してください。';
+    } else {
+      el.textContent = '画面共有をはじめられませんでした(' + (e && e.name ? e.name : 'エラー') + ')。公開したURLをChromeまたはEdgeで開いてください。';
+    }
+    return null;
+  }
+}
+
+async function pcStartShare(){
+  $('shareErr').textContent = '';
+  var stream = await pcCapture('shareErr');
+  if (!stream) return;
+  show($('pcStepA'), false);
+  show($('pcStepB'), true);
+  setDot('dotShare', 'on');
+  setDot('dotQuest', 'wait');
+  pcAddScreen(stream);
+  pcSetQuality(S.q);
+  pcCreatePeer(0);
+  pcStartHelperLoop();
+  pcCheckPermission();
+}
+
+async function pcAddScreenClick(){
+  $('addErr').textContent = '';
+  var stream = await pcCapture('addErr');
+  if (stream) pcAddScreen(stream);
+}
+
+function pcAddScreen(stream){
+  var slot = pc.nextSlot++;
+  var item = { slot: slot, stream: stream, call: null, mon: pc.screens.length };
+  var vt = stream.getVideoTracks()[0];
+  if (vt) {
+    var qh = QUALITY[pc.quality || S.q];
+    if (qh) {
+      try { vt.contentHint = qh.hint; } catch (_e) {}
+      pcApplyFps(vt, qh.fps);
+    }
+    vt.addEventListener('ended', function(){ pcRemoveScreen(slot); }); /* ブラウザ側の「共有を停止」 */
+  }
+  pc.screens.push(item);
+  pcRenderScreens();
+  pcCallScreen(item);
+}
+
+function pcCallScreen(item){
+  pc.conns.forEach(function(conn){
+    if (conn.open) pcCallScreenTo(item, conn);
+  });
+}
+
+function pcCallScreenTo(item, conn){
+  try {
+    item.calls = item.calls || {};
+    var old = item.calls[conn.peer];
+    if (old) { try { old.close(); } catch (_e) {} }
+    var call = pc.peer.call(conn.peer, item.stream, { metadata: { slot: item.slot } });
+    item.calls[conn.peer] = call;
+    pcApplyQualityToCall(call, 0);
+  } catch (_e) {}
+}
+
+function pcBroadcast(m){
+  pc.conns.forEach(function(c){
+    if (c.open) { try { c.send(m); } catch (_e) {} }
+  });
+}
+
+function pcEachCall(item, fn){
+  if (!item.calls) return;
+  Object.keys(item.calls).forEach(function(k){ fn(item.calls[k]); });
+}
+
+function pcFindScreen(slot){
+  for (var i = 0; i < pc.screens.length; i++) {
+    if (pc.screens[i].slot === slot) return pc.screens[i];
+  }
+  return null;
+}
+
+function pcRemoveScreen(slot){
+  var idx = -1;
+  for (var i = 0; i < pc.screens.length; i++) {
+    if (pc.screens[i].slot === slot) { idx = i; break; }
+  }
+  if (idx < 0) return;
+  var item = pc.screens[idx];
+  item.stream.getTracks().forEach(function(t){ try { t.stop(); } catch (_e) {} });
+  pcEachCall(item, function(c){ try { c.close(); } catch (_e) {} });
+  pc.screens.splice(idx, 1);
+  pcBroadcast({ t: 'del', s: slot });
+  if (pc.screens.length === 0) { pcStop(); return; }
+  pcRenderScreens();
+}
+
+function pcRenderScreens(){
+  var box = $('pcScreens');
+  if (!box) return;
+  box.innerHTML = '';
+  pc.screens.forEach(function(item, i){
+    var row = document.createElement('div');
+    row.className = 'screenrow';
+
+    var head = document.createElement('div');
+    head.className = 'screenrow-head';
+    var name = document.createElement('span');
+    name.className = 'screenrow-name';
+    name.textContent = '画面' + (i + 1);
+    head.appendChild(name);
+
+    if (pc.helperOn && pc.monitors.length > 1) {
+      var sel = document.createElement('select');
+      sel.className = 'monsel';
+      var opNone = document.createElement('option');
+      opNone.value = '-1';
+      opNone.textContent = '操作しない(見るだけ)';
+      sel.appendChild(opNone);
+      pc.monitors.forEach(function(m, mi){
+        var op = document.createElement('option');
+        op.value = String(mi);
+        op.textContent = '操作先: モニター' + (mi + 1) + (mi === 0 ? '(メイン)' : '') + ' ' + m.w + '×' + m.h;
+        sel.appendChild(op);
+      });
+      if (item.mon !== -1 && item.mon > pc.monitors.length - 1) item.mon = 0;
+      sel.value = String(item.mon);
+      sel.addEventListener('change', function(){
+        item.mon = parseInt(sel.value, 10) || 0;
+      });
+      head.appendChild(sel);
+    }
+
+    var rm = document.createElement('button');
+    rm.className = 'btn-ghost btn-sm';
+    rm.textContent = 'はずす';
+    rm.addEventListener('click', function(){ pcRemoveScreen(item.slot); });
+    head.appendChild(rm);
+
+    row.appendChild(head);
+
+    var v = document.createElement('video');
+    v.className = 'preview';
+    v.muted = true;
+    v.autoplay = true;
+    v.playsInline = true;
+    v.setAttribute('playsinline', '');
+    v.srcObject = item.stream;
+    row.appendChild(v);
+
+    box.appendChild(row);
+  });
+}
+
+function newCode(){ return String(Math.floor(100000 + Math.random() * 900000)); }
+
+function renderCode(code){
+  var box = $('codeBox');
+  box.innerHTML = '';
+  for (var i = 0; i < code.length; i++) {
+    var d = document.createElement('span');
+    d.className = 'digit';
+    d.textContent = code[i];
+    box.appendChild(d);
+  }
+}
+
+function pcCreatePeer(attempt){
+  if (attempt > 4) {
+    $('pcCodeHint').textContent = '接続コードを発行できませんでした。ページを再読み込みして、もう一度試してください。';
+    return;
+  }
+  pc.code = newCode();
+  renderCode(pc.code);
+  $('pcCodeHint').textContent = 'コードを発行しています…';
+
+  var peer = new Peer(PEER_PREFIX + pc.code, PEER_OPTS);
+  pc.peer = peer;
+
+  peer.on('open', function(){
+    $('pcCodeHint').textContent = '見る側の機器(Quest・スマホなど)でこのページを開き、上のコードを入力してください。';
+  });
+
+  peer.on('disconnected', function(){ try { peer.reconnect(); } catch (_e) {} });
+  peer.on('connection', function(conn){
+    /* 見る側は最大3台まで同時接続。同じ端末の再接続は古い方を置き換え、
+       あふれたら一番古い接続を切って新しい方を受け入れる */
+    pc.conns = pc.conns.filter(function(c){
+      if (c !== conn && c.peer === conn.peer) {
+        try { c.close(); } catch (_e) {}
+        return false;
+      }
+      return c !== conn;
+    });
+    while (pc.conns.length >= 3) {
+      var oldC = pc.conns.shift();
+      try { oldC.close(); } catch (_e) {}
+    }
+    pc.conns.push(conn);
+    conn.on('open', function(){
+      if (pc.conns.indexOf(conn) < 0) return;
+      pcUpdateViewerLabel();
+      try { conn.send({ t: 'helper', on: pc.helperOn }); } catch (_e) {}
+      pc.screens.forEach(function(item){ pcCallScreenTo(item, conn); });
+    });
+    conn.on('data', function(m){ if (pc.conns.indexOf(conn) >= 0) pcOnData(m); });
+    conn.on('close', function(){
+      var i = pc.conns.indexOf(conn);
+      if (i < 0) return; /* 置き換え済みの古い接続 */
+      pc.conns.splice(i, 1);
+      pc.screens.forEach(function(item){
+        if (item.calls && item.calls[conn.peer]) {
+          try { item.calls[conn.peer].close(); } catch (_e) {}
+          delete item.calls[conn.peer];
+        }
+      });
+      pcUpdateViewerLabel();
+    });
+  });
+
+  peer.on('error', function(err){
+    var t = err && err.type;
+    if (t === 'unavailable-id') {
+      try { peer.destroy(); } catch (_e) {}
+      pcCreatePeer(attempt + 1); /* コードが偶然かぶった場合は再発行 */
+    } else if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') {
+      $('pcCodeHint').textContent = '接続サービスにつながりません。インターネット接続を確認して、ページを再読み込みしてください。';
+    }
+  });
+}
+
+/* --- 操作ヘルパー(同じパソコンで動く小さなプログラム)との橋渡し --- */
+function pcStartHelperLoop(){
+  pcPingHelper();
+  pc.timers.push(setInterval(pcPingHelper, 3000));
+  pc.timers.push(setInterval(pcFlushInput, 33));
+}
+
+async function pcPingHelper(){
+  var on = false;
+  var monitors = [];
+  var hv = 0;
+  try {
+    var ctl = new AbortController();
+    var t = setTimeout(function(){ ctl.abort(); }, 3000);
+    var r = await fetch(HELPER_URL + '/ping', { method: 'GET', signal: ctl.signal });
+    clearTimeout(t);
+    if (r.ok) {
+      on = true;
+      try {
+        var j = await r.json();
+        if (j && j.monitors && j.monitors.length) monitors = j.monitors;
+        hv = (j && typeof j.hv === 'number') ? j.hv : 0;
+      } catch (_e) {}
+    }
+  } catch (_e) { on = false; }
+
+  /* ドラッグ中の混雑による一時的な無応答では、操作モードを落とさない(2回連続で確定) */
+  if (!on) {
+    pc.pingFails = (pc.pingFails || 0) + 1;
+    if (pc.pingFails < 2 && pc.helperOn) return;
+  } else {
+    pc.pingFails = 0;
+  }
+
+  var sig = JSON.stringify(monitors);
+  var changed = (on !== pc.helperOn) || (sig !== pc.monSig) || (hv !== (pc.helperVer || 0));
+  pc.helperOn = on;
+  pc.monitors = monitors;
+  pc.monSig = sig;
+  pc.helperVer = hv;
+  if (changed) {
+    setDot('dotHelper', on ? 'on' : 'off');
+    var oldHelper = on && hv < HELPER_VER_REQUIRED;
+    $('helperLabel').textContent = !on
+      ? '操作モード OFF(見るだけ)'
+      : (oldHelper
+        ? '操作モード ON(ヘルパーが古い → 再ダウンロード推奨)'
+        : '操作モード ON(VRからマウスを動かせます)');
+    show($('helperHint'), !on);
+    pcSendHelperState();
+    pcRenderScreens();
+  }
+}
+
+function pcUpdateViewerLabel(){
+  var n = 0;
+  pc.conns.forEach(function(c){ if (c.open) n++; });
+  if (n > 0) {
+    setDot('dotQuest', 'on');
+    $('lblQuest').textContent = (n === 1) ? 'Questと接続中' : '見る側 ' + n + '台と接続中';
+  } else if (pc.screens.length) {
+    setDot('dotQuest', 'wait');
+    $('lblQuest').textContent = '見る側の接続待ち';
+  }
+}
+
+function pcSendHelperState(){
+  pcBroadcast({ t: 'helper', on: pc.helperOn });
+}
+
+/* 「操作しない」(mon<0)に設定された画面かどうかで、操作の関門を開け閉めする。
+   閉じたときは true を返す。移動の種類が増えても、判定はここ1箇所だけを直せばよい */
+function pcCtlGate(item){
+  pc.ctlBlock = !!(item && item.mon < 0);
+  return pc.ctlBlock;
+}
+
+/* キー入力(key/txt/kb/ch)はPC単位で判定する。キーは画面ではなく前面の
+   ウィンドウに届くため、画面ごとの関門とは単位が合わない。共有中の全画面が
+   「操作しない」なら、このPCは純粋な閲覧対象とみなしてキーも止める。
+   画面を1枚も共有していない間は従来どおり通す(誤って全部止めない) */
+function pcKeysAllowed(){
+  if (!pc.screens.length) return true;
+  for (var i = 0; i < pc.screens.length; i++) {
+    if (pc.screens[i].mon >= 0) return true;
+  }
+  return false;
+}
+
+function pcOnData(msg){
+  if (!msg || !msg.t) return;
+  if (!pc.helperOn && msg.t !== 'q') return; /* ヘルパーOFF中は操作をためない */
+  if ((msg.t === 'key' || msg.t === 'txt' || msg.t === 'kb' || msg.t === 'ch')
+      && !pcKeysAllowed()) return;
+  if (msg.t === 'mv') {
+    var item = pcFindScreen(msg.s);
+    if (pcCtlGate(item)) return;
+    var out = { t: 'mv', x: msg.x, y: msg.y, s: item ? item.mon : 0 };
+    var q = pc.inputQueue;
+    if (q.length && q[q.length - 1].t === 'mv' && q[q.length - 1].s === out.s) {
+      q[q.length - 1] = out; /* 連続する移動はまとめる */
+    } else {
+      q.push(out);
+    }
+  } else if (msg.t === 'dn' || msg.t === 'up') {
+    if (msg.t === 'dn') {
+      /* 画面番号つき(タッチ)なら毎回その画面で判定。なし(XR)は直前の移動で
+         更新済みの関門に従う。離す信号は絶対に落とさない */
+      if (msg.s !== undefined) { if (pcCtlGate(pcFindScreen(msg.s))) return; }
+      else if (pc.ctlBlock) return;
+    }
+    pc.inputQueue.push({ t: msg.t, b: msg.b });
+  } else if (msg.t === 'sc') {
+    if (msg.s !== undefined) { if (pcCtlGate(pcFindScreen(msg.s))) return; }
+    else if (pc.ctlBlock) return;
+    pc.inputQueue.push({ t: 'sc', d: msg.d });
+  } else if (msg.t === 'q') {
+    pcSetQuality(msg.p);
+  } else if (msg.t === 'key') {
+    pc.inputQueue.push({ t: 'key', k: String(msg.k || '').slice(0, 24) });
+  } else if (msg.t === 'txt') {
+    var s2 = String(msg.s || '').slice(0, 1000);
+    if (s2) pc.inputQueue.push({ t: 'txt', s: s2 });
+  } else if (msg.t === 'kb') {
+    pc.inputQueue.push({ t: 'kb', c: String(msg.c || '').slice(0, 20), m: (msg.m | 0) & 15 });
+  } else if (msg.t === 'ch') {
+    var s3 = String(msg.s || '').slice(0, 8);
+    if (s3) pc.inputQueue.push({ t: 'ch', s: s3 });
+  } else if (msg.t === 'mvr') {
+    if (pcCtlGate(pcFindScreen(msg.s))) return;
+    /* 相対移動: 連続するぶんは1つにまとめてヘルパーの負荷を抑える */
+    var rdx = clamp(msg.x | 0, -3000, 3000);
+    var rdy = clamp(msg.y | 0, -3000, 3000);
+    var lastQ = pc.inputQueue[pc.inputQueue.length - 1];
+    if (lastQ && lastQ.t === 'mvr') {
+      lastQ.x += rdx;
+      lastQ.y += rdy;
+    } else {
+      pc.inputQueue.push({ t: 'mvr', x: rdx, y: rdy });
+    }
+  }
+}
+
+async function pcFlushInput(){
+  if (!pc.helperOn || pc.inputQueue.length === 0) return;
+  var batch = pc.inputQueue;
+  pc.inputQueue = [];
+  try {
+    await fetch(HELPER_URL + '/input', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(batch)
+    });
+  } catch (_e) {}
+}
+
+function pcStop(){
+  pc.screens.forEach(function(item){
+    item.stream.getTracks().forEach(function(t){ try { t.stop(); } catch (_e) {} });
+    pcEachCall(item, function(c){ try { c.close(); } catch (_e) {} });
+  });
+  pc.screens = [];
+  if (pc.peer) { try { pc.peer.destroy(); } catch (_e) {} pc.peer = null; }
+  pc.conns = [];
+  pc.timers.forEach(clearInterval);
+  pc.timers = [];
+  pc.inputQueue = [];
+  pc.helperOn = false;
+  pc.ctlBlock = false;
+  pc.monSig = '';
+  var box = $('pcScreens');
+  if (box) box.innerHTML = '';
+  $('addErr').textContent = '';
+  show($('pcStepB'), false);
+  show($('pcStepA'), true);
+  setDot('dotShare', 'off');
+  setDot('dotQuest', 'off');
+  setDot('dotHelper', 'off');
+  $('lblQuest').textContent = '見る側の接続待ち';
+  $('helperLabel').textContent = '操作モード OFF(見るだけ)';
+}
+
+/* ================================================================
+   Quest側(見る側)
+   ================================================================ */
+var qs = {
+  peer: null, peerReady: false,
+  hosts: [],          /* {idx, code, conn, screens:[{slot, stream, video}], helperOn, state} */
+  nextHost: 1,
+  pendingHost: null,
+  diag: [],
+  anyStream: false,
+  xrOk: false
+};
+
+async function questInit(){
+  qs.xrOk = false;
+  qs.arOk = false;
+  if (navigator.xr && navigator.xr.isSessionSupported) {
+    try { qs.xrOk = await navigator.xr.isSessionSupported('immersive-vr'); } catch (_e) {}
+    try { qs.arOk = await navigator.xr.isSessionSupported('immersive-ar'); } catch (_e) {}
+  }
+  $('xrNote').textContent = qs.xrOk
+    ? ''
+    : 'この機器はVR表示に対応していないため、接続後は「タッチで見る」で表示と操作ができます。';
+  refreshSettingsUi(); /* VR対応が判明したら、開いている設定の表示も合わせる */
+  /* 接続ボタンを押す前に、中継サーバーへの登録(受付)を先に済ませておく。
+     初回接続の待ち時間の大半はこれだったため */
+  questEnsurePeer(function(){});
+}
+
+/* 接続の診断ログ: どの段階で止まったかを画面に残す */
+function questLog(msg){
+  var t = new Date();
+  var line = ('0' + t.getMinutes()).slice(-2) + ':' + ('0' + t.getSeconds()).slice(-2) + ' ' + msg;
+  qs.diag.push(line);
+  if (qs.diag.length > 14) qs.diag.shift();
+  var el = $('qDiag');
+  if (el) {
+    el.textContent = qs.diag.join('\n');
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
+function questPeerStat(txt){
+  var el = $('qPeerStat');
+  if (el) el.textContent = txt ? ('中継サーバー: ' + txt) : '';
+}
+
+function questEnsurePeer(cb){
+  if (qs.peer) {
+    if (qs.peerReady) cb();
+    else qs.peer.on('open', function(){ cb(); });
+    return;
+  }
+  questLog('待ち合わせサーバーの受付を作成しています…');
+  questPeerStat('登録中…');
+  var peer = new Peer(PEER_OPTS);
+  qs.peer = peer;
+  peer.on('open', function(id){
+    qs.peerReady = true;
+    questLog('登録OK(受付ID: ' + String(id).slice(0, 12) + '…)');
+    questPeerStat('登録済み');
+    cb();
+  });
+  peer.on('call', questOnCall);
+  peer.on('error', questOnPeerError);
+  peer.on('disconnected', function(){
+    questLog('待ち合わせサーバーから切断されました → 再接続します');
+    questPeerStat('再接続中…');
+    try { peer.reconnect(); } catch (_e) {}
+  });
+}
+
+function questHostByPeerId(pid){
+  for (var i = 0; i < qs.hosts.length; i++) {
+    if (PEER_PREFIX + qs.hosts[i].code === pid) return qs.hosts[i];
+  }
+  return null;
+}
+
+function questAddHost(codeRaw, errEl){
+  var code = String(codeRaw || '').replace(/\D/g, '');
+  if (code.length !== 6) { errEl.textContent = '6桁のコードを入力してください。'; return false; }
+  if (questHostByPeerId(PEER_PREFIX + code)) { errEl.textContent = 'そのコードにはすでに接続しています。'; return false; }
+  errEl.textContent = '';
+  var host = { idx: qs.nextHost++, code: code, conn: null, screens: [], helperOn: false, state: 'connecting', dialTries: 0 };
+  qs.hosts.push(host);
+  qs.pendingHost = host;
+  questUiSync();
+  questLog('接続を開始: コード ' + code);
+  host.dialT0 = Date.now();
+  host.dialDeadline = host.dialT0 + DIAL_TOTAL_MS;
+  questEnsurePeer(function(){});
+  questDialTick(host); /* 経路作りは打ち切らず、じっくり待つ */
+  return true;
+}
+
+/* 接続ボタン後の経過表示(ボタンは「接続中…」のまま) */
+function questConnectingNote(msg){
+  if (!$('qStepA').classList.contains('hidden')) $('qErr').textContent = msg;
+  if (APP.xrPadMsg) APP.xrPadMsg(msg);
+}
+
+/* ---- 初回接続: 直結の経路作りを、旧版と同じようにじっくり待つ ----
+   打ち切って作り直すと経路探しがゼロからやり直しになるため、
+   時間切れでは殺さない。本当に失敗(failed)したときだけ1回作り直す */
+var DIAL_TOTAL_MS = 90000;
+var DIAL_MAX = 2;
+
+function questDialStart(host){
+  if (host.gone || host.state !== 'connecting') return;
+  host.dialTries++;
+  questDetachConn(host);
+  questLog('ダイヤル ' + host.dialTries + '回目 → vrdd-' + host.code);
+  host.conn = qs.peer.connect(PEER_PREFIX + host.code, { serialization: 'json' });
+  if (!host.conn) {
+    questLog('ダイヤルを開始できませんでした → 受付の復帰を待ちます');
+    host.dialTries--;
+    try { qs.peer.reconnect(); } catch (_e) {}
+    return;
+  }
+  questWireConn(host);
+}
+
+function questDialFailed(host, why){
+  if (host.gone || host.state !== 'connecting') return;
+  if (host.dialTries < DIAL_MAX) {
+    questLog(why + ' → 候補を集め直して、もう一度だけダイヤルします');
+    questDialStart(host);
+    return;
+  }
+  questDialGiveUp(host, why);
+}
+
+function questDialGiveUp(host, why){
+  if (host.gone) return;
+  host.gone = true;
+  if (qs.pendingHost === host) qs.pendingHost = null;
+  clearTimeout(host.connWatch);
+  questDetachConn(host);
+  var i = qs.hosts.indexOf(host);
+  if (i >= 0) qs.hosts.splice(i, 1);
+  questUiSync();
+  if (APP.xrSync) APP.xrSync();
+  questLog('接続をあきらめました(' + why + ')');
+  questShowErr('直接の通信路を' + Math.round(DIAL_TOTAL_MS / 1000) + '秒待ちましたが作れませんでした。①見る側の端末とPCを同じWi-Fi名(SSID)につなぐ ②ルーターの「プライバシーセパレーター(AP隔離)」をOFF ③PCのVPNを切る、を確認して、もう一度試してください。外の回線から試している場合は、回線の種類によって直結できないことがあります。');
+}
+
+function questDialTick(host){
+  if (host.gone || host.state !== 'connecting') return;
+  if (Date.now() > host.dialDeadline) { questDialGiveUp(host, '時間切れ'); return; }
+  if (!qs.peer || !qs.peerReady) {
+    questConnectingNote('待ち合わせサーバーに登録しています…');
+    questEnsurePeer(function(){});
+  } else if (qs.peer.disconnected) {
+    questConnectingNote('待ち合わせサーバーへ再接続しています…');
+    try { qs.peer.reconnect(); } catch (_e) {}
+  } else if (!host.conn) {
+    questConnectingNote('接続しています…');
+    questDialStart(host);
+  } else {
+    var sec = Math.round((Date.now() - host.dialT0) / 1000);
+    questConnectingNote('通信路を作っています… ' + sec + '秒(切らずにこのままお待ちください)');
+    if (sec > 0 && sec % 15 < 5) questLog('経路づくりを継続中(' + sec + '秒経過)');
+  }
+  host.connWatch = setTimeout(function(){ questDialTick(host); }, 5000);
+}
+
+
+/* 現役の接続を安全に置き換える(古い方のcloseイベントは無視されるよう、先に切り離す) */
+function questDetachConn(host){
+  var old = host.conn;
+  host.conn = null;
+  if (old) { try { old.close(); } catch (_e) {} }
+}
+
+/* 選ばれた直結経路の種類をログに出す */
+function questLogRouteType(host, conn){
+  try {
+    var pcn = conn.peerConnection;
+    if (!pcn || !pcn.getStats) return;
+    setTimeout(function(){
+      pcn.getStats().then(function(stats){
+        var pairId = null, pairs = {}, cands = {};
+        stats.forEach(function(r){
+          if (r.type === 'transport' && r.selectedCandidatePairId) pairId = r.selectedCandidatePairId;
+          if (r.type === 'candidate-pair') pairs[r.id] = r;
+          if (r.type === 'local-candidate' || r.type === 'remote-candidate') cands[r.id] = r;
+        });
+        var pair = pairId ? pairs[pairId] : null;
+        if (!pair) {
+          Object.keys(pairs).forEach(function(k){
+            var r = pairs[k];
+            if (!pair && r.state === 'succeeded' && (r.selected || r.nominated)) pair = r;
+          });
+        }
+        if (!pair) return;
+        var lc = cands[pair.localCandidateId];
+        var rc = cands[pair.remoteCandidateId];
+        var lt = lc && lc.candidateType;
+        var rt = rc && rc.candidateType;
+        /* 経路は自分側と相手側の出口の組で決まる。どちらか片方でも
+           relay(中継サーバー経由)なら、映像は中継を通っている */
+        if (lt === 'relay' || rt === 'relay') {
+          questLog('経路の種類: ⚠ 中継サーバー経由(直結ではない)。この表示が出たら設定のTURN除外が効いていない');
+        } else if (lt === 'host' && (rt === 'host' || !rt)) {
+          questLog('経路の種類: 同一ネットワーク直結');
+        } else if (lt || rt) {
+          questLog('経路の種類: 直結(NAT越え)');
+        }
+      }).catch(function(){});
+    }, 1200);
+  } catch (_e) {}
+}
+
+function questWatchIce(host, conn){
+  var tries = 0;
+  var t = setInterval(function(){
+    tries++;
+    var pcn = conn.peerConnection;
+    if (pcn) {
+      clearInterval(t);
+      pcn.addEventListener('iceconnectionstatechange', function(){
+        if (host.conn !== conn) return;
+        questLog('経路: ' + pcn.iceConnectionState);
+        if (pcn.iceConnectionState === 'failed' && host.state === 'connecting') {
+          questDialFailed(host, '経路作りが失敗(failed)');
+        }
+      });
+    } else if (tries > 24 || host.conn !== conn) {
+      clearInterval(t);
+    }
+  }, 250);
+}
+
+function questWireConn(host){
+  var conn = host.conn;
+  questWatchIce(host, conn);
+  conn.on('open', function(){
+    if (host.gone || host.conn !== conn) { try { conn.close(); } catch (_e) {} return; }
+    questLog('接続できました(PC ' + host.code + ')');
+    questLogRouteType(host, conn);
+    if (qs.pendingHost === host) qs.pendingHost = null;
+    host.state = 'open';
+    host.retryUntil = 0;
+    host.dialTries = 1;
+    clearTimeout(host.connWatch);
+    clearTimeout(host.retryWatch);
+    if (!$('qStepA').classList.contains('hidden')) $('qErr').textContent = '';
+    hostSend(host, { t: 'q', p: S.q });
+    questUiSync();
+    if (APP.xrHud) APP.xrHud();
+  });
+  conn.on('data', function(m){
+    if (!m || host.conn !== conn) return;
+    if (m.t === 'helper') {
+      host.helperOn = !!m.on;
+      questUiSync();
+      if (APP.xrHud) APP.xrHud();
+    } else if (m.t === 'del') {
+      questRemoveScreen(host, m.s);
+    }
+  });
+  conn.on('close', function(){
+    /* 自分が現役でなければ(置き換え済みの古いダイヤル)、何もしない。
+       ダイヤル中の失敗はダイヤル側のタイマーが管理する */
+    if (host.conn !== conn) return;
+    questLog('接続が閉じました(PC ' + host.code + ')');
+    if (host.state === 'connecting') { questDialFailed(host, '接続が閉じられました'); return; }
+    questConnLost(host);
+  });
+}
+
+/* 切断時: 同じコードで約2分間、静かに再接続を試みる */
+function questConnLost(host){
+  if (host.gone) return;
+  if (!host.retryUntil) host.retryUntil = Date.now() + 120000;
+  if (Date.now() > host.retryUntil) {
+    questDropHost(host, '再接続できませんでした。パソコン側の共有を確認して、もう一度コードを入力してください。');
+    return;
+  }
+  host.state = 'retry';
+  host.helperOn = false;
+  questUiSync();
+  if (APP.xrHud) APP.xrHud();
+  clearTimeout(host.retryTimer);
+  host.retryTimer = setTimeout(function(){
+    if (host.gone) return;
+    try {
+      questDetachConn(host);
+      host.conn = qs.peer.connect(PEER_PREFIX + host.code, { serialization: 'json' });
+      questWireConn(host);
+      clearTimeout(host.retryWatch);
+      host.retryWatch = setTimeout(function(){
+        if (!host.gone && host.state === 'retry') {
+          questDetachConn(host);
+          questConnLost(host);
+        }
+      }, 8000);
+    } catch (_e) {
+      questConnLost(host);
+    }
+  }, 3500);
+}
+
+function questOnCall(call){
+  var host = questHostByPeerId(call.peer);
+  if (!host) { try { call.close(); } catch (_e) {} return; }
+  var slot = (call.metadata && call.metadata.slot != null) ? call.metadata.slot : 0;
+  call.answer();
+  call.on('stream', function(stream){ questAddScreen(host, slot, stream, call); });
+  call.on('close', function(){
+    /* 再接続で作り直した新しい画面を、古い接続の後始末で消さない */
+    var cur = null;
+    host.screens.forEach(function(x){ if (x.slot === slot) cur = x; });
+    if (cur && cur.call === call) questRemoveScreen(host, slot);
+  });
+}
+
+function questAddScreen(host, slot, stream, call){
+  questRemoveScreen(host, slot, true); /* 同じ番号の作り直しに備える */
+  var v = document.createElement('video');
+  v.className = 'preview';
+  v.autoplay = true;
+  v.playsInline = true;
+  v.setAttribute('playsinline', '');
+  v.srcObject = stream;
+  v.muted = false;
+  v.play().catch(function(){
+    v.muted = true;
+    v.play().catch(function(){});
+    show($('qMuteNote'), true);
+  });
+  v.addEventListener('click', function(){
+    v.muted = false;
+    v.play().catch(function(){});
+    show($('qMuteNote'), false);
+  });
+  v.volume = S.vol;
+  $('qVideos').appendChild(v);
+  host.screens.push({ slot: slot, stream: stream, video: v, call: call || null, pv: null });
+  qApplyLatencyToCall(call);
+  if (!qs.anyStream) { qs.anyStream = true; questConnectedUi(); }
+  questUiSync();
+  if (APP.xrSync) APP.xrSync();
+  if (APP.tvSync) APP.tvSync();
+}
+
+function questRemoveScreen(host, slot, silent){
+  var idx = -1;
+  for (var i = 0; i < host.screens.length; i++) {
+    if (host.screens[i].slot === slot) { idx = i; break; }
+  }
+  if (idx < 0) return;
+  var sc = host.screens[idx];
+  try {
+    if (sc.video) { sc.video.srcObject = null; sc.video.remove(); }
+  } catch (_e) {}
+  host.screens.splice(idx, 1);
+  if (!silent) {
+    questUiSync();
+    if (APP.xrSync) APP.xrSync();
+    if (APP.tvSync) APP.tvSync();
+  }
+}
+
+function questDropHost(host, msg){
+  host.gone = true;
+  clearTimeout(host.connWatch);
+  clearTimeout(host.retryTimer);
+  clearTimeout(host.retryWatch);
+  var i = qs.hosts.indexOf(host);
+  if (i < 0) return;
+  host.screens.slice().forEach(function(sc){ questRemoveScreen(host, sc.slot, true); });
+  if (host.conn) { try { host.conn.close(); } catch (_e) {} }
+  qs.hosts.splice(i, 1);
+  questUiSync();
+  if (APP.xrSync) APP.xrSync();
+  if (APP.tvSync) APP.tvSync();
+  if (qs.hosts.length === 0) {
+    qs.anyStream = false;
+    if (APP.xrEnd) APP.xrEnd();
+    show($('qStepB'), false);
+    show($('qStepA'), true);
+    $('btnConnect').disabled = false;
+    $('btnConnect').textContent = '接続する';
+    if (msg) $('qErr').textContent = msg;
+  }
+}
+
+function questOnPeerError(err){
+  var t = err && err.type;
+  questLog('エラー: ' + (t || '不明'));
+  if (t === 'peer-unavailable') {
+    var host = qs.pendingHost;
+    var m = /vrdd-(\d{6})/.exec(err.message || '');
+    if (m) {
+      var h2 = questHostByPeerId(PEER_PREFIX + m[1]);
+      if (h2) host = h2;
+    }
+    if (host) clearTimeout(host.connWatch);
+    if (host && host.state === 'retry') {
+      /* 自動再接続の途中: エラー表示せず、次の試行にまわす */
+      clearTimeout(host.retryWatch);
+      questConnLost(host);
+      return;
+    }
+    if (host) {
+      host.gone = true;
+      clearTimeout(host.retryTimer);
+      clearTimeout(host.retryWatch);
+      if (qs.pendingHost === host) qs.pendingHost = null;
+      var i = qs.hosts.indexOf(host);
+      if (i >= 0) qs.hosts.splice(i, 1);
+      questUiSync();
+      if (APP.xrSync) APP.xrSync();
+      if (APP.tvSync) APP.tvSync();
+    }
+    questShowErr('このコードのパソコンが見つかりません。コードと、パソコン側で共有中かを確認してください。');
+  } else if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') {
+    questShowErr('接続サービスにつながりません。この端末がインターネットにつながっているか確認して、ページを再読み込みしてください。');
+  } else if (t && t !== 'disconnected') {
+    questShowErr('接続サービスでエラーが起きました(種類: ' + t + ')。両方のページを再読み込みして、もう一度試してください。');
+  }
+}
+
+function questShowErr(msg){
+  if (APP.xrPadMsg) APP.xrPadMsg(msg);
+  if (qs.diag.length) show($('qDiag'), true); /* ログは問題が起きたときだけ表示 */
+  if (!$('qStepA').classList.contains('hidden')) {
+    $('qErr').textContent = msg;
+    $('btnConnect').disabled = false;
+    $('btnConnect').textContent = '接続する';
+  } else {
+    $('qAddErr').textContent = msg;
+    show($('qAddBox'), true);
+  }
+}
+
+function questConnectedUi(){
+  show($('qStepA'), false);
+  show($('qStepB'), true);
+  show($('btnEnterVR'), qs.xrOk);
+  $('btnConnect').disabled = false;
+  $('btnConnect').textContent = '接続する';
+}
+
+function questUiSync(){
+  var box = $('qHosts');
+  if (!box) return;
+  box.innerHTML = '';
+  qs.hosts.forEach(function(h, i){
+    var row = document.createElement('div');
+    row.className = 'hostrow';
+    var label = document.createElement('span');
+    var st;
+    if (h.state === 'connecting') st = '接続中…';
+    else if (h.screens.length === 0) st = '映像待ち';
+    else st = '画面 ' + h.screens.length + '枚';
+    label.textContent = 'パソコン' + (i + 1) + ' [' + h.code + '] ' + st + ' / 操作 ' + (h.helperOn ? 'ON' : 'OFF');
+    row.appendChild(label);
+    var btn = document.createElement('button');
+    btn.className = 'btn-ghost btn-sm';
+    btn.textContent = '切断';
+    btn.addEventListener('click', function(){ questDropHost(h, ''); });
+    row.appendChild(btn);
+    var st = document.createElement('span');
+    st.className = 'hstat';
+    st.id = 'hstat' + h.idx;
+    st.textContent = (h.state === 'retry' ? '⟳ 再接続中… ' : '') + (h.statText || '');
+    row.appendChild(st);
+    box.appendChild(row);
+  });
+  var anyRetry = false;
+  qs.hosts.forEach(function(h){ if (h.state === 'retry') anyRetry = true; });
+  var qsEl = $('qStatus');
+  if (qsEl) qsEl.textContent = anyRetry
+    ? '接続が切れました。自動で再接続しています…'
+    : 'パソコンの画面を受信しています。';
+  if (APP.xrPadSync) APP.xrPadSync();
+}
+
+function questReset(){
+  if (APP.tvClose) APP.tvClose();
+  qs.hosts.slice().forEach(function(h){ questDropHost(h, ''); });
+  if (qs.peer) { try { qs.peer.destroy(); } catch (_e) {} qs.peer = null; qs.peerReady = false; }
+  qs.anyStream = false;
+  var box = $('qVideos');
+  if (box) box.innerHTML = '';
+  show($('qStepB'), false);
+  show($('qStepA'), true);
+  $('btnConnect').disabled = false;
+  $('btnConnect').textContent = '接続する';
+  $('qErr').textContent = '';
+  $('qAddErr').textContent = '';
+  show($('qAddBox'), false);
+}
+/* ================================================================
+   VR Desktop - 設定
+   役割: 設定の保存と読み込み / 設定モーダル / 画質プリセットの適用 /
+         接続品質の計測 / 音量
+   ================================================================ */
+
+var APP_VER = '2026-08-04d-wtest';
+
+/* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
+var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
+var KM_BTN_LABEL = {
+  r0: '右トリガー', r1: '右グリップ', r3: '右スティック押し込み',
+  r4: '右Aボタン(下)', r5: '右Bボタン(上)',
+  l0: '左トリガー', l1: '左グリップ', l3: '左スティック押し込み',
+  l4: '左Xボタン(下)', l5: '左Yボタン(上)'
+};
+/* ボタンに割り当てられる機能(同じ機能を複数のボタンに割り当ててOK) */
+var KM_ACTS = [
+  ['click',    'クリック(押したままドラッグ)'],
+  ['rclick',   '右クリック'],
+  ['grab',     '画面をつかんで移動'],
+  ['ptr',      'ポインター表示の切替'],
+  ['recenter', '画面を正面に呼び直す'],
+  ['menu',     '設定メニューを開く/閉じる'],
+  ['keys',     'キー送信パレットを開く/閉じる'],
+  ['hud',      '操作ガイドの表示切替'],
+  ['',         '割り当てない']
+];
+var KM_ACT_LABEL = {};
+KM_ACTS.forEach(function(a){ KM_ACT_LABEL[a[0]] = a[1]; });
+
+function kmDefault(){
+  return { r0: 'click', r1: 'grab', r3: 'keys', r4: 'click', r5: 'rclick',
+           l0: 'click', l1: 'grab', l3: 'ptr', l4: 'menu', l5: 'recenter' };
+}
+
+/* 前の版の標準のままなら、新しい標準へ自動で置き換える */
+function kmIsOldDefault(km){
+  var old = { r0: 'click', r1: 'grab', r3: '', r4: 'click', r5: 'rclick',
+              l0: 'click', l1: 'grab', l3: 'ptr', l4: 'menu', l5: 'recenter' };
+  for (var i = 0; i < KM_BTNS.length; i++) {
+    if (km[KM_BTNS[i]] !== old[KM_BTNS[i]]) return false;
+  }
+  return true;
+}
+function kmValid(km){
+  if (!km) return false;
+  for (var i = 0; i < KM_BTNS.length; i++) {
+    var v = km[KM_BTNS[i]];
+    if (typeof v !== 'string' || !(v in KM_ACT_LABEL)) return false;
+  }
+  return true;
+}
+/* 指定の機能が割り当たっているボタン名の一覧(HUD表示用) */
+function kmButtonsFor(action){
+  var out = [];
+  KM_BTNS.forEach(function(b){ if (S.km2[b] === action) out.push(KM_BTN_LABEL[b]); });
+  return out.length ? out.join(' / ') : '(割り当てなし)';
+}
+function kmHas(action){
+  for (var i = 0; i < KM_BTNS.length; i++) if (S.km2[KM_BTNS[i]] === action) return true;
+  return false;
+}
+
+function loadS(){
+  var s = {};
+  try { s = JSON.parse(localStorage.getItem('vrdd') || '{}') || {}; } catch (_e) { s = {}; }
+  if (['sharp', 'balance', 'smooth', 'auto'].indexOf(s.q) < 0) s.q = 'balance';
+  if (['dark', 'black', 'stars', 'sky', 'sunset', 'pass'].indexOf(s.bg) < 0) s.bg = 'dark';
+  s.stats = !!s.stats;
+  s.vol = (typeof s.vol === 'number' && s.vol >= 0 && s.vol <= 1) ? s.vol : 1;
+  s.scrollDir = (s.scrollDir === -1) ? -1 : 1;
+  s.scrollSpd = ([0, 1, 2].indexOf(s.scrollSpd) >= 0) ? s.scrollSpd : 1;
+  s.stick = (s.stick === 'right') ? 'right'
+    : (s.km && s.km.stick === 'right') ? 'right' : 'left'; /* 旧保存からの引き継ぎ */
+  if (!kmValid(s.km2) || kmIsOldDefault(s.km2)) s.km2 = kmDefault();
+  delete s.km;
+  s.lowLat = (s.lowLat !== false); /* 低遅延モード: 初期ON */
+  s.trig = (s.trig === 'plain') ? 'plain' : 'vd';
+  s.kbfwd = (s.kbfwd !== false); /* BTキーボード直送: 初期ON */
+  s.ptrMode = (s.ptrMode === 'rel') ? 'rel' : 'abs'; /* カーソルの移動方法(タッチで見る) */
+  s.rscale = ([1, 1.15, 1.3].indexOf(+s.rscale) >= 0) ? +s.rscale : 1.15; /* VR描画解像度 */
+  s.aniso = (s.aniso !== false); /* 文字のちらつき低減: 初期ON */
+  if (!Array.isArray(s.slots) || s.slots.length !== 3) s.slots = [null, null, null];
+  s.slots = s.slots.map(function(x){
+    return (x && typeof x === 'object' && Array.isArray(x.scr)) ? x : null;
+  });
+  s.maxDist = (typeof s.maxDist === 'number') ? clamp(Math.round(s.maxDist), 3, 30) : 12;
+  s.maxW = (typeof s.maxW === 'number') ? clamp(Math.round(s.maxW), 3, 40) : 16;
+  if (!s.layout || typeof s.layout.dist !== 'number') s.layout = null;
+  return s;
+}
+function saveS(){
+  try { localStorage.setItem('vrdd', JSON.stringify(S)); } catch (_e) {}
+}
+var S = loadS();
+
+/* どの接続に対しても使える送信の共通口 */
+function hostSend(host, m){
+  if (host && host.conn && host.conn.open) {
+    try { host.conn.send(m); } catch (_e) {}
+  }
+}
+
+/* ---------- 画質プリセット ---------- */
+var QUALITY = {
+  sharp:   { hint: 'detail', br: 30000000, deg: 'maintain-resolution', fps: 60,
+             name: 'くっきり', desc: '文字を最優先。資料や文章の作業向き' },
+  balance: { hint: 'detail', br: 10000000, deg: 'balanced', fps: 60,
+             name: 'バランス(標準)', desc: '文字と動きの両立(60fps)。まずはこれ' },
+  smooth:  { hint: 'motion', br: 12000000, deg: 'maintain-framerate', fps: 60,
+             name: 'なめらか', desc: '動きを最優先(60fps)。動画やゲーム画面向き' },
+  auto:    { hint: 'detail', br: 0, deg: '', fps: 60,
+             name: '自動', desc: '通信の状態にあわせてブラウザにおまかせ' }
+};
+
+/* 取り込みをプリセットに合わせる。Retinaなどの超高解像度は、
+   VRで見分けられる上限(横2560)に整えて、圧縮の失速による画質低下を防ぐ */
+function pcApplyFps(vt, fps){
+  if (!vt || !vt.applyConstraints) return;
+  var c = { width: { max: 2560 }, height: { max: 1600 } };
+  if (fps) c.frameRate = { ideal: fps, max: fps };
+  try {
+    vt.applyConstraints(c).catch(function(){});
+  } catch (_e) {}
+}
+
+function pcSetQuality(p){
+  if (!QUALITY[p]) p = 'balance';
+  pc.quality = p;
+  if (S.q !== p) { S.q = p; saveS(); refreshSettingsUi(); }
+  var q = QUALITY[p];
+  pc.screens.forEach(function(item){
+    var vt = item.stream.getVideoTracks()[0];
+    if (vt) {
+      try { vt.contentHint = q.hint; } catch (_e) {}
+      pcApplyFps(vt, q.fps);
+    }
+    pcEachCall(item, function(c){ pcApplyQualityToCall(c, 0); });
+  });
+}
+
+function pcApplyQualityToCall(call, attempt){
+  if (attempt > 12) return;
+  var q = QUALITY[pc.quality || S.q] || QUALITY.balance;
+  var pcon = call.peerConnection;
+  var sender = null;
+  if (pcon) {
+    var senders = pcon.getSenders();
+    for (var i = 0; i < senders.length; i++) {
+      if (senders[i].track && senders[i].track.kind === 'video') { sender = senders[i]; break; }
+    }
+  }
+  if (!sender) { setTimeout(function(){ pcApplyQualityToCall(call, attempt + 1); }, 300); return; }
+  var params = sender.getParameters();
+  if (!params.encodings || !params.encodings.length) {
+    setTimeout(function(){ pcApplyQualityToCall(call, attempt + 1); }, 300);
+    return;
+  }
+  if (q.br > 0) params.encodings[0].maxBitrate = q.br;
+  else delete params.encodings[0].maxBitrate;
+  if (q.deg) params.degradationPreference = q.deg;
+  else delete params.degradationPreference;
+  sender.setParameters(params).catch(function(){
+    delete params.degradationPreference; /* 未対応ブラウザではビットレートだけ適用 */
+    sender.setParameters(params).catch(function(){});
+  });
+}
+
+/* 見る側からの画質変更(全パソコンに送る) */
+function qSendQualityAll(){
+  qs.hosts.forEach(function(h){ hostSend(h, { t: 'q', p: S.q }); });
+}
+
+/* ---------- 低遅延モード: 受信側のため込みを最小化 ---------- */
+function qApplyLatencyToCall(call){
+  if (!call || !call.peerConnection) return;
+  var on = S.lowLat;
+  try {
+    call.peerConnection.getReceivers().forEach(function(r){
+      try { r.jitterBufferTarget = on ? 0 : null; } catch (_e) {}
+      try { r.playoutDelayHint = on ? 0 : null; } catch (_e) {}
+    });
+  } catch (_e) {}
+}
+function qApplyLatencyAll(){
+  qs.hosts.forEach(function(h){
+    h.screens.forEach(function(sc){ qApplyLatencyToCall(sc.call); });
+  });
+}
+
+/* ---------- 音量 ---------- */
+function applyVolume(){
+  qs.hosts.forEach(function(h){
+    h.screens.forEach(function(sc){
+      if (sc.video) sc.video.volume = S.vol;
+    });
+  });
+}
+
+/* ---------- 接続品質の計測(見る側。端末内での計測のみ) ---------- */
+async function questStatsTick(){
+  if (!S.stats) {
+    var cleared = false;
+    qs.hosts.forEach(function(h){ if (h.statText) { h.statText = ''; cleared = true; } });
+    if (cleared) statsRefreshUi();
+    return;
+  }
+  for (var i = 0; i < qs.hosts.length; i++) {
+    var h = qs.hosts[i];
+    var bps = 0, fps = 0, w = 0, hh = 0, got = false, rtt = null, route = null;
+    for (var k = 0; k < h.screens.length; k++) {
+      var sc = h.screens[k];
+      if (!sc.call || !sc.call.peerConnection) continue;
+      try {
+        var stats = await sc.call.peerConnection.getStats();
+        var pairs = {}, selId = null, cands = {};
+        stats.forEach(function(rep){
+          if (rep.type === 'local-candidate' || rep.type === 'remote-candidate') {
+            cands[rep.id] = rep;
+          } else if (rep.type === 'inbound-rtp' && rep.kind === 'video') {
+            if (sc.pv && sc.pv.ts && rep.timestamp > sc.pv.ts) {
+              bps += (rep.bytesReceived - sc.pv.bytes) * 8 / ((rep.timestamp - sc.pv.ts) / 1000);
+            }
+            sc.pv = { bytes: rep.bytesReceived, ts: rep.timestamp };
+            if (!got) {
+              fps = Math.round(rep.framesPerSecond || 0);
+              w = rep.frameWidth || 0;
+              hh = rep.frameHeight || 0;
+              got = true;
+            }
+          } else if (rep.type === 'transport' && rep.selectedCandidatePairId) {
+            selId = rep.selectedCandidatePairId;
+          } else if (rep.type === 'candidate-pair') {
+            pairs[rep.id] = rep;
+          }
+        });
+        if (rtt === null) {
+          var pr = selId ? pairs[selId] : null;
+          if (!pr) {
+            Object.keys(pairs).forEach(function(id){
+              if (!pr && pairs[id].nominated && pairs[id].state === 'succeeded') pr = pairs[id];
+            });
+          }
+          if (pr && typeof pr.currentRoundTripTime === 'number') {
+            rtt = Math.round(pr.currentRoundTripTime * 1000);
+          }
+          /* 映像の通り道: 直接(同一ネット) / 直接 / 中継サーバー経由 */
+          if (pr && route === null) {
+            var lc = cands[pr.localCandidateId];
+            var rc = cands[pr.remoteCandidateId];
+            if (lc && rc) {
+              route = (lc.candidateType === 'relay' || rc.candidateType === 'relay') ? 'relay'
+                : (lc.candidateType === 'host' && rc.candidateType === 'host') ? 'lan' : 'net';
+            }
+          }
+        }
+      } catch (_e) {}
+    }
+    var routeJp = route === 'relay' ? ' / 経路: 中継サーバー(遅)'
+      : route === 'lan' ? ' / 経路: 直接(同一ネット)'
+      : route === 'net' ? ' / 経路: 直接' : '';
+    h.statText = got
+      ? ('受信 ' + (Math.max(0, bps) / 1e6).toFixed(1) + ' Mbps / ' + fps + 'fps / ' + w + '×' + hh
+         + (rtt !== null ? ' / 往復' + rtt + 'ms' : '') + routeJp)
+      : '計測中…';
+  }
+  statsRefreshUi();
+}
+
+function statsRefreshUi(){
+  qs.hosts.forEach(function(h){
+    var el = $('hstat' + h.idx);
+    if (el) el.textContent = (h.state === 'retry' ? '⟳ 再接続中… ' : '') + (h.statText || '');
+  });
+  if (APP.tvStats) APP.tvStats();
+  if (APP.xrHud) APP.xrHud();
+}
+
+/* ---------- 設定モーダル ---------- */
+var setRole = 'q'; /* 'pc' or 'q' */
+var setTab = 'ctl';
+
+function openSettings(role){
+  setRole = role;
+  setTab = (role === 'pc' || !qs.xrOk) ? 'pic' : 'ctl';
+  renderSettings();
+  show($('setModal'), true);
+}
+function closeSettings(){ show($('setModal'), false); }
+
+function refreshSettingsUi(){
+  if (!$('setModal').classList.contains('hidden')) renderSettings();
+}
+
+function renderSettings(){
+  /* タブの表示: PC側は画質のみ。VR非対応の機器では「操作」(VRのボタン割り当て)を出さない */
+  var vis = {
+    ctl: (setRole === 'q') && !!qs.xrOk,
+    pic: true,
+    env: (setRole === 'q')
+  };
+  if (!vis[setTab]) setTab = 'pic';
+  var tabs = $('setTabs').querySelectorAll('.tab');
+  tabs.forEach(function(t){
+    var name = t.getAttribute('data-tab');
+    t.classList.toggle('hidden', !vis[name]);
+    t.classList.toggle('on', name === setTab);
+  });
+  show($('setPaneCtl'), setTab === 'ctl');
+  show($('setPanePic'), setTab === 'pic');
+  show($('setPaneEnv'), setTab === 'env');
+
+  if (setTab === 'ctl') renderKm();
+  if (setTab === 'pic') renderQGrid();
+  if (setTab === 'env') renderEnv();
+}
+
+function renderKm(){
+  var box = $('kmRows');
+  box.innerHTML = '';
+  KM_BTNS.forEach(function(b){
+    var row = document.createElement('div');
+    row.className = 'set-row';
+    var lb = document.createElement('label');
+    lb.textContent = KM_BTN_LABEL[b];
+    row.appendChild(lb);
+    var sel = document.createElement('select');
+    sel.className = 'monsel';
+    KM_ACTS.forEach(function(a){
+      var op = document.createElement('option');
+      op.value = a[0];
+      op.textContent = a[1];
+      sel.appendChild(op);
+    });
+    sel.value = S.km2[b];
+    sel.addEventListener('change', function(){
+      S.km2[b] = sel.value;
+      saveS();
+      if (APP.xrKmChanged) APP.xrKmChanged();
+    });
+    row.appendChild(sel);
+    box.appendChild(row);
+  });
+  $('selTrig').value = S.trig;
+  $('chkKbFwd').checked = S.kbfwd;
+  $('selStick').value = S.stick;
+  $('selScrollDir').value = String(S.scrollDir);
+  $('selScrollSpd').value = String(S.scrollSpd);
+}
+
+function renderQGrid(){
+  var box = $('qGrid');
+  box.innerHTML = '';
+  ['sharp', 'balance', 'smooth', 'auto'].forEach(function(p){
+    var q = QUALITY[p];
+    var b = document.createElement('button');
+    b.className = 'opt' + (S.q === p ? ' on' : '');
+    b.innerHTML = '<b>' + q.name + '</b>' + q.desc;
+    b.addEventListener('click', function(){
+      S.q = p;
+      saveS();
+      if (setRole === 'pc') { if (pc.screens.length) pcSetQuality(p); }
+      else { qSendQualityAll(); }
+      renderQGrid();
+    });
+    box.appendChild(b);
+  });
+  $('qNote').textContent = (setRole === 'pc')
+    ? '見る側の設定からも変更でき、そちらが優先されます。'
+    : '見る側で変えると、共有中のパソコンにもすぐ反映されます。文字がにじむときは「くっきり」、動画がカクつくときは「なめらか」を試してください。';
+}
+
+var BG_LIST = [
+  ['dark',   'ダーク(標準)',        '地平線がほのかに光る夜の作業空間'],
+  ['black',  'まっ黒',              '画面だけが浮かぶ。集中と省電力に'],
+  ['stars',  '星空',                '天の川のかかる満天の星'],
+  ['sky',    '昼の空',              '太陽とやわらかい雲のある青空'],
+  ['sunset', '夕焼け',              '沈む夕日と光る雲、宵の星'],
+  ['pass',   'パススルー',          '現実の部屋に画面が浮かぶ(対応機のみ)']
+];
+
+function renderEnv(){
+  show($('envVrOnly'), !!qs.xrOk); /* 背景や最大距離/幅はVRでしか使わない */
+  var box = $('bgGrid');
+  box.innerHTML = '';
+  BG_LIST.forEach(function(item){
+    var b = document.createElement('button');
+    var unavailable = (item[0] === 'pass' && !qs.arOk);
+    b.className = 'opt' + (S.bg === item[0] ? ' on' : '');
+    b.disabled = unavailable;
+    b.innerHTML = '<b>' + item[1] + '</b>' + (unavailable ? 'この機器のブラウザは非対応です' : item[2]);
+    b.addEventListener('click', function(){
+      if (unavailable) return;
+      S.bg = item[0];
+      saveS();
+      if (APP.xrBgChanged) APP.xrBgChanged();
+      renderEnv();
+    });
+    box.appendChild(b);
+  });
+  $('chkStats').checked = S.stats;
+  $('chkLowLat').checked = S.lowLat;
+  $('selRScale').value = String(S.rscale);
+  $('chkAniso').checked = S.aniso;
+  $('selPtrMode').value = S.ptrMode;
+  $('rangeMaxD').value = String(S.maxDist);
+  $('valMaxD').textContent = S.maxDist + 'm';
+  $('rangeMaxW').value = String(S.maxW);
+  $('valMaxW').textContent = S.maxW + 'm';
+  $('volRange').value = String(Math.round(S.vol * 100));
+  $('volVal').textContent = Math.round(S.vol * 100) + '%';
+}
+
+function initSettingsUi(){
+  $('setVer').textContent = 'v' + APP_VER;
+  var vh = $('verHome');
+  if (vh) vh.textContent = '版 ' + APP_VER;
+  $('setClose').addEventListener('click', closeSettings);
+  $('setModal').addEventListener('click', function(e){
+    if (e.target === $('setModal')) closeSettings();
+  });
+  $('setTabs').querySelectorAll('.tab').forEach(function(t){
+    t.addEventListener('click', function(){
+      setTab = t.getAttribute('data-tab');
+      renderSettings();
+    });
+  });
+  $('chkKbFwd').addEventListener('change', function(){
+    S.kbfwd = $('chkKbFwd').checked;
+    saveS();
+  });
+  $('selTrig').addEventListener('change', function(){
+    S.trig = ($('selTrig').value === 'plain') ? 'plain' : 'vd';
+    saveS();
+    if (APP.xrKmChanged) APP.xrKmChanged();
+  });
+  $('selStick').addEventListener('change', function(){
+    S.stick = ($('selStick').value === 'right') ? 'right' : 'left';
+    saveS();
+    if (APP.xrKmChanged) APP.xrKmChanged();
+  });
+  $('selScrollDir').addEventListener('change', function(){
+    S.scrollDir = ($('selScrollDir').value === '-1') ? -1 : 1;
+    saveS();
+  });
+  $('selScrollSpd').addEventListener('change', function(){
+    S.scrollSpd = parseInt($('selScrollSpd').value, 10) || 1;
+    saveS();
+  });
+  $('btnKmReset').addEventListener('click', function(){
+    S.km2 = kmDefault();
+    saveS();
+    renderKm();
+    if (APP.xrKmChanged) APP.xrKmChanged();
+  });
+  $('chkStats').addEventListener('change', function(){
+    S.stats = $('chkStats').checked;
+    saveS();
+    questStatsTick();
+  });
+  $('selRScale').addEventListener('change', function(){
+    var v = parseFloat($('selRScale').value);
+    S.rscale = ([1, 1.15, 1.3].indexOf(v) >= 0) ? v : 1.15;
+    saveS();
+  });
+  $('selPtrMode').addEventListener('change', function(){
+    S.ptrMode = ($('selPtrMode').value === 'rel') ? 'rel' : 'abs';
+    saveS();
+  });
+  $('chkAniso').addEventListener('change', function(){
+    S.aniso = $('chkAniso').checked;
+    saveS();
+    if (APP.xrAnisoChanged) APP.xrAnisoChanged();
+  });
+  $('chkLowLat').addEventListener('change', function(){
+    S.lowLat = $('chkLowLat').checked;
+    saveS();
+    qApplyLatencyAll();
+  });
+  function wireLimit(rid, vid, key, lo, hi){
+    $(rid).addEventListener('input', function(){
+      S[key] = clamp(parseInt($(rid).value, 10) || lo, lo, hi);
+      $(vid).textContent = S[key] + 'm';
+      saveS();
+      if (APP.xrLimitsChanged) APP.xrLimitsChanged();
+    });
+  }
+  wireLimit('rangeMaxD', 'valMaxD', 'maxDist', 3, 30);
+  wireLimit('rangeMaxW', 'valMaxW', 'maxW', 3, 40);
+  $('volRange').addEventListener('input', function(){
+    S.vol = clamp(parseInt($('volRange').value, 10) / 100, 0, 1);
+    $('volVal').textContent = Math.round(S.vol * 100) + '%';
+    saveS();
+    applyVolume();
+  });
+  setInterval(questStatsTick, 2000);
+}
+
+/* ================================================================
+   Bluetoothキーボード直送:
+   タッチビューア表示中、またはVRセッション中の物理キー入力をPCへ送る
+   ================================================================ */
+var KB_CODES = {};
+('KeyA KeyB KeyC KeyD KeyE KeyF KeyG KeyH KeyI KeyJ KeyK KeyL KeyM KeyN KeyO KeyP KeyQ KeyR KeyS KeyT KeyU KeyV KeyW KeyX KeyY KeyZ ' +
+ 'Digit0 Digit1 Digit2 Digit3 Digit4 Digit5 Digit6 Digit7 Digit8 Digit9 ' +
+ 'Minus Equal BracketLeft BracketRight Backslash Semicolon Quote Backquote Comma Period Slash ' +
+ 'Enter Escape Backspace Tab Space Delete ArrowLeft ArrowRight ArrowUp ArrowDown Home End PageUp PageDown ' +
+ 'F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12').split(' ').forEach(function(c){ KB_CODES[c] = 1; });
+
+function kbForwardHost(){
+  var tvOpen = !$('touchView').classList.contains('hidden');
+  if (tvOpen) return tv.host || null;
+  if (typeof xr !== 'undefined' && xr.session) return xr.lastHost || (qs.hosts[0] || null);
+  return null;
+}
+
+window.addEventListener('keydown', function(e){
+  if (!S.kbfwd) return;
+  var t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  var host = kbForwardHost();
+  if (!host || !host.helperOn) return;
+  var mods = (e.ctrlKey ? 1 : 0) | (e.shiftKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+  if (e.key && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    hostSend(host, { t: 'ch', s: e.key });
+    e.preventDefault();
+    return;
+  }
+  if (KB_CODES[e.code]) {
+    hostSend(host, { t: 'kb', c: e.code, m: mods });
+    e.preventDefault();
+  }
+});
+/* ================================================================
+   VR Desktop - タッチビューア(スマホ / タブレット / パソコン)
+
+   タッチ(「そのまま」= 触れた場所へ):
+     1本指なぞる/タップ = カーソル移動/クリック、長押し→動かす = ドラッグ
+     2本指で上下 = スクロール(ズーム中は表示の移動)
+     2本指タップ = 右クリック、ピンチ = 手元でズーム
+   タッチ(「なぞって動かす」= トラックパッド式):
+     1本指なぞる = 相対移動、タップ = その場でクリック
+     長押し→動かす = ドラッグ。2本指スクロールなどは共通
+   マウス(パソコンで開いたとき):
+     そのまま: 動かすだけで追従、左/右クリック、ホイール
+     なぞって: すぐ動かす=相対移動、短くクリック=クリック、
+               長押し→動かす=ドラッグ、右クリック/ホイール対応
+   ================================================================ */
+
+var tv = {
+  open: false,
+  key: null, host: null, slot: 0, video: null,
+  z: 1, tx: 0, ty: 0,
+  ptrs: {},
+  mode: '',            /* '' | 'move' | 'drag' | 'two' */
+  start: null,         /* 1本指の開始情報 */
+  holdTimer: null,
+  two: null,           /* 2本指の開始情報 */
+  twoKind: '',         /* '' | 'pinch' | 'scroll' | 'pan' */
+  ignoreSingle: false,
+  lastMv: 0,
+  unmuteTried: false,
+  relX: 0, relY: 0,
+  lastWheel: 0,
+  m: null /* マウス用の押し分け状態 */
+};
+
+function tvPtrCount(){ return Object.keys(tv.ptrs).length; }
+
+function tvOpen(){
+  if (tv.open) { tvSync(); return; }
+  tv.open = true;
+  show($('touchView'), true);
+  document.body.style.overflow = 'hidden';
+  tvSync();
+  questStatsTick();
+}
+
+function tvClose(){
+  if (!tv.open) return;
+  tv.open = false;
+  tvEndDrag();
+  show($('touchView'), false);
+  document.body.style.overflow = '';
+  if (document.fullscreenElement) {
+    try { document.exitFullscreen(); } catch (_e) {}
+  }
+  $('tvVideo').srcObject = null;
+  tv.key = null; tv.host = null; tv.video = null;
+}
+
+APP.tvClose = tvClose;
+
+/* 画面一覧が変わったときの同期(タブの作り直し) */
+function tvSync(){
+  if (!tv.open) return;
+  var list = [];
+  qs.hosts.forEach(function(h, hi){
+    var scs = h.screens.slice().sort(function(a, b){ return a.slot - b.slot; });
+    scs.forEach(function(sc, si){
+      var label = (qs.hosts.length > 1)
+        ? ('PC' + (hi + 1) + '-' + (si + 1))
+        : ('画面' + (si + 1));
+      list.push({ key: h.idx + ':' + sc.slot, host: h, slot: sc.slot, sc: sc, label: label });
+    });
+  });
+  if (list.length === 0) { tvClose(); return; }
+
+  var found = null;
+  list.forEach(function(item){ if (item.key === tv.key) found = item; });
+  var sel = found || list[0];
+
+  var changed = tv.key !== sel.key;
+  tv.key = sel.key;
+  tv.host = sel.host;
+  tv.slot = sel.slot;
+  tv.video = sel.sc.video;
+  if (changed || $('tvVideo').srcObject !== sel.sc.stream) {
+    $('tvVideo').srcObject = sel.sc.stream;
+    if (changed) tvZoomReset();
+  }
+
+  var tabs = $('tvTabs');
+  tabs.innerHTML = '';
+  list.forEach(function(item){
+    var b = document.createElement('button');
+    b.className = 'tv-tab' + (item.key === tv.key ? ' on' : '');
+    b.textContent = item.label;
+    b.addEventListener('click', function(){
+      tv.key = item.key;
+      tvSync();
+    });
+    tabs.appendChild(b);
+  });
+
+  show($('tvNote'), !(tv.host && tv.host.helperOn));
+  tvStatsUpdate();
+}
+
+APP.tvSync = tvSync;
+
+function tvStatsUpdate(){
+  var el = $('tvStats');
+  var on = S.stats && tv.host;
+  show(el, !!on);
+  if (on) el.textContent = tv.host.statText || '計測中…';
+}
+
+APP.tvStats = function(){
+  if (tv.open) {
+    tvStatsUpdate();
+    show($('tvNote'), !(tv.host && tv.host.helperOn));
+  }
+};
+
+/* ---------- 座標変換: 画面タッチ位置 → 映像の中の割合(0〜1) ---------- */
+function tvUv(clientX, clientY){
+  var rect = $('tvStage').getBoundingClientRect();
+  var sx = clientX - rect.left;
+  var sy = clientY - rect.top;
+  /* ズームを外す */
+  var cx = (sx - tv.tx) / tv.z;
+  var cy = (sy - tv.ty) / tv.z;
+  /* object-fit:contain の黒帯を除いた実映像の範囲 */
+  var vw = (tv.video && tv.video.videoWidth) || 16;
+  var vh = (tv.video && tv.video.videoHeight) || 9;
+  var ar = vw / vh;
+  var W = rect.width, H = rect.height;
+  var w2 = W, h2 = W / ar;
+  if (h2 > H) { h2 = H; w2 = H * ar; }
+  var ox = (W - w2) / 2, oy = (H - h2) / 2;
+  var u = (cx - ox) / w2;
+  var v = (cy - oy) / h2;
+  return {
+    x: clamp(u, 0, 1),
+    y: clamp(v, 0, 1),
+    inside: u >= -0.02 && u <= 1.02 && v >= -0.02 && v <= 1.02
+  };
+}
+
+function tvCanControl(){ return tv.host && tv.host.helperOn; }
+
+function tvSendMv(uv){
+  if (!tvCanControl()) return;
+  hostSend(tv.host, {
+    t: 'mv',
+    x: Math.round(uv.x * 10000) / 10000,
+    y: Math.round(uv.y * 10000) / 10000,
+    s: tv.slot
+  });
+}
+
+function tvApplyTransform(){
+  $('tvZoom').style.transform = 'translate(' + tv.tx + 'px,' + tv.ty + 'px) scale(' + tv.z + ')';
+  show($('tvZoomReset'), tv.z > 1.02);
+}
+
+function tvZoomReset(){
+  tv.z = 1; tv.tx = 0; tv.ty = 0;
+  tvApplyTransform();
+}
+
+function tvClampPan(){
+  var rect = $('tvStage').getBoundingClientRect();
+  var minX = rect.width * (1 - tv.z), minY = rect.height * (1 - tv.z);
+  tv.tx = clamp(tv.tx, minX, 0);
+  tv.ty = clamp(tv.ty, minY, 0);
+}
+
+var REL_TOUCH = 2.4, REL_MOUSE = 1.5;
+
+function tvIsRel(){ return S.ptrMode === 'rel'; }
+
+/* トラックパッド式: 動かした量をそのままPCカーソルの移動量として送る */
+function tvSendRel(dx, dy, mult){
+  if (!tvCanControl()) return;
+  tv.relX += dx * mult / Math.max(1, tv.z);
+  tv.relY += dy * mult / Math.max(1, tv.z);
+  var ix = Math.trunc(tv.relX), iy = Math.trunc(tv.relY);
+  if (!ix && !iy) return;
+  /* 1通の上限±300で切り詰めた分は残差に残し、次回(33ms後)に持ち越す。
+     こうすると指を動かした距離が最終的に全部届く */
+  var sx = clamp(ix, -300, 300), sy = clamp(iy, -300, 300);
+  tv.relX -= sx;
+  tv.relY -= sy;
+  hostSend(tv.host, { t: 'mvr', x: sx, y: sy, s: tv.slot });
+}
+
+function tvEndDrag(){
+  if (tv.mode === 'drag' && tvCanControl()) hostSend(tv.host, { t: 'up', b: 0 });
+  if (tv.holdTimer) { clearTimeout(tv.holdTimer); tv.holdTimer = null; }
+  tv.mode = '';
+}
+
+function tvTryUnmute(){
+  if (tv.unmuteTried) return;
+  tv.unmuteTried = true;
+  qs.hosts.forEach(function(h){
+    h.screens.forEach(function(sc){
+      if (sc.video) {
+        sc.video.muted = false;
+        sc.video.play().catch(function(){});
+      }
+    });
+  });
+  show($('qMuteNote'), false);
+}
+
+/* ---------- マウス(パソコンのタッチで見る) ---------- */
+function tvMouseDown(e){
+  $('tvTouch').setPointerCapture && $('tvTouch').setPointerCapture(e.pointerId);
+  if (e.button === 2) {
+    if (!tvCanControl()) return;
+    if (!tvIsRel()) {
+      var uvr = tvUv(e.clientX, e.clientY);
+      if (!uvr.inside) return;
+      tvSendMv(uvr);
+    }
+    hostSend(tv.host, { t: 'dn', b: 2, s: tv.slot });
+    tv.m = { btn: 2 };
+    return;
+  }
+  if (e.button !== 0) return;
+  if (!tvIsRel()) {
+    var uv0 = tvUv(e.clientX, e.clientY);
+    if (uv0.inside && tvCanControl()) {
+      tvSendMv(uv0);
+      hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
+    }
+    tv.m = { btn: 0, abs: true };
+    return;
+  }
+  tv.m = { btn: 0, phase: 'pending', x: e.clientX, y: e.clientY, t0: performance.now() };
+}
+
+function tvMouseMove(e){
+  var now = performance.now();
+  if (!tv.m) {
+    /* ボタンなしの移動: 「そのまま」ならカーソルが追従する */
+    if (tvIsRel()) return;
+    if (now - tv.lastMv < 25) return;
+    var uv = tvUv(e.clientX, e.clientY);
+    if (uv.inside && tvCanControl()) { tvSendMv(uv); tv.lastMv = now; }
+    return;
+  }
+  if (tv.m.btn === 2 || tv.m.abs) {
+    if (tvIsRel()) return;
+    if (now - tv.lastMv < 25) return;
+    var uva = tvUv(e.clientX, e.clientY);
+    if (uva.inside && tvCanControl()) { tvSendMv(uva); tv.lastMv = now; }
+    return;
+  }
+  /* なぞってモードの左ボタン: 押してすぐ動かす=相対移動、長押し後=ドラッグ */
+  var dx = e.clientX - tv.m.x, dy = e.clientY - tv.m.y;
+  tv.m.x = e.clientX;
+  tv.m.y = e.clientY;
+  if (tv.m.phase === 'pending' && (dx || dy)) {
+    if (now - tv.m.t0 < 300) {
+      tv.m.phase = 'glide';
+    } else {
+      tv.m.phase = 'drag';
+      if (tvCanControl()) hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
+    }
+  }
+  if (tv.m.phase === 'glide' || tv.m.phase === 'drag') tvSendRel(dx, dy, REL_MOUSE);
+}
+
+function tvMouseUp(e){
+  if (!tv.m) return;
+  var m = tv.m;
+  tv.m = null;
+  if (!tvCanControl()) return;
+  if (m.btn === 2) { hostSend(tv.host, { t: 'up', b: 2 }); return; }
+  if (m.abs || m.phase === 'drag') { hostSend(tv.host, { t: 'up', b: 0 }); return; }
+  if (m.phase === 'pending' && performance.now() - m.t0 < 320) {
+    hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
+    hostSend(tv.host, { t: 'up', b: 0 });
+  }
+}
+
+/* ---------- ポインターイベント ---------- */
+function tvDown(e){
+  e.preventDefault();
+  tvTryUnmute();
+  if (e.pointerType === 'mouse') { tvMouseDown(e); return; }
+  $('tvTouch').setPointerCapture && $('tvTouch').setPointerCapture(e.pointerId);
+  tv.ptrs[e.pointerId] = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now() };
+  var n = tvPtrCount();
+
+  if (n === 1) {
+    tv.ignoreSingle = false;
+    tv.mode = '';
+    tv.start = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId };
+    tv.holdTimer = setTimeout(function(){
+      if (tvPtrCount() === 1 && tv.mode === '' && !tv.ignoreSingle) {
+        tv.mode = 'drag';
+        if (tvIsRel()) {
+          if (tvCanControl()) {
+            hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
+            if (navigator.vibrate) { try { navigator.vibrate(15); } catch (_e) {} }
+          } else {
+            tv.mode = '';
+          }
+        } else {
+          var uv = tvUv(tv.start.x, tv.start.y);
+          if (uv.inside && tvCanControl()) {
+            tvSendMv(uv);
+            hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
+            if (navigator.vibrate) { try { navigator.vibrate(15); } catch (_e) {} }
+          } else {
+            tv.mode = '';
+          }
+        }
+      }
+      tv.holdTimer = null;
+    }, 380);
+  } else if (n === 2) {
+    if (tv.holdTimer) { clearTimeout(tv.holdTimer); tv.holdTimer = null; }
+    if (tv.mode === 'drag') tvEndDrag();
+    tv.mode = 'two';
+    tv.twoKind = '';
+    var ids = Object.keys(tv.ptrs);
+    var a = tv.ptrs[ids[0]], b = tv.ptrs[ids[1]];
+    tv.two = {
+      d: Math.hypot(a.x - b.x, a.y - b.y),
+      mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2,
+      smx: (a.x + b.x) / 2, smy: (a.y + b.y) / 2,
+      t: performance.now(),
+      acc: 0
+    };
+  } else {
+    tv.ignoreSingle = true;
+  }
+}
+
+function tvMove(e){
+  if (e.pointerType === 'mouse') { e.preventDefault(); tvMouseMove(e); return; }
+  if (!tv.ptrs[e.pointerId]) return;
+  e.preventDefault();
+  var prevPX = tv.ptrs[e.pointerId].x;
+  var prevPY = tv.ptrs[e.pointerId].y;
+  tv.ptrs[e.pointerId].x = e.clientX;
+  tv.ptrs[e.pointerId].y = e.clientY;
+  var n = tvPtrCount();
+
+  if (n === 1 && !tv.ignoreSingle) {
+    var p = tv.ptrs[e.pointerId];
+    var movedFar = Math.hypot(p.x - p.sx, p.y - p.sy) > 9;
+    if (tv.mode === '' && movedFar) {
+      tv.mode = 'move';
+      if (tv.holdTimer) { clearTimeout(tv.holdTimer); tv.holdTimer = null; }
+    }
+    if (tv.mode === 'move' || tv.mode === 'drag') {
+      if (tvIsRel()) {
+        tvSendRel(e.clientX - prevPX, e.clientY - prevPY, REL_TOUCH);
+      } else {
+        var now = performance.now();
+        if (now - tv.lastMv >= 25) {
+          var uv = tvUv(p.x, p.y);
+          if (uv.inside) { tvSendMv(uv); tv.lastMv = now; }
+        }
+      }
+    }
+  } else if (n === 2 && tv.mode === 'two' && tv.two) {
+    var ids = Object.keys(tv.ptrs);
+    var a = tv.ptrs[ids[0]], b = tv.ptrs[ids[1]];
+    var d = Math.hypot(a.x - b.x, a.y - b.y);
+    var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+
+    if (!tv.twoKind) {
+      if (Math.abs(d / tv.two.d - 1) > 0.09 && Math.abs(d - tv.two.d) > 24) tv.twoKind = 'pinch';
+      else if (Math.hypot(mx - tv.two.smx, my - tv.two.smy) > 12) tv.twoKind = (tv.z > 1.02) ? 'pan' : 'scroll';
+    }
+
+    if (tv.twoKind === 'pinch') {
+      var nz = clamp(tv.z * (d / tv.two.d), 1, 5);
+      tv.tx = mx - (mx - tv.tx) * (nz / tv.z);
+      tv.ty = my - (my - tv.ty) * (nz / tv.z);
+      tv.z = nz;
+      tv.two.d = d;
+      tvClampPan();
+      tvApplyTransform();
+    } else if (tv.twoKind === 'pan') {
+      tv.tx += mx - tv.two.mx;
+      tv.ty += my - tv.two.my;
+      tvClampPan();
+      tvApplyTransform();
+    } else if (tv.twoKind === 'scroll') {
+      tv.two.acc += my - tv.two.my;
+      while (Math.abs(tv.two.acc) >= 46) {
+        var dir = (tv.two.acc > 0 ? 1 : -1) * S.scrollDir;
+        if (tvCanControl()) hostSend(tv.host, { t: 'sc', d: dir, s: tv.slot });
+        tv.two.acc -= (tv.two.acc > 0 ? 46 : -46);
+      }
+    }
+    tv.two.mx = mx;
+    tv.two.my = my;
+  }
+}
+
+function tvUp(e){
+  if (e.pointerType === 'mouse') { e.preventDefault(); tvMouseUp(e); return; }
+  if (!tv.ptrs[e.pointerId]) return;
+  e.preventDefault();
+  var was = tv.ptrs[e.pointerId];
+  delete tv.ptrs[e.pointerId];
+  var n = tvPtrCount();
+
+  if (tv.mode === 'two') {
+    if (n === 1) {
+      /* 2本指タップ = 右クリック */
+      var dur = performance.now() - tv.two.t;
+      var moved = Math.hypot(tv.two.mx - tv.two.smx, tv.two.my - tv.two.smy);
+      if (!tv.twoKind && dur < 300 && moved < 12) {
+        if (tvIsRel()) {
+          if (tvCanControl()) {
+            hostSend(tv.host, { t: 'dn', b: 2, s: tv.slot });
+            hostSend(tv.host, { t: 'up', b: 2 });
+          }
+        } else {
+          var uv2 = tvUv(tv.two.smx, tv.two.smy);
+          if (uv2.inside && tvCanControl()) {
+            tvSendMv(uv2);
+            hostSend(tv.host, { t: 'dn', b: 2, s: tv.slot });
+            hostSend(tv.host, { t: 'up', b: 2 });
+          }
+        }
+      }
+      tv.mode = '';
+      tv.twoKind = '';
+      tv.two = null;
+      tv.ignoreSingle = true; /* 残った1本は無視して、全部離れたらリセット */
+    }
+    if (n === 0) { tv.mode = ''; tv.twoKind = ''; tv.two = null; tv.ignoreSingle = false; }
+    return;
+  }
+
+  if (n === 0) {
+    if (!tv.ignoreSingle) {
+      if (tv.mode === 'drag') {
+        tvEndDrag();
+      } else if (tv.mode === '' ) {
+        var dur1 = performance.now() - was.t;
+        if (dur1 < 320) {
+          if (tvIsRel()) {
+            if (tvCanControl()) {
+              hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
+              hostSend(tv.host, { t: 'up', b: 0 });
+            }
+          } else {
+            var uv = tvUv(was.x, was.y);
+            if (uv.inside && tvCanControl()) {
+              tvSendMv(uv);
+              hostSend(tv.host, { t: 'dn', b: 0, s: tv.slot });
+              hostSend(tv.host, { t: 'up', b: 0 });
+            }
+          }
+        }
+      }
+    }
+    if (tv.holdTimer) { clearTimeout(tv.holdTimer); tv.holdTimer = null; }
+    tv.mode = '';
+    tv.ignoreSingle = false;
+  }
+}
+
+function initTouchUi(){
+  var t = $('tvTouch');
+  t.addEventListener('pointerdown', tvDown);
+  t.addEventListener('pointermove', tvMove);
+  t.addEventListener('pointerup', tvUp);
+  t.addEventListener('pointercancel', tvUp);
+  t.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+  t.addEventListener('wheel', function(e){
+    e.preventDefault();
+    if (!tvCanControl()) return;
+    var now = performance.now();
+    if (now - tv.lastWheel < 40) return;
+    tv.lastWheel = now;
+    hostSend(tv.host, { t: 'sc', d: (e.deltaY > 0 ? 1 : -1) * S.scrollDir, s: tv.slot });
+  }, { passive: false });
+
+  $('tvKeys').addEventListener('click', function(){
+    var b = $('tvKeybar');
+    show(b, b.classList.contains('hidden'));
+  });
+  $('tvKeybar').querySelectorAll('[data-k]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if (tv.host) hostSend(tv.host, { t: 'key', k: btn.getAttribute('data-k') });
+    });
+  });
+  $('tvSend').addEventListener('click', function(){
+    var v = $('tvText').value;
+    if (v && tv.host) {
+      hostSend(tv.host, { t: 'txt', s: v });
+      $('tvText').value = '';
+    }
+  });
+  $('tvText').addEventListener('keydown', function(e){
+    if (e.key === 'Enter') { e.preventDefault(); $('tvSend').click(); }
+  });
+  $('tvClose').addEventListener('click', tvClose);
+  $('tvSet').addEventListener('click', function(){ openSettings('q'); });
+  $('tvZoomReset').addEventListener('click', tvZoomReset);
+  $('tvFull').addEventListener('click', function(){
+    if (document.fullscreenElement) {
+      try { document.exitFullscreen(); } catch (_e) {}
+    } else {
+      var el = $('touchView');
+      if (el.requestFullscreen) el.requestFullscreen().catch(function(){});
+    }
+  });
+  document.addEventListener('fullscreenchange', function(){
+    $('tvFull').textContent = document.fullscreenElement ? '全画面をやめる' : '全画面';
+  });
+}
+/* ================================================================
+   VR Desktop - XRビューア
+   役割: すべての画面をVR空間に並べ、両手のレーザーで操作する。
+   - ボタン→機能の割り当て(km2)。同じ機能を複数ボタンに割当可
+   - グリップで画面をつかんで自由に移動(「固定」した画面は不動)
+   - 画面にレーザーを当てると上に「平面/湾曲・ミュート・固定」ボタン
+   - 背景6種(パススルー含む) / VR内設定メニュー / 配置の記憶
+   ================================================================ */
+
+var xr = {
+  built: false,
+  renderer: null, scene: null, camera: null, clock: null,
+  root: null,
+  screens: [],   /* {key,host,slot,video,tex,mat,mesh,aspect,curved,locked,custom,bar,barSig} */
+  hud: null, hudCanvas: null, hudCtx: null, hudTex: null,
+  controllers: [], raycaster: null,
+  lasers: { right: null, left: null }, /* {line, dot} */
+  session: null, mode: 'immersive-vr',
+  params: { dist: 2.4, width: 2.7, yOff: -0.15, curved: true, gap: 0.07 },
+  press: null, /* トリガーの押し分け(クリック/ドラッグ/スクロール)の状態 */
+  anchorPos: null, forward: null,
+  mouseEnabled: true,
+  ph: { right: null, left: null },     /* 手ごとのポインター状態 */
+  grab: { right: null, left: null },   /* {scr, dist, delta} */
+  lastHost: null,
+  pressed: { click: null, rclick: null },
+  lastSent: { key: '', x: -1, y: -1, tm: 0 },
+  phys: {}, prevPhys: {},
+  lastScroll: 0,
+  geoDirty: false, lastGeoRebuild: 0,
+  hudPinned: false, hudUntil: 0,
+  needsRecenter: false,
+  saveDirty: false, lastSave: 0,
+  menu: { open: false, mesh: null, canvas: null, ctx: null, tex: null, btns: [] },
+  keys: { open: false, mesh: null, canvas: null, ctx: null, tex: null, btns: [] },
+  keysHL: null, keysCustom: false, keysSig: '',
+  pad: { open: false, mesh: null, canvas: null, ctx: null, tex: null, btns: [], code: '', status: '' },
+  padHL: null, padCustom: false,
+  handSel: { right: false, left: false },
+  lastClock: '', remindMin: 0, remindAt: 0, remindShownUntil: 0,
+  menuHL: null, menuCustom: false, hudCustom: false,
+  camPos: null,
+  bg: { grid: null, ring: null, sky: null, spark: null, tex: {} },
+  tmpMat: null, tmpV1: null, tmpV2: null
+};
+
+function xrEmptyPh(){
+  return { hover: null, menuBtn: null, onMenu: false, onHud: false, bar: null, uiDist: 0, onKeys: false, keysBtn: null, onPad: false, padBtn: null };
+}
+
+APP.xrKmChanged = function(){
+  if (xr.built) xrDrawHud();
+};
+
+function xrBuildScene(){
+  if (xr.built) return;
+  xr.built = true;
+
+  if (S.layout) {
+    xr.params.dist = clamp(S.layout.dist, 1.0, S.maxDist);
+    xr.params.width = clamp(S.layout.width, 1.0, S.maxW);
+    xr.params.curved = !!S.layout.curved;
+  }
+
+  var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(1);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.xr.enabled = true;
+  renderer.xr.setReferenceSpaceType('local');
+  xr.renderer = renderer;
+
+  var scene = new THREE.Scene();
+  xr.scene = scene;
+
+  xr.camera = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
+  xr.clock = new THREE.Clock();
+  xr.tmpMat = new THREE.Matrix4();
+  xr.tmpV1 = new THREE.Vector3();
+  xr.tmpV2 = new THREE.Vector3();
+  xr.camPos = new THREE.Vector3();
+  xr.anchorPos = new THREE.Vector3(0, 0, 0);
+  xr.forward = new THREE.Vector3(0, 0, -1);
+  xr.ph.right = xrEmptyPh();
+  xr.ph.left = xrEmptyPh();
+
+  xr.root = new THREE.Group();
+  scene.add(xr.root);
+
+  xrBuildHud();
+
+  for (var i = 0; i < 2; i++) {
+    (function(idx){
+      var c = renderer.xr.getController(idx);
+      c.userData.hand = null;
+      c.addEventListener('connected', function(e){ c.userData.hand = e.data.handedness; });
+      c.addEventListener('disconnected', function(){ c.userData.hand = null; });
+      scene.add(c);
+      xr.controllers.push(c);
+    })(i);
+  }
+
+  ['right', 'left'].forEach(function(hand){
+    var laserGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)
+    ]);
+    var line = new THREE.Line(laserGeo, new THREE.LineBasicMaterial({
+      color: hand === 'right' ? 0x8f7bff : 0x5ad0ff, transparent: true, opacity: 0.85
+    }));
+    line.visible = false;
+    scene.add(line);
+    var dot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.008, 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffffff })
+    );
+    dot.visible = false;
+    scene.add(dot);
+    xr.lasers[hand] = { line: line, dot: dot };
+  });
+
+  xr.raycaster = new THREE.Raycaster();
+
+  xrApplyBackground();
+  xrSyncScreens();
+}
+
+/* ---------- 背景(描き置きの空テクスチャ + 小物) ---------- */
+function xrBuildGrid(){
+  if (xr.bg.grid) return;
+  var grid = new THREE.GridHelper(30, 30, 0x232045, 0x171426);
+  grid.position.y = -1.5;
+  xr.scene.add(grid);
+  xr.bg.grid = grid;
+
+  var ring = new THREE.Mesh(
+    new THREE.RingGeometry(1.05, 1.5, 48),
+    new THREE.MeshBasicMaterial({ color: 0x8f7bff, transparent: true, opacity: 0.16, side: THREE.DoubleSide })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = -1.49;
+  xr.scene.add(ring);
+  xr.bg.ring = ring;
+}
+
+function xrEnsureSkyMesh(){
+  if (xr.bg.sky) return;
+  var geo = new THREE.SphereGeometry(45, 48, 32);
+  var mat = new THREE.MeshBasicMaterial({ side: THREE.BackSide, fog: false });
+  xr.bg.sky = new THREE.Mesh(geo, mat);
+  xr.scene.add(xr.bg.sky);
+}
+
+function xrSkyCanvas(){
+  var c = document.createElement('canvas');
+  c.width = 2048;
+  c.height = 1024;
+  return { c: c, x: c.getContext('2d') };
+}
+function xrSkyTexDone(c){
+  var t = new THREE.CanvasTexture(c);
+  t.encoding = THREE.sRGBEncoding;
+  return t;
+}
+function xrVGrad(ctx, W, H, stops){
+  var g = ctx.createLinearGradient(0, 0, 0, H);
+  stops.forEach(function(s){ g.addColorStop(s[0], s[1]); });
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+function xrGlow(ctx, x, y, r, inner, outer){
+  var g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, inner);
+  g.addColorStop(1, outer);
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/* ダーク: 地平線がほのかに光る夜の空間 */
+function xrTexDark(){
+  if (xr.bg.tex.dark) return xr.bg.tex.dark;
+  var s = xrSkyCanvas(), ctx = s.x, W = 2048, H = 1024;
+  xrVGrad(ctx, W, H, [
+    [0, '#0d0b1a'], [0.42, '#141127'], [0.5, '#221c44'],
+    [0.53, '#151129'], [0.62, '#0d0b19'], [1, '#080711']
+  ]);
+  ctx.globalCompositeOperation = 'lighter';
+  for (var i = 0; i < 5; i++) {
+    xrGlow(ctx, (i + 0.5) * (W / 5), H * 0.5, 240, 'rgba(120,100,220,0.07)', 'rgba(120,100,220,0)');
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  xr.bg.tex.dark = xrSkyTexDone(s.c);
+  return xr.bg.tex.dark;
+}
+
+/* 星空: 天の川と、色や大きさの違う星々 */
+function xrTexStars(){
+  if (xr.bg.tex.stars) return xr.bg.tex.stars;
+  var s = xrSkyCanvas(), ctx = s.x, W = 2048, H = 1024;
+  xrVGrad(ctx, W, H, [
+    [0, '#02030a'], [0.34, '#060a18'], [0.5, '#101a33'],
+    [0.53, '#0a0f1f'], [0.66, '#060910'], [1, '#04050b']
+  ]);
+  /* 天の川: 柔らかい光の帯 */
+  ctx.save();
+  ctx.translate(W * 0.5, H * 0.40);
+  ctx.rotate(-0.38);
+  for (var i = 0; i < 150; i++) {
+    var bx = (Math.random() - 0.5) * W * 1.15;
+    var by = (Math.random() - 0.5) * 130 * (1 - Math.abs(bx) / (W * 0.62));
+    var br = 24 + Math.random() * 70;
+    xrGlow(ctx, bx, by, br, 'rgba(185,195,235,' + (0.022 + Math.random() * 0.03).toFixed(3) + ')', 'rgba(185,195,235,0)');
+  }
+  for (var d = 0; d < 26; d++) {
+    var dx = (Math.random() - 0.5) * W * 0.9;
+    var dy = (Math.random() - 0.5) * 70;
+    xrGlow(ctx, dx, dy, 20 + Math.random() * 44, 'rgba(4,6,14,0.20)', 'rgba(4,6,14,0)');
+  }
+  ctx.restore();
+  /* 星: 小さな星の海 + 明るい星のきらめき */
+  function star(px, py, pr, col, a){
+    ctx.fillStyle = col;
+    ctx.globalAlpha = a;
+    ctx.beginPath();
+    ctx.arc(px, py, pr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  var cols = ['#ffffff', '#dfe6ff', '#ffe9c8', '#bcd0ff'];
+  for (var n = 0; n < 1500; n++) {
+    var py = Math.pow(Math.random(), 1.3) * H * 0.52;
+    star(Math.random() * W, py, 0.5 + Math.random() * 0.9,
+         cols[Math.floor(Math.random() * cols.length)], 0.35 + Math.random() * 0.6);
+  }
+  for (var b = 0; b < 44; b++) {
+    var sx = Math.random() * W, sy = Math.random() * H * 0.48;
+    var col = cols[Math.floor(Math.random() * cols.length)];
+    xrGlow(ctx, sx, sy, 6 + Math.random() * 7, 'rgba(210,220,255,0.55)', 'rgba(210,220,255,0)');
+    star(sx, sy, 1.2 + Math.random() * 1.2, col, 0.95);
+  }
+  xr.bg.tex.stars = xrSkyTexDone(s.c);
+  return xr.bg.tex.stars;
+}
+
+/* 昼の空: 太陽とやわらかい雲 */
+function xrTexDay(){
+  if (xr.bg.tex.sky) return xr.bg.tex.sky;
+  var s = xrSkyCanvas(), ctx = s.x, W = 2048, H = 1024;
+  xrVGrad(ctx, W, H, [
+    [0, '#2b6bd4'], [0.30, '#5f9ae2'], [0.47, '#a8cdf0'],
+    [0.50, '#eef6fd'], [0.53, '#93a7bd'], [0.68, '#4c5b78'], [1, '#333f57']
+  ]);
+  /* 太陽 */
+  ctx.globalCompositeOperation = 'lighter';
+  xrGlow(ctx, W * 0.68, H * 0.27, 150, 'rgba(255,252,235,0.85)', 'rgba(255,252,235,0)');
+  xrGlow(ctx, W * 0.68, H * 0.27, 42, 'rgba(255,255,250,0.95)', 'rgba(255,255,250,0)');
+  ctx.globalCompositeOperation = 'source-over';
+  /* 雲: 楕円を重ねたふわふわの塊 */
+  function cloud(cx, cy, sc, al){
+    for (var k = 0; k < 7; k++) {
+      var ox = (Math.random() - 0.5) * 120 * sc;
+      var oy = (Math.random() - 0.5) * 34 * sc;
+      var rr = (34 + Math.random() * 40) * sc;
+      var g = ctx.createRadialGradient(cx + ox, cy + oy, 0, cx + ox, cy + oy, rr);
+      g.addColorStop(0, 'rgba(255,255,255,' + al + ')');
+      g.addColorStop(0.7, 'rgba(255,255,255,' + (al * 0.55).toFixed(3) + ')');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(cx + ox, cy + oy, rr * 1.35, rr * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    /* 底の淡い影 */
+    var sh = ctx.createRadialGradient(cx, cy + 26 * sc, 0, cx, cy + 26 * sc, 90 * sc);
+    sh.addColorStop(0, 'rgba(130,150,185,0.16)');
+    sh.addColorStop(1, 'rgba(130,150,185,0)');
+    ctx.fillStyle = sh;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 26 * sc, 120 * sc, 34 * sc, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  for (var i = 0; i < 11; i++) {
+    cloud(Math.random() * W, H * (0.30 + Math.random() * 0.16), 0.7 + Math.random() * 0.9, 0.5 + Math.random() * 0.25);
+  }
+  for (var j = 0; j < 5; j++) {
+    cloud(Math.random() * W, H * (0.16 + Math.random() * 0.10), 0.35 + Math.random() * 0.3, 0.32);
+  }
+  xr.bg.tex.sky = xrSkyTexDone(s.c);
+  return xr.bg.tex.sky;
+}
+
+/* 夕焼け: 沈む夕日と光る雲、宵の星 */
+function xrTexSunset(){
+  if (xr.bg.tex.sunset) return xr.bg.tex.sunset;
+  var s = xrSkyCanvas(), ctx = s.x, W = 2048, H = 1024;
+  xrVGrad(ctx, W, H, [
+    [0, '#1b1440'], [0.26, '#3d2a63'], [0.40, '#7a4676'],
+    [0.47, '#c86a63'], [0.505, '#ff9e5a'], [0.525, '#ffd9a0'],
+    [0.55, '#6e4450'], [0.72, '#2c2038'], [1, '#1d1730']
+  ]);
+  /* 夕日 */
+  ctx.globalCompositeOperation = 'lighter';
+  xrGlow(ctx, W * 0.5, H * 0.505, 300, 'rgba(255,170,100,0.50)', 'rgba(255,170,100,0)');
+  xrGlow(ctx, W * 0.5, H * 0.505, 120, 'rgba(255,215,150,0.75)', 'rgba(255,215,150,0)');
+  xrGlow(ctx, W * 0.5, H * 0.50, 34, 'rgba(255,244,214,0.95)', 'rgba(255,244,214,0)');
+  ctx.globalCompositeOperation = 'source-over';
+  /* 光をはらんだ雲の帯 */
+  for (var i = 0; i < 10; i++) {
+    var cx = Math.random() * W;
+    var cy = H * (0.34 + Math.random() * 0.13);
+    var cw = 140 + Math.random() * 260;
+    var chh = 10 + Math.random() * 16;
+    ctx.fillStyle = 'rgba(40,24,58,0.5)';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, cw, chh, 0, 0, Math.PI * 2);
+    ctx.fill();
+    var lit = ctx.createLinearGradient(0, cy - chh * 1.6, 0, cy);
+    lit.addColorStop(0, 'rgba(255,170,110,0.42)');
+    lit.addColorStop(1, 'rgba(255,170,110,0)');
+    ctx.fillStyle = lit;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - chh * 0.7, cw * 0.96, chh * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  /* 宵の星 */
+  ctx.fillStyle = '#ffffff';
+  for (var n = 0; n < 90; n++) {
+    ctx.globalAlpha = 0.25 + Math.random() * 0.5;
+    ctx.beginPath();
+    ctx.arc(Math.random() * W, Math.random() * H * 0.22, 0.5 + Math.random() * 0.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  xr.bg.tex.sunset = xrSkyTexDone(s.c);
+  return xr.bg.tex.sunset;
+}
+
+/* 星空用のきらめき(視差のための手前の星) */
+function xrBuildSpark(){
+  if (xr.bg.spark) return;
+  var n = 260;
+  var pos = new Float32Array(n * 3);
+  for (var i = 0; i < n; i++) {
+    var u = Math.random() * 0.9 + 0.05;
+    var th = Math.random() * Math.PI * 2;
+    var r = Math.sqrt(Math.max(0, 1 - u * u));
+    pos[i * 3] = r * Math.cos(th) * 38;
+    pos[i * 3 + 1] = u * 38;
+    pos[i * 3 + 2] = r * Math.sin(th) * 38;
+  }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  var m = new THREE.PointsMaterial({ color: 0xe8edff, size: 0.16, sizeAttenuation: true, transparent: true, opacity: 0.9 });
+  xr.bg.spark = new THREE.Points(g, m);
+  xr.scene.add(xr.bg.spark);
+}
+
+function xrApplyBackground(){
+  var bg = S.bg;
+  if (bg === 'pass' && !qs.arOk) bg = 'dark';
+  if (xr.bg.grid) xr.bg.grid.visible = false;
+  if (xr.bg.ring) xr.bg.ring.visible = false;
+  if (xr.bg.spark) xr.bg.spark.visible = false;
+  if (xr.bg.sky) xr.bg.sky.visible = false;
+  xr.scene.fog = null;
+
+  function dome(tex){
+    xrEnsureSkyMesh();
+    xr.bg.sky.material.map = tex;
+    xr.bg.sky.material.needsUpdate = true;
+    xr.bg.sky.visible = true;
+  }
+
+  if (bg === 'dark') {
+    xr.scene.background = new THREE.Color(0x0b0a14);
+    dome(xrTexDark());
+    xrBuildGrid();
+    xr.bg.grid.visible = true;
+    xr.bg.ring.visible = true;
+    xr.scene.fog = new THREE.Fog(0x0d0b19, 9, 30); /* 格子が奥へ溶ける */
+  } else if (bg === 'black') {
+    xr.scene.background = new THREE.Color(0x000000);
+  } else if (bg === 'stars') {
+    xr.scene.background = new THREE.Color(0x04050b);
+    dome(xrTexStars());
+    xrBuildSpark();
+    xr.bg.spark.visible = true;
+  } else if (bg === 'sky') {
+    xr.scene.background = new THREE.Color(0x5f9ae2);
+    dome(xrTexDay());
+  } else if (bg === 'sunset') {
+    xr.scene.background = new THREE.Color(0x3d2a63);
+    dome(xrTexSunset());
+  } else {
+    xr.scene.background = null;
+  }
+}
+
+APP.xrBgChanged = function(){
+  if (!xr.built) return;
+  var wantAr = (S.bg === 'pass' && qs.arOk);
+  var isAr = (xr.mode === 'immersive-ar');
+  if (!xr.session || wantAr === isAr) xrApplyBackground();
+};
+
+/* ---------- 画面一覧の同期 ---------- */
+function xrSyncScreens(){
+  var desired = [];
+  qs.hosts.forEach(function(h){
+    var list = h.screens.slice().sort(function(a, b){ return a.slot - b.slot; });
+    list.forEach(function(sc){
+      desired.push({ key: h.idx + ':' + sc.slot, host: h, slot: sc.slot, video: sc.video });
+    });
+  });
+
+  var existing = {};
+  xr.screens.forEach(function(s){ existing[s.key] = s; });
+
+  var next = [];
+  desired.forEach(function(d){
+    var s = existing[d.key];
+    if (s) {
+      delete existing[d.key];
+      s.host = d.host;
+    } else {
+      s = xrCreateScreen(d);
+    }
+    next.push(s);
+  });
+
+  Object.keys(existing).forEach(function(k){
+    var s = existing[k];
+    ['right', 'left'].forEach(function(hand){
+      if (xr.grab[hand] && xr.grab[hand].scr === s) xr.grab[hand] = null;
+    });
+    ['right', 'left'].forEach(function(hand){ /* 念のため参照切れも掃除 */
+      if (xr.grab[hand] && xr.grab[hand].mesh === s.mesh) xr.grab[hand] = null;
+    });
+    xr.root.remove(s.mesh);
+    try {
+      if (s.bar) {
+        s.bar.mesh.geometry.dispose();
+        s.bar.mesh.material.dispose();
+        s.bar.tex.dispose();
+      }
+      s.mesh.geometry.dispose();
+      s.mat.dispose();
+      s.tex.dispose();
+    } catch (_e) {}
+  });
+
+  xr.screens = next;
+  xrLayout();
+  xrDrawHud();
+}
+
+/* 縮小・斜め見でも文字が安定するフィルタ設定(設定でON/OFF) */
+function xrTuneTex(tex){
+  if (S.aniso) {
+    tex.generateMipmaps = true;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    try { tex.anisotropy = xr.renderer.capabilities.getMaxAnisotropy() || 1; } catch (_e) { tex.anisotropy = 1; }
+  } else {
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    tex.anisotropy = 1;
+  }
+}
+
+APP.xrAnisoChanged = function(){
+  if (!xr.built) return;
+  xr.screens.forEach(function(s){
+    xrTuneTex(s.tex);
+    s.tex.needsUpdate = true;
+  });
+};
+
+APP.xrSync = function(){ if (xr.built) xrSyncScreens(); };
+APP.xrHud = function(){ if (xr.built) xrDrawHud(); };
+
+/* ---------- 画面の形状 ---------- */
+/* 画面ごとの表示幅: 高さを揃える(16:9でちょうど設定幅)。縦長のスマホ画面も自然に並ぶ */
+function xrScreenWBase(s){
+  return xr.params.width * (9 / 16) * s.aspect;
+}
+function xrScreenW(s){
+  return xrScreenWBase(s) * (s.wScale || 1);
+}
+
+function xrMakeScreenGeo(width, aspect, curved){
+  var height = width / aspect;
+  var angle = curved
+    ? Math.min(1.5, 0.85 * (width / Math.max(0.8, xr.params.width)))
+    : 0;
+  var segX = 48, segY = 8;
+  var pos = [], uv = [], idx = [];
+  var iy, ix;
+  for (iy = 0; iy <= segY; iy++) {
+    var v = iy / segY;
+    var y = (v - 0.5) * height;
+    for (ix = 0; ix <= segX; ix++) {
+      var u = ix / segX;
+      var x, z;
+      if (angle > 0.001) {
+        var R = width / angle;
+        var th = (u - 0.5) * angle;
+        x = Math.sin(th) * R;
+        z = (1 - Math.cos(th)) * R;
+      } else {
+        x = (u - 0.5) * width;
+        z = 0;
+      }
+      pos.push(x, y, z);
+      uv.push(u, v);
+    }
+  }
+  for (iy = 0; iy < segY; iy++) {
+    for (ix = 0; ix < segX; ix++) {
+      var a = iy * (segX + 1) + ix, b = a + 1, c = a + (segX + 1), d = c + 1;
+      idx.push(a, b, d, a, d, c);
+    }
+  }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+function xrCreateScreen(d){
+  var tex = new THREE.VideoTexture(d.video);
+  xrTuneTex(tex);
+  tex.magFilter = THREE.LinearFilter;
+  tex.encoding = THREE.sRGBEncoding;
+  var mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
+  var s = {
+    key: d.key, host: d.host, slot: d.slot, video: d.video,
+    tex: tex, mat: mat, mesh: null, aspect: 16 / 9, wScale: 1,
+    curved: xr.params.curved, locked: false, custom: false, follow: false, dim: 1, prevScale: 0,
+    bar: null, barSig: ''
+  };
+  if (d.video.videoWidth > 0) s.aspect = d.video.videoWidth / d.video.videoHeight;
+  s.mesh = new THREE.Mesh(xrMakeScreenGeo(xrScreenW(s), s.aspect, s.curved), mat);
+  s.mesh.userData.ref = s;
+  d.video.addEventListener('resize', function(){
+    if (d.video.videoWidth > 0) {
+      s.aspect = d.video.videoWidth / d.video.videoHeight;
+      xr.geoDirty = true;
+    }
+  });
+  xrBuildBar(s);
+  xr.root.add(s.mesh);
+  return s;
+}
+
+function xrRebuildGeos(){
+  xr.screens.forEach(function(s){
+    var old = s.mesh.geometry;
+    s.mesh.geometry = xrMakeScreenGeo(xrScreenW(s), s.aspect, s.curved);
+    if (old) old.dispose();
+    xrPlaceBar(s);
+  });
+  xrLayout();
+}
+
+/* ---------- 画面の上のボタン列(平面/湾曲・ミュート・固定) ---------- */
+var BAR_W = 860, BAR_H = 88;
+var BAR_BTNS = [
+  { x: 8, w: 160 }, { x: 178, w: 160 }, { x: 348, w: 160 },
+  { x: 518, w: 160 }, { x: 688, w: 160 }
+];
+
+function xrBuildBar(s){
+  var c = document.createElement('canvas');
+  c.width = BAR_W;
+  c.height = BAR_H;
+  var tex = new THREE.CanvasTexture(c);
+  var mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide });
+  var mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 1.35 * BAR_H / BAR_W), mat);
+  mesh.userData.barOf = s;
+  s.bar = { canvas: c, ctx: c.getContext('2d'), tex: tex, mesh: mesh };
+  s.mesh.add(mesh);
+  xrPlaceBar(s);
+  xrDrawBar(s, -1, false);
+}
+
+function xrPlaceBar(s){
+  if (!s.bar) return;
+  var h = xrScreenW(s) / s.aspect;
+  s.bar.mesh.position.set(0, h / 2 + 0.12, 0.03);
+}
+
+function xrDrawBar(s, hoverIdx, shown){
+  var ctx = s.bar.ctx;
+  if (!shown) {
+    /* 指していないあいだは透明(当たり判定だけ残す) */
+    ctx.clearRect(0, 0, BAR_W, BAR_H);
+    s.bar.tex.needsUpdate = true;
+    return;
+  }
+  var labels = [
+    { t: '平面 / 湾曲', on: false },
+    { t: s.video.muted ? 'ミュート中' : 'ミュート', on: s.video.muted },
+    { t: s.locked ? '固定中' : '固定', on: s.locked },
+    { t: s.follow ? '追従中' : '追従', on: s.follow },
+    { t: '明るさ' + Math.round(s.dim * 100) + '%', on: s.dim < 0.99 }
+  ];
+  ctx.clearRect(0, 0, BAR_W, BAR_H);
+  ctx.fillStyle = 'rgba(17,15,28,0.94)';
+  ctx.fillRect(0, 0, BAR_W, BAR_H);
+  ctx.strokeStyle = '#332e58';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, BAR_W - 2, BAR_H - 2);
+  for (var i = 0; i < 5; i++) {
+    var b = BAR_BTNS[i];
+    var on = labels[i].on;
+    var hov = hoverIdx === i;
+    ctx.fillStyle = on ? 'rgba(143,123,255,0.30)' : '#252142';
+    ctx.fillRect(b.x, 10, b.w, BAR_H - 20);
+    ctx.strokeStyle = on ? '#8f7bff' : (hov ? '#cfc4ff' : '#3d3766');
+    ctx.lineWidth = hov || on ? 3 : 2;
+    ctx.strokeRect(b.x, 10, b.w, BAR_H - 20);
+    ctx.fillStyle = '#eceaf6';
+    ctx.font = '26px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(labels[i].t, b.x + b.w / 2, BAR_H / 2 + 1);
+  }
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  s.bar.tex.needsUpdate = true;
+}
+
+function xrBarHit(uv){
+  var x = uv.x * BAR_W;
+  for (var i = 0; i < 5; i++) {
+    if (x >= BAR_BTNS[i].x && x <= BAR_BTNS[i].x + BAR_BTNS[i].w) return i;
+  }
+  return null;
+}
+
+function xrBarActivate(s, idx){
+  if (idx === 0) {
+    s.curved = !s.curved;
+    var old = s.mesh.geometry;
+    s.mesh.geometry = xrMakeScreenGeo(xrScreenW(s), s.aspect, s.curved);
+    if (old) old.dispose();
+  } else if (idx === 1) {
+    s.video.muted = !s.video.muted;
+    if (!s.video.muted) s.video.play().catch(function(){});
+  } else if (idx === 2) {
+    s.locked = !s.locked;
+    if (s.locked) {
+      ['right', 'left'].forEach(function(hand){
+        if (xr.grab[hand] && xr.grab[hand].scr === s) xr.grab[hand] = null;
+      });
+      s.custom = true; /* いまの位置のまま留める */
+    }
+  } else if (idx === 3) {
+    if (!s.follow) {
+      if (s.locked) return;
+      s.follow = true;
+      s.custom = true;
+      s.prevScale = s.wScale;
+      if (s.wScale > 0.5) { s.wScale = 0.45; xr.geoDirty = true; }
+    } else {
+      s.follow = false;
+      if (s.prevScale) { s.wScale = s.prevScale; xr.geoDirty = true; }
+    }
+  } else if (idx === 4) {
+    s.dim = (s.dim > 0.85) ? 0.7 : (s.dim > 0.55 ? 0.4 : 1);
+    s.mat.color.setScalar(s.dim);
+  }
+  s.barSig = '';
+}
+
+/* 状態に応じてバーの表示/再描画をまとめて更新 */
+function xrUpdateBars(){
+  xr.screens.forEach(function(s){
+    var hovIdx = -1;
+    var shown = false;
+    ['right', 'left'].forEach(function(hand){
+      var p = xr.ph[hand];
+      if (p.bar && p.bar.scr === s) {
+        shown = true; /* ボタン一覧そのものにレーザーが当たっているときだけ表示 */
+        if (p.bar.idx !== null) hovIdx = p.bar.idx;
+      }
+    });
+    var sig = (shown ? 1 : 0) + '|' + hovIdx + '|' + (s.video.muted ? 1 : 0) + (s.locked ? 1 : 0) + (s.follow ? 1 : 0) + '|' + s.dim;
+    if (sig !== s.barSig) {
+      s.barSig = sig;
+      xrDrawBar(s, hovIdx, shown);
+    }
+  });
+}
+
+/* ---------- 配置: 弧の上に並べる(つかんで動かした画面と固定画面は除く) ---------- */
+function xrLayout(){
+  var p = xr.params;
+  var arc = xr.screens.filter(function(s){ return !s.custom && !s.locked; });
+  var n = arc.length;
+  xrPlaceHud();
+  if (!xr.built || n === 0) return;
+  var total = p.gap * (n - 1);
+  arc.forEach(function(s){ total += xrScreenW(s) / p.dist; });
+  var az = -total / 2;
+  var up = xr.tmpV2.set(0, 1, 0);
+  arc.forEach(function(s){
+    var unit = xrScreenW(s) / p.dist;
+    var center = az + unit / 2;
+    az += unit + p.gap;
+    var dir = xr.forward.clone().applyAxisAngle(up, -center);
+    s.mesh.position.set(
+      xr.anchorPos.x + dir.x * p.dist,
+      xr.anchorPos.y + p.yOff,
+      xr.anchorPos.z + dir.z * p.dist
+    );
+    s.mesh.lookAt(xr.anchorPos.x, s.mesh.position.y, xr.anchorPos.z);
+  });
+}
+
+/* ---------- HUD(操作ガイド) ---------- */
+function xrBuildHud(){
+  var c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = 920;
+  xr.hudCanvas = c;
+  xr.hudCtx = c.getContext('2d');
+  xr.hudTex = new THREE.CanvasTexture(c);
+  var mat = new THREE.MeshBasicMaterial({ map: xr.hudTex, transparent: true });
+  xr.hud = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.4 * 920 / 1024), mat);
+  xr.scene.add(xr.hud);
+  xrDrawHud();
+}
+
+function xrPlaceHud(){
+  if (!xr.hud || xr.hudCustom) return;
+  var p = xr.params;
+  var h = p.width * 9 / 16;
+  var hd = Math.min(p.dist * 0.9, 2.4);
+  var y = xr.anchorPos.y + clamp(p.yOff - h / 2 - 0.7, -1.6, -1.05);
+  var pos = xr.tmpV1.copy(xr.anchorPos).addScaledVector(xr.forward, hd);
+  xr.hud.position.set(pos.x, y, pos.z);
+  xr.hud.lookAt(xr.anchorPos.x, xr.hud.position.y, xr.anchorPos.z);
+  xr.hud.rotateX(-0.5);
+}
+
+function xrHelperStatusText(){
+  var retry = false;
+  qs.hosts.forEach(function(h){ if (h.state === 'retry') retry = true; });
+  if (retry) return ['⟳ 再接続しています…', '#ffb86b'];
+  var n = qs.hosts.length;
+  var on = 0;
+  qs.hosts.forEach(function(h){ if (h.helperOn) on++; });
+  if (n === 0 || on === 0) return ['● 操作モード OFF(見るだけ)', '#ffb86b'];
+  if (on === n) return ['● 操作モード ON', '#3ddc97'];
+  return ['● 操作モード ON(' + on + '/' + n + '台)', '#3ddc97'];
+}
+
+function xrDrawHud(){
+  if (!xr.hudCtx) return;
+  var ctx = xr.hudCtx, W = 1024, H = 920;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(17,15,28,0.92)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#8f7bff';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(4, 4, W - 8, H - 8);
+
+  var st = xrHelperStatusText();
+  ctx.fillStyle = st[1];
+  ctx.font = 'bold 40px sans-serif';
+  ctx.fillText(st[0], 40, 72);
+
+  var dnow = new Date();
+  ctx.fillStyle = '#8f89a8';
+  ctx.font = 'bold 34px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText(dnow.getHours() + ':' + ('0' + dnow.getMinutes()).slice(-2), W - 40, 72);
+  ctx.textAlign = 'left';
+  if (Date.now() < xr.remindShownUntil) {
+    ctx.fillStyle = '#ffb86b';
+    ctx.font = 'bold 27px sans-serif';
+    ctx.fillText('☕ 休憩の時間です', 40, 112);
+  }
+
+  var adjJp = (S.stick === 'right') ? '右' : '左';
+  var scrJp = (S.stick === 'right') ? '左' : '右';
+  var lines = [
+    ['クリック / ドラッグ', kmButtonsFor('click')],
+    ['右クリック', kmButtonsFor('rclick')],
+  ];
+  if (S.trig === 'vd') lines.splice(1, 0, ['トリガーの使い分け', 'すぐ動かす=選択 / 長押し→動かす=スクロール']);
+  lines = lines.concat([
+
+    ['画面やパネルをつかんで移動', kmButtonsFor('grab')],
+    ['スクロール', scrJp + 'スティック 上下'],
+    ['指した画面の遠近 / 大きさ', adjJp + 'スティック 上下 / 左右']
+  ]);
+  if (kmHas('ptr')) lines.push(['ポインター表示切替', kmButtonsFor('ptr')]);
+  lines.push(['整列して正面に呼び直す', kmButtonsFor('recenter')]);
+  lines.push(['設定メニュー', kmButtonsFor('menu')]);
+  lines.push(['キー送信パレット', kmButtonsFor('keys')]);
+  lines.push(['このガイド', (kmHas('hud') ? kmButtonsFor('hud') + ' / ' : '') + '何もない所をクリック']);
+  lines.push(['平面/湾曲・ミュート・固定', '画面のすぐ上にレーザーを当てると表示']);
+
+  var y = 138;
+  for (var i = 0; i < lines.length; i++) {
+    ctx.fillStyle = '#b8a9ff';
+    ctx.font = 'bold 29px sans-serif';
+    ctx.fillText(lines[i][0], 40, y);
+    ctx.fillStyle = '#d8d5ea';
+    ctx.font = '27px sans-serif';
+    ctx.fillText(lines[i][1], 440, y);
+    y += 54;
+  }
+
+  if (S.stats && qs.hosts.length) {
+    y += 6;
+    ctx.font = '24px sans-serif';
+    for (var k = 0; k < qs.hosts.length && k < 3 && y < H - 70; k++) {
+      ctx.fillStyle = '#8f89a8';
+      ctx.fillText('PC' + (k + 1) + ': ' + (qs.hosts[k].statText || '計測中…'), 40, y);
+      y += 40;
+    }
+  }
+  ctx.fillStyle = '#b8a9ff';
+  ctx.font = '23px sans-serif';
+  ctx.fillText('このパネルをクリック → 設定メニュー', 40, H - 24);
+  ctx.fillStyle = '#6a6488';
+  ctx.textAlign = 'right';
+  ctx.fillText('版 ' + APP_VER, W - 40, H - 24);
+  ctx.textAlign = 'left';
+  xr.hudTex.needsUpdate = true;
+}
+
+/* ---------- セッション ---------- */
+async function xrEnter(){
+  var has = false;
+  qs.hosts.forEach(function(h){ if (h.screens.length) has = true; });
+  if (!has) return;
+  xrBuildScene();
+  xrApplyBackground();
+  xrSyncScreens();
+  qs.hosts.forEach(function(h){
+    h.screens.forEach(function(sc){ sc.video.play().catch(function(){}); });
+  });
+  var mode = (S.bg === 'pass' && qs.arOk) ? 'immersive-ar' : 'immersive-vr';
+  try {
+    /* 描画解像度(スーパーサンプリング)。セッション開始前にのみ設定できる */
+    try { xr.renderer.xr.setFramebufferScaleFactor(S.rscale || 1); } catch (_e2) {}
+    var session = await navigator.xr.requestSession(mode, { optionalFeatures: ['local-floor', 'hand-tracking'] });
+    xr.mode = mode;
+    xr.session = session;
+    session.addEventListener('end', xrOnSessionEnd);
+    session.addEventListener('selectstart', xrOnSelectStart);
+    session.addEventListener('selectend', xrOnSelectEnd);
+    await xr.renderer.xr.setSession(session);
+    xr.needsRecenter = true;
+    xr.hudPinned = false;
+    xr.hudUntil = performance.now() + 12000;
+    xr.geoDirty = true;
+    xrDrawHud();
+    xr.renderer.setAnimationLoop(xrRender);
+  } catch (e) {
+    alert('VRを開始できませんでした: ' + (e && e.message ? e.message : e));
+  }
+}
+
+/* ハンドトラッキング: つまむ(ピンチ)=クリック。押し分け(タップ/ドラッグ/長押しスクロール)も共通 */
+function xrOnSelectStart(e){
+  var src = e.inputSource;
+  if (!src || !src.hand) return; /* コントローラーのトリガーはボタン側で処理済み */
+  var hand = (src.handedness === 'left') ? 'left' : 'right';
+  xr.handSel[hand] = true;
+  xrActDown('click', hand);
+}
+
+function xrOnSelectEnd(e){
+  var src = e.inputSource;
+  if (!src || !src.hand) return;
+  var hand = (src.handedness === 'left') ? 'left' : 'right';
+  xr.handSel[hand] = false;
+  xrActUp('click', hand);
+}
+
+function xrOnSessionEnd(){
+  xr.session = null;
+  if (xr.renderer) xr.renderer.setAnimationLoop(null);
+  xrReleaseAllButtons();
+  xr.grab.right = null;
+  xr.grab.left = null;
+  xr.menu.open = false;
+  if (xr.menu.mesh) xr.menu.mesh.visible = false;
+  xr.menuHL = null;
+  xr.menuCustom = false;
+  xr.hudCustom = false;
+  xr.keys.open = false;
+  if (xr.keys.mesh) xr.keys.mesh.visible = false;
+  xr.keysHL = null;
+  xr.keysCustom = false;
+  xr.pad.open = false;
+  if (xr.pad.mesh) xr.pad.mesh.visible = false;
+  xr.padHL = null;
+  xr.padCustom = false;
+  xr.handSel.right = false;
+  xr.handSel.left = false;
+  xr.ph.right = xrEmptyPh();
+  xr.ph.left = xrEmptyPh();
+  if (xr.saveDirty) { xrSaveLayout(); }
+}
+
+APP.xrEnd = function(){
+  if (xr.session) { try { xr.session.end(); } catch (_e) {} }
+};
+
+function xrSaveLayout(){
+  xr.saveDirty = false;
+  S.layout = {
+    dist: xr.params.dist, width: xr.params.width,
+    curved: xr.params.curved
+  };
+  saveS();
+}
+
+function xrReleaseAllButtons(){
+  if (xr.press) xrPressFinish(false);
+  if (xr.pressed.click) { hostSend(xr.pressed.click, { t: 'up', b: 0 }); xr.pressed.click = null; }
+  if (xr.pressed.rclick) { hostSend(xr.pressed.rclick, { t: 'up', b: 2 }); xr.pressed.rclick = null; }
+}
+
+/* ---------- 位置合わせ(固定した画面はその場に残す) ---------- */
+function xrApplyRecenter(){
+  var camPos = xr.tmpV1;
+  xr.camera.getWorldPosition(camPos);
+  var dir = xr.tmpV2;
+  xr.camera.getWorldDirection(dir);
+  dir.y = 0;
+  if (dir.lengthSq() < 1e-4) dir.set(0, 0, -1);
+  dir.normalize();
+  xr.anchorPos.copy(camPos);
+  xr.forward.copy(dir);
+  xr.screens.forEach(function(s){ if (!s.locked && !s.follow) s.custom = false; });
+  xr.hudCustom = false;
+  xr.menuCustom = false;
+  xr.keysCustom = false;
+  xr.padCustom = false;
+  xrLayout();
+  if (xr.menu.open) xrMenuPlace();
+  if (xr.keys.open) xrKeysPlace();
+  if (xr.pad.open) xrPadPlace();
+}
+
+/* ---------- つかんで移動 ---------- */
+function xrGrabStart(hand){
+  var p = xr.ph[hand];
+  if (xr.grab[hand]) return;
+  var mesh = null, dist = 0, scr = null, kind = '';
+  if (xr.menu.open && p.onMenu) {
+    mesh = xr.menu.mesh; dist = p.uiDist; kind = 'menu';
+    xr.menuCustom = true;
+  } else if (xr.keys.open && p.onKeys) {
+    mesh = xr.keys.mesh; dist = p.uiDist; kind = 'keys';
+    xr.keysCustom = true;
+  } else if (xr.pad.open && p.onPad) {
+    mesh = xr.pad.mesh; dist = p.uiDist; kind = 'pad';
+    xr.padCustom = true;
+  } else if (p.onHud) {
+    mesh = xr.hud; dist = p.uiDist; kind = 'hud';
+    xr.hudCustom = true;
+    xr.hudPinned = true; /* つかんだガイドは勝手に消えない */
+  } else if (p.bar) {
+    scr = p.bar.scr; mesh = scr.mesh; dist = p.uiDist; kind = 'scr';
+  } else if (p.hover) {
+    scr = p.hover.scr; mesh = scr.mesh; dist = p.hover.dist; kind = 'scr';
+  }
+  if (!mesh) return;
+  if (scr) {
+    if (scr.locked) return;
+    scr.custom = true;
+    scr.follow = false;
+  }
+  /* つかんだ瞬間のレーザー先端と中心のずれを保つ */
+  var delta = new THREE.Vector3().copy(mesh.position);
+  var ctrl = xrControllerFor(hand);
+  if (ctrl) {
+    xr.tmpMat.identity().extractRotation(ctrl.matrixWorld);
+    var origin = xr.tmpV1.setFromMatrixPosition(ctrl.matrixWorld);
+    var dir = xr.tmpV2.set(0, 0, -1).applyMatrix4(xr.tmpMat).normalize();
+    delta.sub(origin.clone().addScaledVector(dir, dist));
+  }
+  xr.grab[hand] = { kind: kind, scr: scr, mesh: mesh, dist: dist, delta: delta };
+}
+
+function xrGrabEnd(hand){
+  xr.grab[hand] = null;
+}
+
+function xrControllerFor(hand){
+  for (var i = 0; i < xr.controllers.length; i++) {
+    if (xr.controllers[i].userData.hand === hand) return xr.controllers[i];
+  }
+  return null;
+}
+
+function xrUpdateGrabs(){
+  ['right', 'left'].forEach(function(hand){
+    var g = xr.grab[hand];
+    if (!g) return;
+    var ctrl = xrControllerFor(hand);
+    if (!ctrl) { xr.grab[hand] = null; return; }
+    xr.tmpMat.identity().extractRotation(ctrl.matrixWorld);
+    var origin = xr.tmpV1.setFromMatrixPosition(ctrl.matrixWorld);
+    var dir = xr.tmpV2.set(0, 0, -1).applyMatrix4(xr.tmpMat).normalize();
+    var point = origin.clone().addScaledVector(dir, g.dist);
+    g.mesh.position.copy(point).add(g.delta);
+    g.mesh.lookAt(xr.camPos); /* 上下の傾きも含めて、自分の顔の方を向く */
+    var L = xr.lasers[hand];
+    L.line.visible = true;
+    L.line.position.copy(origin);
+    L.line.quaternion.setFromRotationMatrix(xr.tmpMat);
+    L.line.scale.set(1, 1, g.dist);
+    L.dot.position.copy(point);
+    L.dot.visible = true;
+  });
+}
+
+/* ---------- ボタン入力(km2: ボタン→機能) ---------- */
+function xrPickHover(hand){
+  var mine = xr.ph[hand];
+  if (!xr.grab[hand] && mine.hover) return mine.hover;
+  var other = (hand === 'right') ? 'left' : 'right';
+  if (!xr.grab[other] && xr.ph[other].hover) return xr.ph[other].hover;
+  return null;
+}
+
+function xrActiveHover(){
+  if (!xr.grab.right && xr.ph.right.hover) return xr.ph.right.hover;
+  if (!xr.grab.left && xr.ph.left.hover) return xr.ph.left.hover;
+  return null;
+}
+
+function kmAnyPressed(action){
+  for (var i = 0; i < KM_BTNS.length; i++) {
+    var b = KM_BTNS[i];
+    if (S.km2[b] === action && xr.phys[b]) return true;
+  }
+  return false;
+}
+/* (高さの修飾ボタンは廃止: 高さはグリップでつかんで動かす) */
+
+function xrR4(v){ return Math.round(clamp(v, 0, 1) * 10000) / 10000; }
+
+/* トリガーの押し分け: 短く=クリック / すぐ動かす=ドラッグ / 長押し後に動かす=スクロール */
+function xrPressFinish(byUp){
+  var pr = xr.press;
+  if (!pr) return;
+  xr.press = null;
+  if (pr.mode === 'drag') {
+    hostSend(pr.hostObj, { t: 'up', b: 0 });
+    xr.pressed.click = null;
+    return;
+  }
+  if (pr.mode === '' && byUp && performance.now() - pr.t < 420) {
+    hostSend(pr.hostObj, { t: 'mv', x: xrR4(pr.x0), y: xrR4(pr.y0), s: pr.slot });
+    hostSend(pr.hostObj, { t: 'dn', b: 0, s: pr.slot });
+    hostSend(pr.hostObj, { t: 'up', b: 0 });
+  }
+}
+
+function xrPressTick(){
+  var pr = xr.press;
+  if (!pr) return;
+  var hov = xrActiveHover();
+  var cur = null;
+  if (hov && hov.scr.host === pr.hostObj && hov.scr.slot === pr.slot) {
+    cur = { x: clamp(hov.uv.x, 0, 1), y: clamp(1 - hov.uv.y, 0, 1) };
+  }
+  var now = performance.now();
+  if (pr.mode === '') {
+    var moved = cur ? Math.hypot(cur.x - pr.x0, cur.y - pr.y0) : 0;
+    if (moved > 0.006) {
+      if (now - pr.t < 300) {
+        pr.mode = 'drag'; /* すぐ動かした = テキスト選択などのドラッグ */
+        hostSend(pr.hostObj, { t: 'mv', x: xrR4(pr.x0), y: xrR4(pr.y0), s: pr.slot });
+        hostSend(pr.hostObj, { t: 'dn', b: 0, s: pr.slot });
+        xr.pressed.click = pr.hostObj;
+      } else {
+        pr.mode = 'scroll'; /* 長押ししてから動かした = ページをつかんでスクロール */
+        pr.py = cur.y;
+      }
+    }
+  } else if (pr.mode === 'scroll' && cur) {
+    pr.acc += cur.y - pr.py;
+    pr.py = cur.y;
+    var step = [0.017, 0.011, 0.007][S.scrollSpd];
+    while (pr.acc >= step) { hostSend(pr.hostObj, { t: 'sc', d: 1 * S.scrollDir, s: pr.slot }); pr.acc -= step; }
+    while (pr.acc <= -step) { hostSend(pr.hostObj, { t: 'sc', d: -1 * S.scrollDir, s: pr.slot }); pr.acc += step; }
+  }
+}
+
+function xrActDown(action, hand){
+  if (!action) return;
+  var p = xr.ph[hand];
+  if (action === 'click') {
+    if (xr.menu.open && p.onMenu) { xrMenuActivate(p.menuBtn); return; }
+    if (xr.keys.open && p.onKeys) { xrKeysActivate(p.keysBtn); return; }
+    if (xr.pad.open && p.onPad) { xrPadActivate(p.padBtn); return; }
+    if (p.onHud) { xrMenuToggle(); return; }
+    if (p.bar) { if (p.bar.idx !== null) xrBarActivate(p.bar.scr, p.bar.idx); return; }
+    var hov = xrPickHover(hand);
+    if (hov) {
+      if (xr.mouseEnabled && hov.scr.host.helperOn) {
+        if (S.trig === 'plain') {
+          hostSend(hov.scr.host, { t: 'dn', b: 0, s: hov.scr.slot });
+          xr.pressed.click = hov.scr.host;
+        } else if (xr.press) {
+          xr.press.count++;
+        } else {
+          xr.press = {
+            hostObj: hov.scr.host, slot: hov.scr.slot,
+            x0: clamp(hov.uv.x, 0, 1), y0: clamp(1 - hov.uv.y, 0, 1),
+            py: clamp(1 - hov.uv.y, 0, 1),
+            t: performance.now(), mode: '', count: 1, acc: 0
+          };
+        }
+      }
+    } else {
+      /* 何もない所をクリック → 操作ガイドの表示/非表示 */
+      xr.hudPinned = !(xr.hudPinned || performance.now() < xr.hudUntil);
+      xr.hudUntil = 0;
+      if (xr.hudPinned) xr.hudCustom = false; /* 出し直しは定位置に */
+    }
+  } else if (action === 'rclick') {
+    if (p.onMenu || p.onHud || p.bar) return;
+    var hov2 = xrPickHover(hand);
+    if (hov2 && xr.mouseEnabled && hov2.scr.host.helperOn) {
+      hostSend(hov2.scr.host, { t: 'dn', b: 2, s: hov2.scr.slot });
+      xr.pressed.rclick = hov2.scr.host;
+    }
+  } else if (action === 'grab') {
+    xrGrabStart(hand);
+  } else if (action === 'menu') {
+    xrMenuToggle();
+  } else if (action === 'keys') {
+    xrKeysToggle();
+  } else if (action === 'ptr') {
+    xr.mouseEnabled = !xr.mouseEnabled;
+    xrReleaseAllButtons();
+  } else if (action === 'recenter') {
+    xr.needsRecenter = true;
+  } else if (action === 'hud') {
+    xr.hudPinned = !(xr.hudPinned || performance.now() < xr.hudUntil);
+    xr.hudUntil = 0;
+  }
+}
+
+function xrActUp(action, hand){
+  if (action === 'click') {
+    if (xr.press) {
+      xr.press.count--;
+      if (xr.press.count > 0) return;
+      xrPressFinish(true);
+      return;
+    }
+    if (xr.pressed.click) {
+      hostSend(xr.pressed.click, { t: 'up', b: 0 });
+      xr.pressed.click = null;
+    }
+  } else if (action === 'rclick' && xr.pressed.rclick) {
+    hostSend(xr.pressed.rclick, { t: 'up', b: 2 });
+    xr.pressed.rclick = null;
+  } else if (action === 'grab') {
+    xrGrabEnd(hand);
+  }
+}
+
+var SCROLL_MS = [150, 95, 55];
+
+function xrPollInput(dt){
+  var session = xr.renderer.xr.getSession();
+  if (!session) return;
+  var sources = session.inputSources;
+  var newPhys = {};
+  var axesByHand = {};
+
+  for (var i = 0; i < sources.length; i++) {
+    var src = sources[i];
+    if (!src.gamepad || !src.handedness) continue;
+    var gp = src.gamepad;
+    var hand = src.handedness;
+    var pre = hand === 'right' ? 'r' : 'l';
+    [0, 1, 3, 4, 5].forEach(function(k){
+      newPhys[pre + k] = !!(gp.buttons[k] && gp.buttons[k].pressed);
+    });
+    axesByHand[hand] = {
+      ax: gp.axes.length > 2 ? gp.axes[2] : 0,
+      ay: gp.axes.length > 3 ? gp.axes[3] : 0
+    };
+  }
+
+  KM_BTNS.forEach(function(id){
+    var cur = !!newPhys[id], prev = !!xr.prevPhys[id];
+    if (cur === prev) return;
+    var hand = id.charAt(0) === 'r' ? 'right' : 'left';
+    var action = S.km2[id] || '';
+    if (cur) xrActDown(action, hand);
+    else xrActUp(action, hand);
+  });
+  xr.phys = newPhys;
+  xr.prevPhys = newPhys;
+
+  /* 押しっぱなし検知: 離す信号が欠けても自動で復帰する */
+  var handHeld = xr.handSel.right || xr.handSel.left;
+  if (xr.pressed.click && !kmAnyPressed('click') && !handHeld) {
+    hostSend(xr.pressed.click, { t: 'up', b: 0 });
+    xr.pressed.click = null;
+  }
+  if (xr.pressed.rclick && !kmAnyPressed('rclick')) {
+    hostSend(xr.pressed.rclick, { t: 'up', b: 2 });
+    xr.pressed.rclick = null;
+  }
+  if (xr.press && !kmAnyPressed('click') && !handHeld) xrPressFinish(false);
+
+  var adjHand = (S.stick === 'right') ? 'right' : 'left';
+  var scrHand = (adjHand === 'right') ? 'left' : 'right';
+  var dz = 0.25;
+
+  var a = axesByHand[adjHand];
+  var aHov = xrActiveHover();
+  if (a && aHov) {
+    var tgt = aHov.scr;
+    var upv = -a.ay;
+    if (Math.abs(upv) > dz && !tgt.locked && !tgt.follow) {
+      tgt.custom = true; /* 個別に動かした画面は並びから独立する */
+      /* 指した画面だけを、視線に沿って遠く/近くへ(遠いほど速く)。高さはグリップでつかんで変える */
+      var v = tgt.mesh.position.clone().sub(xr.camPos);
+      var d0 = Math.max(0.2, v.length());
+      var nd = clamp(d0 * (1 + upv * dt * 0.85), 0.7, S.maxDist);
+      tgt.mesh.position.copy(xr.camPos).addScaledVector(v.normalize(), nd);
+      tgt.mesh.lookAt(xr.camPos);
+    }
+    if (Math.abs(a.ax) > dz && !tgt.locked) {
+      /* 指した画面だけの大きさ(上限は設定の最大の幅まで) */
+      var base = Math.max(0.2, xrScreenWBase(tgt));
+      var ns = clamp(tgt.wScale * (1 + a.ax * dt * 0.9), 0.35, Math.max(0.35, S.maxW / base));
+      if (ns !== tgt.wScale) {
+        tgt.wScale = ns;
+        xr.geoDirty = true;
+      }
+    }
+  }
+
+  var overUi = xr.ph.right.onMenu || xr.ph.left.onMenu || xr.ph.right.onHud || xr.ph.left.onHud
+    || xr.ph.right.onKeys || xr.ph.left.onKeys || xr.ph.right.onPad || xr.ph.left.onPad;
+  var sAx = axesByHand[scrHand];
+  if (sAx && xr.mouseEnabled && !overUi) {
+    var sv = -sAx.ay;
+    var now = performance.now();
+    if (Math.abs(sv) > 0.5 && now - xr.lastScroll > SCROLL_MS[S.scrollSpd]) {
+      var hov = xrActiveHover();
+      var target = hov ? hov.scr.host : xr.lastHost;
+      if (target && target.helperOn) {
+        /* ホバー中は画面番号つきで毎回関門判定。外れた直後(lastHost)は
+           番号が分からないので、従来どおり関門の現在値に従う */
+        var scMsg = { t: 'sc', d: (sv > 0 ? 1 : -1) * S.scrollDir };
+        if (hov) scMsg.s = hov.scr.slot;
+        hostSend(target, scMsg);
+        xr.lastScroll = now;
+      }
+    }
+  }
+}
+
+/* ---------- 両手ポインター ---------- */
+function xrUpdatePointerFor(hand){
+  var p = xrEmptyPh();
+  var L = xr.lasers[hand];
+  var ctrl = xrControllerFor(hand);
+
+  if (xr.grab[hand]) {
+    /* つかみ中のレーザーはxrUpdateGrabsが描く */
+    xr.ph[hand] = p;
+    return;
+  }
+  if (!ctrl || !xr.mouseEnabled) {
+    L.line.visible = false;
+    L.dot.visible = false;
+    xr.ph[hand] = p;
+    return;
+  }
+
+  xr.tmpMat.identity().extractRotation(ctrl.matrixWorld);
+  var origin = xr.tmpV1.setFromMatrixPosition(ctrl.matrixWorld);
+  var dir = xr.tmpV2.set(0, 0, -1).applyMatrix4(xr.tmpMat).normalize();
+  xr.raycaster.set(origin, dir);
+
+  var busyDrag = !!(xr.press || xr.pressed.click || xr.pressed.rclick);
+  var meshes = [];
+  if (!busyDrag && xr.menu.open && xr.menu.mesh) meshes.push(xr.menu.mesh);
+  if (!busyDrag && xr.keys.open && xr.keys.mesh) meshes.push(xr.keys.mesh);
+  if (!busyDrag && xr.pad.open && xr.pad.mesh) meshes.push(xr.pad.mesh);
+  if (!busyDrag && xr.hud && xr.hud.visible) meshes.push(xr.hud);
+  xr.screens.forEach(function(s){
+    if (s.bar && !busyDrag) meshes.push(s.bar.mesh); /* 透明でも当たり判定は生きている */
+    meshes.push(s.mesh);
+  });
+  var hits = xr.raycaster.intersectObjects(meshes);
+
+  var len = 4;
+  if (hits.length) {
+    var hit = hits[0];
+    len = hit.distance;
+    var obj = hit.object;
+    if (xr.menu.open && obj === xr.menu.mesh) {
+      p.onMenu = true;
+      p.uiDist = hit.distance;
+      if (hit.uv) p.menuBtn = xrMenuHit(hit.uv);
+    } else if (xr.keys.open && obj === xr.keys.mesh) {
+      p.onKeys = true;
+      p.uiDist = hit.distance;
+      if (hit.uv) p.keysBtn = xrKeysHit(hit.uv);
+    } else if (xr.pad.open && obj === xr.pad.mesh) {
+      p.onPad = true;
+      p.uiDist = hit.distance;
+      if (hit.uv) p.padBtn = xrPadHit(hit.uv);
+    } else if (obj === xr.hud) {
+      p.onHud = true;
+      p.uiDist = hit.distance;
+    } else if (obj.userData.barOf) {
+      p.bar = { scr: obj.userData.barOf, idx: hit.uv ? xrBarHit(hit.uv) : null };
+      p.uiDist = hit.distance;
+    } else if (obj.userData.ref && hit.uv) {
+      p.hover = { scr: obj.userData.ref, uv: hit.uv, dist: hit.distance };
+      xr.lastHost = obj.userData.ref.host;
+    }
+    L.dot.position.copy(hit.point);
+    L.dot.visible = true;
+  } else {
+    L.dot.visible = false;
+  }
+  L.line.visible = xr.screens.length > 0;
+  L.line.position.copy(origin);
+  L.line.quaternion.setFromRotationMatrix(xr.tmpMat);
+  L.line.scale.set(1, 1, len);
+  xr.ph[hand] = p;
+}
+
+function xrUpdatePointers(){
+  xrUpdatePointerFor('right');
+  xrUpdatePointerFor('left');
+  var hl = xr.ph.right.menuBtn || xr.ph.left.menuBtn;
+  if (hl !== xr.menuHL) {
+    xr.menuHL = hl;
+    xrMenuDraw();
+  }
+  if (xr.keys.open) {
+    var kl = xr.ph.right.keysBtn || xr.ph.left.keysBtn;
+    var hi = 0;
+    for (var qi = 0; qi < qs.hosts.length; qi++) { if (qs.hosts[qi] === xr.lastHost) hi = qi; }
+    var ksig = String(kl) + '|' + hi + '|' + (xr.lastHost && xr.lastHost.helperOn ? 1 : 0);
+    if (kl !== xr.keysHL || ksig !== xr.keysSig) {
+      xr.keysHL = kl;
+      xr.keysSig = ksig;
+      xrKeysDraw();
+    }
+  }
+  if (xr.pad.open) {
+    var pl = xr.ph.right.padBtn || xr.ph.left.padBtn;
+    if (pl !== xr.padHL) {
+      xr.padHL = pl;
+      xrPadDraw();
+    }
+  }
+  xrUpdateBars();
+}
+
+function xrMaybeSendMove(){
+  if (xr.press && xr.press.mode !== 'drag') return; /* 判定中とスクロール中はカーソルを止める */
+  var h = xrActiveHover();
+  if (!h || !xr.mouseEnabled) return;
+  if (!h.scr.host.helperOn) return;
+  var x = clamp(h.uv.x, 0, 1);
+  var y = clamp(1 - h.uv.y, 0, 1);
+  var now = performance.now();
+  var moved = Math.hypot(x - xr.lastSent.x, y - xr.lastSent.y) >= 0.0012;
+  var switched = h.scr.key !== xr.lastSent.key;
+  if (now - xr.lastSent.tm < 20) return;
+  if (!moved && !switched) return;
+  hostSend(h.scr.host, {
+    t: 'mv',
+    x: Math.round(x * 10000) / 10000,
+    y: Math.round(y * 10000) / 10000,
+    s: h.scr.slot
+  });
+  xr.lastSent = { key: h.scr.key, x: x, y: y, tm: now };
+}
+
+/* ---------- 追従画面: 視界の隅に付いてくる ---------- */
+function xrUpdateFollows(){
+  for (var i = 0; i < xr.screens.length; i++) {
+    var s = xr.screens[i];
+    if (!s.follow) continue;
+    var off = xr.tmpV1.set(0.55, -0.32, -1.15).applyQuaternion(xr.camera.quaternion).add(xr.camPos);
+    s.mesh.position.lerp(off, 0.18);
+    s.mesh.lookAt(xr.camPos);
+  }
+}
+
+/* ---------- キー送信パレット ---------- */
+var KEYPAL = [
+  [['enter', 'Enter', 150], ['esc', 'Esc', 110], ['tab', 'Tab', 110], ['backspace', '⌫', 90],
+   ['left', '←', 80], ['up', '↑', 80], ['down', '↓', 80], ['right', '→', 80]],
+  [['copy', 'コピー', 140], ['paste', '貼り付け', 155], ['cut', '切り取り', 155],
+   ['undo', '取り消し', 155], ['selectall', '全選択', 135]],
+  [['apptab', 'ウィンドウ切替', 220], ['back', '戻る', 125], ['forward', '進む', 125],
+   ['delete', 'Delete', 140], ['space', 'Space', 130]]
+];
+var KEYS_W = 1024, KEYS_H = 420;
+
+function xrKeysEnsure(){
+  if (xr.keys.mesh) return;
+  var c = document.createElement('canvas');
+  c.width = KEYS_W;
+  c.height = KEYS_H;
+  xr.keys.canvas = c;
+  xr.keys.ctx = c.getContext('2d');
+  xr.keys.tex = new THREE.CanvasTexture(c);
+  var mat = new THREE.MeshBasicMaterial({ map: xr.keys.tex, transparent: true, side: THREE.DoubleSide });
+  xr.keys.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 1.35 * KEYS_H / KEYS_W), mat);
+  xr.keys.mesh.visible = false;
+  xr.scene.add(xr.keys.mesh);
+}
+
+function xrKeysToggle(){
+  xrKeysEnsure();
+  xr.keys.open = !xr.keys.open;
+  xr.keys.mesh.visible = xr.keys.open;
+  if (xr.keys.open) {
+    xrKeysPlace();
+    xrKeysDraw();
+  } else {
+    xr.keysHL = null;
+  }
+}
+
+function xrKeysPlace(){
+  if (xr.keysCustom) return;
+  var camPos = new THREE.Vector3();
+  xr.camera.getWorldPosition(camPos);
+  var dir = new THREE.Vector3();
+  xr.camera.getWorldDirection(dir);
+  dir.y = 0;
+  if (dir.lengthSq() < 1e-4) dir.set(0, 0, -1);
+  dir.normalize();
+  xr.keys.mesh.position.set(camPos.x + dir.x * 1.25, camPos.y - 0.38, camPos.z + dir.z * 1.25);
+  xr.keys.mesh.lookAt(camPos.x, xr.keys.mesh.position.y + 0.15, camPos.z);
+}
+
+function xrKeysDraw(){
+  if (!xr.keys.ctx || !xr.keys.open) return;
+  var ctx = xr.keys.ctx, W = KEYS_W, H = KEYS_H;
+  var btns = [];
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(16,14,26,0.96)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#8f7bff';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(3, 3, W - 6, H - 6);
+
+  var hi = 0;
+  for (var qi = 0; qi < qs.hosts.length; qi++) { if (qs.hosts[qi] === xr.lastHost) hi = qi; }
+  var okTarget = !!(xr.lastHost && xr.lastHost.helperOn);
+  ctx.fillStyle = '#eceaf6';
+  ctx.font = 'bold 30px sans-serif';
+  ctx.fillText('キー送信', 32, 50);
+  ctx.fillStyle = okTarget ? '#3ddc97' : '#ffb86b';
+  ctx.font = '24px sans-serif';
+  ctx.fillText(
+    qs.hosts.length
+      ? ('送信先: PC' + (hi + 1) + (okTarget ? '' : '(操作モードOFF)'))
+      : '送信先なし',
+    200, 50
+  );
+
+  function kbtn(id, x, y, w, h, text){
+    var hover = xr.keysHL === id;
+    ctx.fillStyle = '#252142';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = hover ? '#cfc4ff' : '#3d3766';
+    ctx.lineWidth = hover ? 3 : 2;
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = '#eceaf6';
+    ctx.font = '25px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + w / 2, y + h / 2 + 1);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    btns.push({ id: id, x: x, y: y, w: w, h: h });
+  }
+
+  kbtn('close', W - 150, 16, 120, 46, '閉じる');
+  var yRow = [78, 192, 306];
+  for (var r = 0; r < KEYPAL.length; r++) {
+    var x = 32;
+    for (var k = 0; k < KEYPAL[r].length; k++) {
+      var it = KEYPAL[r][k];
+      kbtn(it[0], x, yRow[r], it[2], 88, it[1]);
+      x += it[2] + 10;
+    }
+  }
+  xr.keys.btns = btns;
+  xr.keys.tex.needsUpdate = true;
+}
+
+function xrKeysHit(uv){
+  var x = uv.x * KEYS_W;
+  var y = (1 - uv.y) * KEYS_H;
+  for (var i = 0; i < xr.keys.btns.length; i++) {
+    var b = xr.keys.btns[i];
+    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b.id;
+  }
+  return null;
+}
+
+function xrKeysActivate(id){
+  if (!id) return;
+  if (id === 'close') { xrKeysToggle(); return; }
+  if (xr.lastHost && xr.lastHost.helperOn) {
+    hostSend(xr.lastHost, { t: 'key', k: id });
+  }
+}
+
+/* ---------- VR内のPC追加(テンキー)パネル ---------- */
+var PAD_W = 1024, PAD_H = 520;
+
+function xrPadEnsure(){
+  if (xr.pad.mesh) return;
+  var c = document.createElement('canvas');
+  c.width = PAD_W;
+  c.height = PAD_H;
+  xr.pad.canvas = c;
+  xr.pad.ctx = c.getContext('2d');
+  xr.pad.tex = new THREE.CanvasTexture(c);
+  var mat = new THREE.MeshBasicMaterial({ map: xr.pad.tex, transparent: true, side: THREE.DoubleSide });
+  xr.pad.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.3 * PAD_H / PAD_W), mat);
+  xr.pad.mesh.visible = false;
+  xr.scene.add(xr.pad.mesh);
+}
+
+function xrPadToggle(){
+  xrPadEnsure();
+  xr.pad.open = !xr.pad.open;
+  xr.pad.mesh.visible = xr.pad.open;
+  if (xr.pad.open) {
+    xr.pad.status = '';
+    xrPadPlace();
+    xrPadDraw();
+  } else {
+    xr.padHL = null;
+  }
+}
+
+function xrPadPlace(){
+  if (xr.padCustom) return;
+  var camPos = new THREE.Vector3();
+  xr.camera.getWorldPosition(camPos);
+  var dir = new THREE.Vector3();
+  xr.camera.getWorldDirection(dir);
+  dir.y = 0;
+  if (dir.lengthSq() < 1e-4) dir.set(0, 0, -1);
+  dir.normalize();
+  xr.pad.mesh.position.set(camPos.x + dir.x * 1.3, camPos.y - 0.12, camPos.z + dir.z * 1.3);
+  xr.pad.mesh.lookAt(camPos.x, xr.pad.mesh.position.y, camPos.z);
+}
+
+function xrPadDraw(){
+  if (!xr.pad.ctx || !xr.pad.open) return;
+  var ctx = xr.pad.ctx, W = PAD_W, H = PAD_H;
+  var btns = [];
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(16,14,26,0.96)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#8f7bff';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(3, 3, W - 6, H - 6);
+  ctx.fillStyle = '#eceaf6';
+  ctx.font = 'bold 30px sans-serif';
+  ctx.fillText('PCを追加 / 再接続', 32, 50);
+
+  function pbtn(id, x, y, w, h, text, big){
+    var hover = xr.padHL === id;
+    ctx.fillStyle = '#252142';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = hover ? '#cfc4ff' : '#3d3766';
+    ctx.lineWidth = hover ? 3 : 2;
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = '#eceaf6';
+    ctx.font = (big ? 'bold 30px' : '27px') + ' sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + w / 2, y + h / 2 + 1);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    btns.push({ id: id, x: x, y: y, w: w, h: h });
+  }
+
+  pbtn('close', W - 150, 16, 120, 46, '閉じる');
+
+  /* コード表示 */
+  for (var bi = 0; bi < 6; bi++) {
+    var bx = 32 + bi * 60;
+    ctx.fillStyle = '#161327';
+    ctx.fillRect(bx, 76, 52, 62);
+    ctx.strokeStyle = '#332e58';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(bx, 76, 52, 62);
+    var chd = xr.pad.code[bi] || '';
+    if (chd) {
+      ctx.fillStyle = '#eceaf6';
+      ctx.font = 'bold 34px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(chd, bx + 26, 108);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+    }
+  }
+
+  /* テンキー */
+  var grid = [['d1', '1'], ['d2', '2'], ['d3', '3'], ['d4', '4'], ['d5', '5'],
+              ['d6', '6'], ['d7', '7'], ['d8', '8'], ['d9', '9'],
+              ['clr', 'C'], ['d0', '0'], ['bks', '⌫']];
+  for (var gi = 0; gi < grid.length; gi++) {
+    var gx = 32 + (gi % 3) * 112;
+    var gy = 160 + Math.floor(gi / 3) * 86;
+    pbtn(grid[gi][0], gx, gy, 100, 74, grid[gi][1], true);
+  }
+
+  pbtn('go', 420, 160, 220, 74, '接続する', true);
+
+  /* 接続の一覧 */
+  ctx.font = '24px sans-serif';
+  var hy = 96;
+  if (!qs.hosts.length) {
+    ctx.fillStyle = '#8f89a8';
+    ctx.fillText('まだ接続がありません', 420, hy);
+  }
+  for (var hi = 0; hi < qs.hosts.length && hi < 3; hi++) {
+    var h = qs.hosts[hi];
+    var stt = h.state === 'retry' ? '⟳ 再接続中' :
+      (h.state === 'open' ? (h.helperOn ? '接続中(操作ON)' : '接続中(見るだけ)') : '接続待ち…');
+    ctx.fillStyle = '#d8d5ea';
+    ctx.fillText('PC' + (hi + 1) + ' [' + h.code + '] ' + stt, 420, hy);
+    hy += 34;
+  }
+
+  /* 状態メッセージ */
+  ctx.fillStyle = '#ffb86b';
+  ctx.font = '23px sans-serif';
+  var stx = xr.pad.status || '';
+  for (var li = 0; li < 6 && stx.length; li++) {
+    ctx.fillText(stx.slice(0, 24), 420, 286 + li * 32);
+    stx = stx.slice(24);
+  }
+
+  xr.pad.btns = btns;
+  xr.pad.tex.needsUpdate = true;
+}
+
+function xrPadHit(uv){
+  var x = uv.x * PAD_W;
+  var y = (1 - uv.y) * PAD_H;
+  for (var i = 0; i < xr.pad.btns.length; i++) {
+    var b = xr.pad.btns[i];
+    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b.id;
+  }
+  return null;
+}
+
+function xrPadActivate(id){
+  if (!id) return;
+  if (id === 'close') { xrPadToggle(); return; }
+  if (id === 'clr') {
+    xr.pad.code = '';
+  } else if (id === 'bks') {
+    xr.pad.code = xr.pad.code.slice(0, -1);
+  } else if (id === 'go') {
+    if (xr.pad.code.length !== 6) {
+      xr.pad.status = '6桁のコードを入力してください。';
+    } else {
+      var fake = { textContent: '' };
+      var ok = questAddHost(xr.pad.code, fake);
+      xr.pad.status = fake.textContent || (ok ? '接続しています…(結果は15秒以内にここに出ます)' : '');
+      if (ok) xr.pad.code = '';
+    }
+  } else if (id.charAt(0) === 'd') {
+    if (xr.pad.code.length < 6) xr.pad.code += id.charAt(1);
+  }
+  xrPadDraw();
+}
+
+APP.xrPadMsg = function(msg){
+  if (xr.built && xr.pad.open) {
+    xr.pad.status = String(msg || '');
+    xrPadDraw();
+  }
+};
+
+APP.xrPadSync = function(){
+  if (xr.built && xr.pad.open) xrPadDraw();
+};
+
+/* ---------- VRの中の設定メニュー ---------- */
+var MENU_H = 820;
+
+function xrMenuEnsure(){
+  if (xr.menu.mesh) return;
+  var c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = MENU_H;
+  xr.menu.canvas = c;
+  xr.menu.ctx = c.getContext('2d');
+  xr.menu.tex = new THREE.CanvasTexture(c);
+  var mat = new THREE.MeshBasicMaterial({ map: xr.menu.tex, transparent: true, side: THREE.DoubleSide });
+  xr.menu.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5 * MENU_H / 1024), mat);
+  xr.menu.mesh.visible = false;
+  xr.scene.add(xr.menu.mesh);
+}
+
+function xrMenuToggle(){
+  xrMenuEnsure();
+  xr.menu.open = !xr.menu.open;
+  xr.menu.mesh.visible = xr.menu.open;
+  if (xr.menu.open) {
+    xrMenuPlace();
+    xrMenuDraw();
+  } else {
+    xr.menuHL = null;
+  }
+}
+
+function xrMenuPlace(){
+  if (xr.menuCustom) return; /* つかんで動かした位置を尊重 */
+  var camPos = new THREE.Vector3();
+  xr.camera.getWorldPosition(camPos);
+  var dir = new THREE.Vector3();
+  xr.camera.getWorldDirection(dir);
+  dir.y = 0;
+  if (dir.lengthSq() < 1e-4) dir.set(0, 0, -1);
+  dir.normalize();
+  xr.menu.mesh.position.set(camPos.x + dir.x * 1.5, camPos.y - 0.05, camPos.z + dir.z * 1.5);
+  xr.menu.mesh.lookAt(camPos.x, xr.menu.mesh.position.y, camPos.z);
+}
+
+function xrMenuDraw(){
+  if (!xr.menu.ctx || !xr.menu.open) return;
+  var ctx = xr.menu.ctx, W = 1024, H = MENU_H;
+  var btns = [];
+
+  function btn(id, x, y, w, h, text, on, disabled, small){
+    var hover = (xr.menuHL === id) && !disabled;
+    ctx.fillStyle = disabled ? 'rgba(37,33,66,0.4)' : (on ? 'rgba(143,123,255,0.28)' : '#252142');
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = disabled ? '#332e58' : (on ? '#8f7bff' : (hover ? '#cfc4ff' : '#332e58'));
+    ctx.lineWidth = (hover || on) ? 3 : 2;
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = disabled ? '#6a6488' : '#eceaf6';
+    ctx.font = (small ? '22px' : '26px') + ' sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + w / 2, y + h / 2 + 1);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    if (!disabled) btns.push({ id: id, x: x, y: y, w: w, h: h });
+  }
+  function label(t, x, y){
+    ctx.fillStyle = '#b8a9ff';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillText(t, x, y);
+  }
+  function valbox(text, x, y, w, h){
+    ctx.fillStyle = '#161327';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#332e58';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = '#eceaf6';
+    ctx.font = 'bold 26px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + w / 2, y + h / 2 + 1);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(16,14,26,0.96)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#8f7bff';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(3, 3, W - 6, H - 6);
+  ctx.fillStyle = '#eceaf6';
+  ctx.font = 'bold 34px sans-serif';
+  ctx.fillText('設定', 36, 58);
+
+  btn('close', W - 166, 20, 130, 48, '閉じる');
+  btn('pad', W - 320, 20, 140, 48, 'PC追加', false, false, true);
+  btn('rc', W - 474, 20, 140, 48, '整列', false, false, true);
+
+  label('画質', 36, 122);
+  ['sharp', 'balance', 'smooth', 'auto'].forEach(function(p, i){
+    btn('q:' + p, 36 + i * 242, 136, 226, 58, QUALITY[p].name, S.q === p, false, true);
+  });
+
+  label('背景', 36, 244);
+  BG_LIST.forEach(function(item, i){
+    var r = Math.floor(i / 3), c = i % 3;
+    btn('bg:' + item[0], 36 + c * 325, 258 + r * 70, 310, 56, item[1],
+        S.bg === item[0], item[0] === 'pass' && !qs.arOk, true);
+  });
+
+  label('画面の最大距離', 36, 448);
+  btn('md:-', 36, 462, 70, 54, '−');
+  valbox(S.maxDist + ' m', 114, 462, 140, 54);
+  btn('md:+', 262, 462, 70, 54, '+');
+
+  label('画面の最大の幅', 540, 448);
+  btn('mw:-', 540, 462, 70, 54, '−');
+  valbox(S.maxW + ' m', 618, 462, 140, 54);
+  btn('mw:+', 766, 462, 70, 54, '+');
+
+  label('接続品質の表示', 36, 566);
+  btn('st', 36, 580, 140, 54, S.stats ? 'ON' : 'OFF', S.stats);
+
+  label('音量', 540, 566);
+  btn('vol:-', 540, 580, 70, 54, '−');
+  valbox(Math.round(S.vol * 100) + '%', 618, 580, 140, 54);
+  btn('vol:+', 766, 580, 70, 54, '+');
+
+  label('配置スロット(位置・大きさ・湾曲・固定・追従・明るさを記憶)', 36, 680);
+  ['A', 'B', 'C'].forEach(function(nm, i){
+    var x0 = 36 + i * 330;
+    btn('sv:' + i, x0, 696, 150, 52, nm + ' 保存', false, false, true);
+    btn('ld:' + i, x0 + 158, 696, 150, 52, nm + ' 呼出', !!S.slots[i], !S.slots[i], true);
+  });
+
+  label('休憩リマインダー', 36, 786);
+  [['rm:0', 'なし', 0], ['rm:30', '30分', 30], ['rm:60', '60分', 60], ['rm:90', '90分', 90]].forEach(function(it, i){
+    btn(it[0], 300 + i * 140, 756, 128, 48, it[1], xr.remindMin === it[2], false, true);
+  });
+
+  xr.menu.btns = btns;
+  xr.menu.tex.needsUpdate = true;
+}
+
+function xrMenuHit(uv){
+  var x = uv.x * 1024;
+  var y = (1 - uv.y) * MENU_H;
+  for (var i = 0; i < xr.menu.btns.length; i++) {
+    var b = xr.menu.btns[i];
+    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b.id;
+  }
+  return null;
+}
+
+function xrMenuActivate(id){
+  if (!id) return;
+  if (id === 'close') { xrMenuToggle(); return; }
+  var p = id.split(':');
+  if (p[0] === 'q') {
+    S.q = p[1];
+    saveS();
+    qSendQualityAll();
+  } else if (p[0] === 'bg') {
+    var b = p[1];
+    if (b === 'pass' && !qs.arOk) return;
+    S.bg = b;
+    saveS();
+    if (b === 'pass' && xr.mode === 'immersive-vr' && xr.session) {
+      /* VR→パススルーはセッションの入り直しが必要 */
+      $('qStatus').textContent = 'もう一度「VRで見る」を押すと、パススルーで始まります。';
+      try { xr.session.end(); } catch (_e) {}
+      return;
+    }
+    xrApplyBackground();
+  } else if (id === 'md:-' || id === 'md:+') {
+    S.maxDist = clamp(S.maxDist + (id === 'md:+' ? 2 : -2), 3, 30);
+    if (xr.params.dist > S.maxDist) { xr.params.dist = S.maxDist; xrLayout(); }
+    saveS();
+  } else if (id === 'mw:-' || id === 'mw:+') {
+    S.maxW = clamp(S.maxW + (id === 'mw:+' ? 2 : -2), 3, 40);
+    if (xr.params.width > S.maxW) { xr.params.width = S.maxW; xr.geoDirty = true; }
+    saveS();
+  } else if (id === 'st') {
+    S.stats = !S.stats;
+    saveS();
+    questStatsTick();
+    xrDrawHud();
+  } else if (id === 'vol:-' || id === 'vol:+') {
+    S.vol = clamp(Math.round((S.vol + (id === 'vol:+' ? 0.1 : -0.1)) * 10) / 10, 0, 1);
+    saveS();
+    applyVolume();
+  } else if (id === 'pad') {
+    xrPadToggle();
+  } else if (id === 'rc') {
+    xr.needsRecenter = true;
+  } else if (p[0] === 'rm') {
+    var mm = parseInt(p[1], 10) || 0;
+    xr.remindMin = mm;
+    xr.remindAt = mm ? (Date.now() + mm * 60000) : 0;
+    xr.remindShownUntil = 0;
+  } else if (p[0] === 'sv') {
+    S.slots[parseInt(p[1], 10) || 0] = xrSnapshotLayout();
+    saveS();
+  } else if (p[0] === 'ld') {
+    var sl = S.slots[parseInt(p[1], 10) || 0];
+    if (sl) xrApplyLayoutSlot(sl);
+  }
+  xrMenuDraw();
+  refreshSettingsUi();
+}
+
+/* ---------- 配置スロット ---------- */
+function xrBasis(){
+  var up = new THREE.Vector3(0, 1, 0);
+  var f = xr.forward.clone();
+  var r = new THREE.Vector3().crossVectors(f, up);
+  return { f: f, r: r };
+}
+
+function xrSnapshotLayout(){
+  var b = xrBasis();
+  var scr = xr.screens.map(function(s){
+    var d = s.mesh.position.clone().sub(xr.anchorPos);
+    return {
+      c: s.custom ? 1 : 0, l: s.locked ? 1 : 0, f: s.follow ? 1 : 0,
+      w: Math.round(s.wScale * 100) / 100, cv: s.curved ? 1 : 0,
+      dm: Math.round(s.dim * 100) / 100,
+      p: [
+        Math.round(d.dot(b.r) * 100) / 100,
+        Math.round(d.y * 100) / 100,
+        Math.round(d.dot(b.f) * 100) / 100
+      ]
+    };
+  });
+  return { d: xr.params.dist, wd: xr.params.width, cv: xr.params.curved ? 1 : 0, scr: scr };
+}
+
+function xrApplyLayoutSlot(sl){
+  xr.params.dist = clamp(+sl.d || 2.4, 1, S.maxDist);
+  xr.params.width = clamp(+sl.wd || 2.7, 1, S.maxW);
+  xr.params.curved = !!sl.cv;
+  var b = xrBasis();
+  var up = new THREE.Vector3(0, 1, 0);
+  (sl.scr || []).forEach(function(e, i){
+    var s = xr.screens[i];
+    if (!s || !e) return;
+    s.locked = !!e.l;
+    s.follow = !!e.f;
+    s.curved = !!e.cv;
+    s.wScale = clamp(+e.w || 1, 0.35, 6);
+    s.dim = clamp(+e.dm || 1, 0.2, 1);
+    s.mat.color.setScalar(s.dim);
+    s.custom = !!e.c;
+    if (s.custom && e.p) {
+      s.mesh.position.copy(xr.anchorPos)
+        .addScaledVector(b.r, +e.p[0] || 0)
+        .addScaledVector(up, +e.p[1] || 0)
+        .addScaledVector(b.f, +e.p[2] || 0);
+      s.mesh.lookAt(xr.camPos);
+    }
+    s.barSig = '';
+  });
+  xr.geoDirty = true;
+  xr.saveDirty = true;
+  xrLayout();
+  xrDrawHud();
+}
+
+APP.xrLimitsChanged = function(){
+  if (!xr.built) return;
+  var moved = false;
+  if (xr.params.dist > S.maxDist) { xr.params.dist = S.maxDist; moved = true; }
+  if (xr.params.width > S.maxW) { xr.params.width = S.maxW; xr.geoDirty = true; }
+  if (moved) xrLayout();
+  if (xr.menu.open) xrMenuDraw();
+};
+
+/* ---------- 毎フレーム ---------- */
+function xrRender(){
+  var dt = Math.min(0.05, xr.clock.getDelta());
+  xr.camera.getWorldPosition(xr.camPos);
+  xrPollInput(dt);
+  xrUpdatePointers();
+  xrPressTick();
+  xrUpdateGrabs();
+  xrUpdateFollows();
+  xrMaybeSendMove();
+
+  var now = performance.now();
+  if (xr.geoDirty && now - xr.lastGeoRebuild > 100) {
+    xr.geoDirty = false;
+    xr.lastGeoRebuild = now;
+    xrRebuildGeos();
+  }
+  if (xr.saveDirty && now - xr.lastSave > 1500) {
+    xr.lastSave = now;
+    xrSaveLayout();
+  }
+  if (xr.hud) xr.hud.visible = xr.hudPinned || now < xr.hudUntil;
+
+  /* 時計の分更新と休憩リマインダー */
+  var dclk = new Date();
+  var clkStr = dclk.getHours() + ':' + ('0' + dclk.getMinutes()).slice(-2);
+  if (clkStr !== xr.lastClock) {
+    xr.lastClock = clkStr;
+    xrDrawHud();
+  }
+  if (xr.remindAt && Date.now() >= xr.remindAt) {
+    xr.remindAt = 0;
+    xr.remindMin = 0;
+    xr.remindShownUntil = Date.now() + 60000;
+    xr.hudPinned = true;
+    xrDrawHud();
+    if (xr.menu.open) xrMenuDraw();
+  }
+
+  xr.renderer.render(xr.scene, xr.camera);
+
+  if (xr.needsRecenter) {
+    xr.needsRecenter = false;
+    xrApplyRecenter();
+  }
+}
+
+/* ================================================================
+   起動
+   ================================================================ */
+function bootApp(){
+  $('cardPC').addEventListener('click', function(){ setView('viewPC'); });
+  $('cardQuest').addEventListener('click', function(){ setView('viewQuest'); questInit(); });
+  $('btnBackPC').addEventListener('click', function(){ pcStop(); setView('viewHome'); });
+  $('btnBackQ').addEventListener('click', function(){ APP.xrEnd(); questReset(); setView('viewHome'); });
+  $('btnShare').addEventListener('click', pcStartShare);
+  $('btnAddScreen').addEventListener('click', pcAddScreenClick);
+  $('btnStop').addEventListener('click', pcStop);
+  $('btnPcSet').addEventListener('click', function(){ openSettings('pc'); });
+  $('btnTopSet').addEventListener('click', function(){
+    openSettings($('btnTopSet').getAttribute('data-role') || 'q');
+  });
+  $('btnQSet').addEventListener('click', function(){ openSettings('q'); });
+
+  $('btnConnect').addEventListener('click', function(){
+    if (questAddHost($('codeInput').value, $('qErr'))) {
+      $('btnConnect').disabled = true;
+      $('btnConnect').textContent = '接続中…';
+    }
+  });
+  $('btnAddPC').addEventListener('click', function(){
+    var box = $('qAddBox');
+    show(box, box.classList.contains('hidden'));
+  });
+  $('btnConnect2').addEventListener('click', function(){
+    if (questAddHost($('codeInput2').value, $('qAddErr'))) {
+      $('codeInput2').value = '';
+      show($('qAddBox'), false);
+    }
+  });
+  $('btnEnterVR').addEventListener('click', xrEnter);
+  $('btnTouch').addEventListener('click', tvOpen);
+
+  function wireCodeInput(inputId, onEnter){
+    var el = $(inputId);
+    el.addEventListener('input', function(){
+      this.value = this.value.replace(/\D/g, '').slice(0, 6);
+    });
+    el.addEventListener('keydown', function(e){
+      if (e.key === 'Enter') onEnter();
+    });
+  }
+  wireCodeInput('codeInput', function(){ $('btnConnect').click(); });
+  wireCodeInput('codeInput2', function(){ $('btnConnect2').click(); });
+
+  window.addEventListener('beforeunload', function(){
+    if (pc.screens.length) pcStop();
+  });
+
+  setView('viewHome'); /* 右上の⚙の初期状態(ホームでは非表示)も揃える */
+  initSettingsUi();
+  initTouchUi();
+}
+
+/* 公開前(https以外)の案内 */
+(function(){
+  var local = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  if (location.protocol !== 'https:' && !local) show($('noticeSetup'), true);
+})();
+
+window.__libsReady.then(bootApp).catch(function(){ show($('libError'), true); });
+</script>
+</body>
+</html>
