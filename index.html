@@ -1728,7 +1728,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-05e';
+var APP_VER = '2026-08-05f';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -3423,11 +3423,14 @@ function xrScreenW(s){
   return xrScreenWBase(s) * (s.wScale || 1);
 }
 
-function xrMakeScreenGeo(width, aspect, curved){
+function xrMakeScreenGeo(width, aspect, curved, forceAngle){
   var height = width / aspect;
-  var angle = curved
-    ? Math.min(1.5, 0.85 * (width / Math.max(0.8, xr.params.width)))
-    : 0;
+  /* forceAngle: 円柱レイヤーが決めた中心角に板を合わせるとき用(2026-08-05f)。
+     指定がなければ従来どおり幅から計算する */
+  var angle = (typeof forceAngle === 'number' && forceAngle > 0) ? forceAngle
+    : (curved
+      ? Math.min(1.5, 0.85 * (width / Math.max(0.8, xr.params.width)))
+      : 0);
   var segX = 48, segY = 8;
   var pos = [], uv = [], idx = [];
   var iy, ix;
@@ -5128,6 +5131,15 @@ function xrSyncMediaLayers(){
     if (want.indexOf(e.s) < 0 || e.curved !== !!e.s.curved) {
       xr.mediaTrash = xr.mediaTrash || [];
       xr.mediaTrash.push({ layer: e.layer, frames: 0 });
+      if (e.shape && xr.screens.indexOf(e.s) >= 0) {
+        /* レイヤーに合わせて変えた板を、本来の形へ戻す */
+        var og = e.s.mesh.geometry;
+        e.s.mesh.geometry = xrMakeScreenGeo(xrScreenW(e.s), e.s.aspect, e.s.curved);
+        e.s.mesh.userData.w = xrScreenW(e.s);
+        e.s.mesh.userData.h = xrScreenW(e.s) / e.s.aspect;
+        if (og) og.dispose();
+        if (typeof xrPlaceBar === 'function') xrPlaceBar(e.s);
+      }
       if (e.s.mesh && e.s.mesh.material === xr.holeMat && xr.screens.indexOf(e.s) >= 0) {
         e.s.mesh.material = e.s.mat; /* 既に消えた画面は材質もテクスチャも破棄済みなので触らない */
       }
@@ -5141,13 +5153,11 @@ function xrSyncMediaLayers(){
       var space = xr.renderer.xr.getReferenceSpace();
       var layer;
       if (s.curved) {
-        /* 湾曲は円柱レイヤー。半径と中心角は形を作るときと同じ値を使う。
-           縦横比は仕様上「見える幅(=半径×中心角=画面の幅)÷高さ」なので映像の比そのもの */
-        var ang0 = xrScreenAngle(s) || 0.001;
-        layer = xr.mediaBinding.createCylinderLayer(s.video, {
-          space: space, centralAngle: ang0,
-          radius: xrScreenW(s) / ang0, aspectRatio: s.aspect || (16 / 9)
-        });
+        /* 映像の円柱レイヤーは、Meta公式の例が space だけを渡し「ブラウザが最適な形で
+           描く」と説明している。こちらで半径・中心角・縦横比を渡したり作成後に
+           書き換えたりすると映らなかった(2026-08-05d/e の実機で真っ黒)。
+           形はブラウザに任せ、読み取って板の側を合わせる(xrFitMeshToLayer) */
+        layer = xr.mediaBinding.createCylinderLayer(s.video, { space: space });
       } else {
         layer = xr.mediaBinding.createQuadLayer(s.video, {
           space: space, width: 1, height: 1
@@ -5207,9 +5217,7 @@ function xrSyncMediaLayers(){
       { x: xr.tmpQ.x, y: xr.tmpQ.y, z: xr.tmpQ.z, w: xr.tmpQ.w }
     );
     if (e.curved) {
-      e.layer.centralAngle = ang;
-      e.layer.radius = w / Math.max(0.001, ang);
-      e.layer.aspectRatio = (h > 0.0001) ? (w / h) : (16 / 9);
+      /* 形(半径・中心角・縦横比)は書き換えない。書き換えると映らなくなる */
     } else {
       /* 実機の観測(2026-08-05)で、全幅指定だと拡大表示になった=Quadの
          width/heightは「半分の幅」で解釈される。逆に縮んで見えたら 2 で割るのを
@@ -5218,6 +5226,24 @@ function xrSyncMediaLayers(){
       e.layer.height = h / 2;
     }
   });
+  /* レイヤーが決めた形を読み取り、板(当たり判定・つかみ・バー)を合わせる。
+     ずれたままだと、見えている映像と押せる場所が食い違う */
+  xr.mediaLayers.forEach(function(e){
+    if (!e.curved) return;
+    var R = +e.layer.radius, A = +e.layer.centralAngle, AR = +e.layer.aspectRatio;
+    if (!(R > 0) || !(A > 0) || !(AR > 0)) return;
+    var key = R.toFixed(4) + ',' + A.toFixed(4) + ',' + AR.toFixed(4);
+    if (key === e.shape) return;
+    e.shape = key;
+    var arcW = R * A;               /* 見える幅 = 半径 × 中心角 */
+    var old = e.s.mesh.geometry;
+    e.s.mesh.geometry = xrMakeScreenGeo(arcW, AR, true, A);
+    e.s.mesh.userData.w = arcW;
+    e.s.mesh.userData.h = arcW / AR;
+    if (old) old.dispose();
+    if (typeof xrPlaceBar === 'function') xrPlaceBar(e.s);
+  });
+
   if (changed) {
     var arr = [];
     for (var n = 0; n < xr.mediaLayers.length; n++) arr.push(xr.mediaLayers[n].layer);
