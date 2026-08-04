@@ -532,6 +532,20 @@ footer.site a{color:var(--muted);text-decoration:underline}
         <p class="set-note">横と縦が2対1の全天球写真(equirectangular)を選んでください。<b>写真はこの端末から出ません</b>(どこにも送りません)。保存はしないので、ページを読み込み直すと元の背景に戻ります。</p>
         <p class="notice-warn hidden" id="bgPhotoErr"></p>
         <div class="set-row" style="margin-top:8px">
+          <label>全天球の映像</label>
+          <input type="file" id="fileVid" accept="video/*">
+        </div>
+        <div class="set-row">
+          <label>映像の立体視の並び</label>
+          <select class="monsel" id="selPanoStereo">
+            <option value="mono">平面(標準)</option>
+            <option value="tb">上下(左目が上)</option>
+            <option value="lr">左右(左目が左)</option>
+          </select>
+        </div>
+        <p class="set-note">映像も<b>この端末から出ません</b>。保存はしないので、読み込み直すと元の背景に戻ります。立体視の並びは<b>選び直すと映像を貼り直します</b>。</p>
+        <p class="notice-warn hidden" id="bgVidErr"></p>
+        <div class="set-row" style="margin-top:8px">
           <label>画面の最大距離 <span id="valMaxD" style="color:var(--muted)"></span></label>
           <input type="range" id="rangeMaxD" min="3" max="30" step="1">
         </div>
@@ -1734,7 +1748,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-05i';
+var APP_VER = '2026-08-05j';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1796,8 +1810,9 @@ function loadS(){
   var s = {};
   try { s = JSON.parse(localStorage.getItem('vrdd') || '{}') || {}; } catch (_e) { s = {}; }
   if (['sharp', 'balance', 'smooth', 'auto'].indexOf(s.q) < 0) s.q = 'balance';
-  if (['dark', 'black', 'stars', 'sky', 'sunset', 'pass', 'photo'].indexOf(s.bg) < 0) s.bg = 'dark';
-  if (s.bg === 'photo') s.bg = 'dark'; /* 写真はこの場かぎり。読み込み直したら暗い空へ */
+  if (['dark', 'black', 'stars', 'sky', 'sunset', 'pass', 'photo', 'video'].indexOf(s.bg) < 0) s.bg = 'dark';
+  s.panoStereo = (['tb', 'lr'].indexOf(s.panoStereo) >= 0) ? s.panoStereo : 'mono'; /* 全天球映像の立体視の並び */
+  if (s.bg === 'photo' || s.bg === 'video') s.bg = 'dark'; /* 写真も映像もこの場かぎり */
   s.stats = !!s.stats;
   s.vol = (typeof s.vol === 'number' && s.vol >= 0 && s.vol <= 1) ? s.vol : 1;
   s.scrollDir = (s.scrollDir === -1) ? -1 : 1;
@@ -2095,6 +2110,7 @@ function renderKm(){
   $('selCodec').value = S.codec;
   $('selRender').value = S.renderMode;
   $('selAA').value = (S.aa === false) ? 'off' : 'on';
+  if ($('selPanoStereo')) $('selPanoStereo').value = S.panoStereo || 'mono';
   $('selLowLat').value = (S.lowLat === false) ? 'off' : 'on';
   $('selScrollSpd').value = String(S.scrollSpd);
 }
@@ -2128,7 +2144,8 @@ var BG_LIST = [
   ['sky',    '昼の空',              '太陽とやわらかい雲のある青空'],
   ['sunset', '夕焼け',              '沈む夕日と光る雲、宵の星'],
   ['pass',   'パススルー',          '現実の部屋に画面が浮かぶ(対応機のみ)'],
-  ['photo',  '全天球の写真',        '手元の写真を空にする(下で選ぶ。読み込み直すと消えます)']
+  ['photo',  '全天球の写真',        '手元の写真を空にする(下で選ぶ。読み込み直すと消えます)'],
+  ['video',  '全天球の映像',        '手元の映像を空にする(下で選ぶ。読み込み直すと消えます)']
 ];
 
 function renderEnv(){
@@ -2138,12 +2155,15 @@ function renderEnv(){
   BG_LIST.forEach(function(item){
     var b = document.createElement('button');
     var unavailable = (item[0] === 'pass' && !qs.arOk)
-      || (item[0] === 'photo' && !(xr.bg && xr.bg.pano));
+      || (item[0] === 'photo' && !(xr.bg && xr.bg.pano))
+      || (item[0] === 'video' && !(xr.bg && xr.bg.panoVid));
     b.className = 'opt' + (S.bg === item[0] ? ' on' : '');
     b.disabled = unavailable;
     b.innerHTML = '<b>' + item[1] + '</b>'
       + (unavailable
-        ? (item[0] === 'photo' ? '下の欄で写真を選ぶと使えます' : 'この機器のブラウザは非対応です')
+        ? (item[0] === 'photo' ? '下の欄で写真を選ぶと使えます'
+          : item[0] === 'video' ? '下の欄で映像を選ぶと使えます'
+          : 'この機器のブラウザは非対応です')
         : item[2]);
     b.addEventListener('click', function(){
       if (unavailable) return;
@@ -2267,6 +2287,26 @@ function initSettingsUi(){
     var f = e.target.files && e.target.files[0];
     xrSetPanoFile(f);
     e.target.value = ''; /* 同じ写真をもう一度選んでも効くように */
+  });
+  $('fileVid').addEventListener('change', function(e){
+    var f = e.target.files && e.target.files[0];
+    xrSetPanoVideo(f);
+    e.target.value = '';
+  });
+  $('selPanoStereo').addEventListener('change', function(){
+    S.panoStereo = $('selPanoStereo').value;
+    saveS();
+    if (S.bg === 'video' && xr.bg && xr.bg.panoVid) {
+      /* 並びを変えたら貼り直す(レイヤーも球も作り直しになる) */
+      if (xr.bg.panoLayer) { try { xr.bg.panoLayer.destroy(); } catch (_e) {} xr.bg.panoLayer = null; }
+      if (xr.bg.panoSphere) {
+        xr.scene.remove(xr.bg.panoSphere);
+        try { xr.bg.panoSphere.geometry.dispose(); xr.bg.panoSphere.material.dispose(); } catch (_e) {}
+        xr.bg.panoSphere = null;
+      }
+      if (xr.bg.panoVidTex) { try { xr.bg.panoVidTex.dispose(); } catch (_e) {} xr.bg.panoVidTex = null; }
+      APP.xrBgChanged();
+    }
   });
   wireLimit('rangeMaxW', 'valMaxW', 'maxW', 3, 40);
   $('volRange').addEventListener('input', function(){
@@ -3351,12 +3391,113 @@ function xrSetPanoFile(file){
   img.src = url;
 }
 
+/* 全天球の映像を背景にする(この場かぎり・2026-08-05j)。
+   まず合成器の全天球レイヤーで試し、作れなければ背景貼りへ自動で落ちる。
+   どちらで映っているかは操作ガイドに出す(xr.panoWay) */
+function xrSetPanoVideo(file){
+  var el = $('bgVidErr');
+  if (el) { el.textContent = ''; show(el, false); }
+  if (!file) return;
+  xrClearPanoVideo();
+  var url = URL.createObjectURL(file);
+  var v = document.createElement('video');
+  v.src = url;
+  v.loop = true;
+  v.muted = true;
+  v.playsInline = true;
+  v.setAttribute('playsinline', '');
+  v.addEventListener('loadeddata', function(){
+    xr.bg.panoVid = v;
+    xr.bg.panoVidUrl = url;
+    S.bg = 'video';
+    saveS();
+    renderEnv();
+    APP.xrBgChanged();
+  });
+  v.addEventListener('error', function(){
+    try { URL.revokeObjectURL(url); } catch (_e) {}
+    if (el) { el.textContent = 'この映像を読み込めませんでした。別のファイルで試してください。'; show(el, true); }
+  });
+  v.play().catch(function(){ v.play().catch(function(){}); });
+}
+
+function xrClearPanoVideo(){
+  if (xr.bg.panoLayer) {
+    try { xr.bg.panoLayer.destroy(); } catch (_e) {}
+    xr.bg.panoLayer = null;
+    xrPanoLayerSync(); /* layers配列から外す */
+  }
+  if (xr.bg.panoVidTex) { try { xr.bg.panoVidTex.dispose(); } catch (_e) {} xr.bg.panoVidTex = null; }
+  if (xr.bg.panoSphere) {
+    xr.scene.remove(xr.bg.panoSphere);
+    try { xr.bg.panoSphere.geometry.dispose(); xr.bg.panoSphere.material.dispose(); } catch (_e) {}
+    xr.bg.panoSphere = null;
+  }
+  if (xr.bg.panoVid) { try { xr.bg.panoVid.pause(); } catch (_e) {} xr.bg.panoVid = null; }
+  if (xr.bg.panoVidUrl) { try { URL.revokeObjectURL(xr.bg.panoVidUrl); } catch (_e) {} xr.bg.panoVidUrl = null; }
+  xr.panoWay = '';
+}
+
+/* 逃げ道: 大きめの球に貼る。半径90mは、左右の目のずれが0.04度で見分けられない
+   =事実上の無限遠。**以前やめた半径45mの球とは別物**(45mは丸天井に見えた)。
+   カメラの奥行き上限100mの内側に収める。立体視の映像は片目ぶんを切り出す */
+function xrPanoSphere(){
+  if (!xr.bg.panoVid) return;
+  var tex = new THREE.VideoTexture(xr.bg.panoVid);
+  tex.encoding = THREE.sRGBEncoding;
+  tex.minFilter = THREE.LinearFilter;
+  if (S.panoStereo === 'tb') { tex.repeat.set(1, 0.5); tex.offset.set(0, 0.5); }
+  else if (S.panoStereo === 'lr') { tex.repeat.set(0.5, 1); tex.offset.set(0, 0); }
+  var geo = new THREE.SphereGeometry(90, 48, 32);
+  var mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false });
+  xr.bg.panoVidTex = tex;
+  xr.bg.panoSphere = new THREE.Mesh(geo, mat);
+  xr.scene.add(xr.bg.panoSphere);
+  xr.panoWay = '背景';
+}
+
+/* 合成器の全天球レイヤーを作る。作れなければ false を返して逃げ道へ */
+function xrPanoLayerTry(){
+  if (!xr.mediaOk || !xr.mediaBinding || !xr.bg.panoVid) return false;
+  try {
+    var lay = { mono: 'mono', tb: 'stereo-top-bottom', lr: 'stereo-left-right' }[S.panoStereo] || 'mono';
+    xr.bg.panoLayer = xr.mediaBinding.createEquirectLayer(xr.bg.panoVid, {
+      space: xr.renderer.xr.getReferenceSpace(), layout: lay
+    });
+    xr.panoWay = '合成器';
+    xrPanoLayerSync();
+    return true;
+  } catch (_e) { xr.bg.panoLayer = null; return false; }
+}
+
+/* 全天球レイヤーはいちばん奥(配列の先頭)に置く */
+function xrPanoLayerSync(){
+  if (!xr.session || !xr.projLayer) return;
+  var arr = [];
+  if (xr.bg.panoLayer) arr.push(xr.bg.panoLayer);
+  for (var i = 0; i < (xr.mediaLayers || []).length; i++) arr.push(xr.mediaLayers[i].layer);
+  arr.push(xr.projLayer);
+  try { xr.session.updateRenderState({ layers: arr }); } catch (_e) {}
+}
+
 function xrApplyBackground(){
   var bg = S.bg;
   if (bg === 'pass' && !qs.arOk) bg = 'dark';
   if (xr.bg.grid) xr.bg.grid.visible = false;
   if (xr.bg.ring) xr.bg.ring.visible = false;
   xr.scene.fog = null;
+  if (bg !== 'video') {
+    /* 映像の背景から離れるときは、レイヤーも球もいったん片付ける
+       (映像そのものは xr.bg.panoVid に残るので、選び直せばまた使える) */
+    if (xr.bg.panoLayer) { try { xr.bg.panoLayer.destroy(); } catch (_e) {} xr.bg.panoLayer = null; xrPanoLayerSync(); }
+    if (xr.bg.panoSphere) {
+      xr.scene.remove(xr.bg.panoSphere);
+      try { xr.bg.panoSphere.geometry.dispose(); xr.bg.panoSphere.material.dispose(); } catch (_e) {}
+      xr.bg.panoSphere = null;
+    }
+    if (xr.bg.panoVidTex) { try { xr.bg.panoVidTex.dispose(); } catch (_e) {} xr.bg.panoVidTex = null; }
+    xr.panoWay = '';
+  }
 
   /* もようを無限遠の背景として貼る。全天球の並び(横2048×縦1024)として読ませる */
   function dome(tex){
@@ -3381,6 +3522,12 @@ function xrApplyBackground(){
   } else if (bg === 'photo') {
     if (xr.bg.pano) dome(xr.bg.pano);
     else { dome(xrTexDark()); xrBuildGrid(); xr.bg.grid.visible = true; xr.bg.ring.visible = true; }
+  } else if (bg === 'video') {
+    if (!xr.bg.panoVid) { dome(xrTexDark()); xrBuildGrid(); xr.bg.grid.visible = true; xr.bg.ring.visible = true; }
+    else {
+      xr.scene.background = null; /* 合成器・球のどちらでも、背景色は邪魔になる */
+      if (!xrPanoLayerTry()) xrPanoSphere();
+    }
   } else {
     xr.scene.background = null;
   }
@@ -3790,6 +3937,7 @@ function xrDrawHud(){
     /* 対象は平面のみ。既定は湾曲なので、切り替えないと0枚のままになる */
     if (nLay === 0) drawJp += '(画面上部のボタンで「平面」にすると効きます)';
   }
+  if (xr.panoWay) drawJp += ' / 全天球: ' + xr.panoWay;
   ctx.fillStyle = (xr.fps && xr.fps < 55) ? '#ff8f8f' : '#8f89a8';
   ctx.font = 'bold 26px sans-serif';
   ctx.textAlign = 'right';
@@ -5231,12 +5379,7 @@ function xrSyncMediaLayers(){
     e.layer.width = w / 2;
     e.layer.height = h / 2;
   });
-  if (changed) {
-    var arr = [];
-    for (var n = 0; n < xr.mediaLayers.length; n++) arr.push(xr.mediaLayers[n].layer);
-    arr.push(xr.projLayer);
-    try { xr.session.updateRenderState({ layers: arr }); } catch (_e) {}
-  }
+  if (changed) xrPanoLayerSync(); /* 全天球を先頭に、画面、projection の順で組み直す */
 }
 
 function xrRender(){
