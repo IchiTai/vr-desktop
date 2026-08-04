@@ -732,7 +732,7 @@ function pcCallScreenTo(item, conn){
     if (old) { try { old.close(); } catch (_e) {} }
     var call = pc.peer.call(conn.peer, item.stream, { metadata: { slot: item.slot } });
     item.calls[conn.peer] = call;
-    pcApplyQualityToCall(call, 0, true); /* 新しい通話は立ち上がり優遇つき */
+    pcApplyQualityToCall(call, 0);
   } catch (_e) {}
 }
 
@@ -1728,7 +1728,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-05a';
+var APP_VER = '2026-08-05d';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -1869,33 +1869,11 @@ function pcSetQuality(p){
   });
 }
 
-/* 立ち上がりの数秒だけ「解像度を落とさない」縛りを外す(Macの表示が遅い件・04z)。
-   画素数が多い取り込み(Retina等)では、縛ったままだと最初の映像が出るまで待たされる。
-   startup=true の間は指定を外してブラウザ任せにし、STARTUP_EASE_MS 後に本来の
-   設定へ戻す。取り込みの上限も恒久的な画質設定も変えない。
-   見立てに基づく対処なので、効かなければこの優遇ごと外して別の原因を探る */
-var STARTUP_EASE_MS = 5000;
-var STARTUP_EASE_PIXELS = 1920 * 1080; /* これを超える取り込みのときだけ効かせる */
-function pcNeedsStartupEase(call){
-  try {
-    var t = call && call.peerConnection ? null : null;
-    var item = null;
-    for (var i = 0; i < pc.screens.length; i++) {
-      var sc = pc.screens[i];
-      if (sc.calls) {
-        for (var k in sc.calls) { if (sc.calls[k] === call) { item = sc; break; } }
-      }
-      if (item) break;
-    }
-    if (!item || !item.stream) return false;
-    var vt = item.stream.getVideoTracks()[0];
-    if (!vt || !vt.getSettings) return false;
-    var st = vt.getSettings();
-    return !!(st.width && st.height && (st.width * st.height) > STARTUP_EASE_PIXELS);
-  } catch (_e) { return false; }
-}
-
-function pcApplyQualityToCall(call, attempt, startup){
+/* 注: 2026-08-04z で「立ち上がりの5秒だけ解像度維持の縛りを外す」優遇を入れたが、
+   実機で効果が確認できなかったため 2026-08-05c で撤去した。Macだけ表示が遅い件は
+   未解決のまま(第7節(g))。次に調べるときは、まず測る(共有開始→最初の映像までの
+   秒数、実際の取り込み解像度)こと */
+function pcApplyQualityToCall(call, attempt){
   if (attempt > 12) return;
   var q = QUALITY[pc.quality || S.q] || QUALITY.balance;
   var pcon = call.peerConnection;
@@ -1914,11 +1892,7 @@ function pcApplyQualityToCall(call, attempt, startup){
   }
   if (q.br > 0) params.encodings[0].maxBitrate = q.br;
   else delete params.encodings[0].maxBitrate;
-  var easing = (startup === true) && pcNeedsStartupEase(call);
-  if (easing) {
-    delete params.degradationPreference; /* 立ち上がりはブラウザ任せ(控えめ) */
-    setTimeout(function(){ pcApplyQualityToCall(call, 0); }, STARTUP_EASE_MS);
-  } else if (q.deg) params.degradationPreference = q.deg;
+  if (q.deg) params.degradationPreference = q.deg;
   else delete params.degradationPreference;
   sender.setParameters(params).catch(function(){
     delete params.degradationPreference; /* 未対応ブラウザではビットレートだけ適用 */
@@ -3093,13 +3067,14 @@ function xrBuildScene(){
       new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)
     ]);
     var line = new THREE.Line(laserGeo, new THREE.LineBasicMaterial({
-      color: hand === 'right' ? 0x8f7bff : 0x5ad0ff, transparent: true, opacity: 0.85
+      color: hand === 'right' ? 0x8f7bff : 0x5ad0ff, transparent: true, opacity: 0.85,
+      fog: false
     }));
     line.visible = false;
     scene.add(line);
     var dot = new THREE.Mesh(
       new THREE.SphereGeometry(0.008, 12, 12),
-      new THREE.MeshBasicMaterial({ color: 0xffffff })
+      new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false })
     );
     dot.visible = false;
     scene.add(dot);
@@ -3494,7 +3469,7 @@ function xrCreateScreen(d){
   xrTuneTex(tex);
   tex.magFilter = THREE.LinearFilter;
   tex.encoding = THREE.sRGBEncoding;
-  var mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
+  var mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, fog: false }); /* もやは足元の格子だけに効かせる(暗い空の背景。fog未指定だと遠い画面が暗く沈む) */
   var s = {
     key: d.key, host: d.host, slot: d.slot, video: d.video,
     tex: tex, mat: mat, mesh: null, aspect: 16 / 9, wScale: 1,
@@ -3541,7 +3516,7 @@ function xrBuildBar(s){
   c.width = BAR_W;
   c.height = BAR_H;
   var tex = new THREE.CanvasTexture(c);
-  var mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide });
+  var mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, fog: false });
   var mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 1.35 * BAR_H / BAR_W), mat);
   mesh.userData.barOf = s;
   s.bar = { canvas: c, ctx: c.getContext('2d'), tex: tex, mesh: mesh };
@@ -3695,7 +3670,7 @@ function xrBuildHud(){
   xr.hudCanvas = c;
   xr.hudCtx = c.getContext('2d');
   xr.hudTex = new THREE.CanvasTexture(c);
-  var mat = new THREE.MeshBasicMaterial({ map: xr.hudTex, transparent: true });
+  var mat = new THREE.MeshBasicMaterial({ map: xr.hudTex, transparent: true, fog: false });
   xr.hud = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.4 * 920 / 1024), mat);
   xr.scene.add(xr.hud);
   xrDrawHud();
@@ -4203,6 +4178,7 @@ function xrPollInput(dt){
   if (!session) return;
   var sources = session.inputSources;
   var newPhys = {};
+  var newTouch = { right: false, left: false }; /* トリガーに指が触れているか */
   var axesByHand = {};
 
   for (var i = 0; i < sources.length; i++) {
@@ -4214,9 +4190,10 @@ function xrPollInput(dt){
     [0, 1, 3, 4, 5].forEach(function(k){
       newPhys[pre + k] = !!(gp.buttons[k] && gp.buttons[k].pressed);
     });
-    /* 押す前でも、トリガーに指を置けば「いまの手」が移る。
-       使っていない側のレーザーは消えるので、これがないと狙いを付けられない */
-    if (gp.buttons[0] && gp.buttons[0].touched) xr.activeHand = hand;
+    /* 触れただけでは「いまの手」は移さない(構えているだけで持っていかれるため)。
+       触れている間はその手のレーザーだけ見せて、狙いを付けられるようにする。
+       実際に切り替わるのは、押したとき(下のKM_BTNS)だけ */
+    newTouch[hand] = !!(gp.buttons[0] && gp.buttons[0].touched);
     axesByHand[hand] = {
       ax: gp.axes.length > 2 ? gp.axes[2] : 0,
       ay: gp.axes.length > 3 ? gp.axes[3] : 0
@@ -4234,6 +4211,7 @@ function xrPollInput(dt){
   });
   xr.phys = newPhys;
   xr.prevPhys = newPhys;
+  xr.touching = newTouch; /* 見失った手は毎回falseに戻る */
 
   /* 押しっぱなし検知: 離す信号が欠けても自動で復帰する */
   var handHeld = xr.handSel.right || xr.handSel.left;
@@ -4422,10 +4400,12 @@ function xrUpdatePointerFor(hand){
   } else {
     L.dot.visible = false;
   }
-  /* 使っていない側は消す。両方が生きて見えると、どちらが効くのか分からない */
+  /* 使っていない側は消す。ただしトリガーに指を触れている間は見せる
+     (押す前に狙いを付けるため。切り替わるのは押した瞬間) */
   var isActive = (hand === (xr.activeHand === 'left' ? 'left' : 'right'));
-  if (!isActive) { L.dot.visible = false; }
-  L.line.visible = isActive && xr.screens.length > 0;
+  var shown = isActive || (xr.touching && xr.touching[hand]);
+  if (!shown) { L.dot.visible = false; }
+  L.line.visible = shown && xr.screens.length > 0;
   L.line.position.copy(origin);
   L.line.quaternion.setFromRotationMatrix(xr.tmpMat);
   L.line.scale.set(1, 1, len);
@@ -4512,7 +4492,7 @@ function xrKeysEnsure(){
   xr.keys.canvas = c;
   xr.keys.ctx = c.getContext('2d');
   xr.keys.tex = new THREE.CanvasTexture(c);
-  var mat = new THREE.MeshBasicMaterial({ map: xr.keys.tex, transparent: true, side: THREE.DoubleSide });
+  var mat = new THREE.MeshBasicMaterial({ map: xr.keys.tex, transparent: true, side: THREE.DoubleSide, fog: false });
   xr.keys.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 1.35 * KEYS_H / KEYS_W), mat);
   xr.keys.mesh.visible = false;
   xr.scene.add(xr.keys.mesh);
@@ -4629,7 +4609,7 @@ function xrPadEnsure(){
   xr.pad.canvas = c;
   xr.pad.ctx = c.getContext('2d');
   xr.pad.tex = new THREE.CanvasTexture(c);
-  var mat = new THREE.MeshBasicMaterial({ map: xr.pad.tex, transparent: true, side: THREE.DoubleSide });
+  var mat = new THREE.MeshBasicMaterial({ map: xr.pad.tex, transparent: true, side: THREE.DoubleSide, fog: false });
   xr.pad.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.3 * PAD_H / PAD_W), mat);
   xr.pad.mesh.visible = false;
   xr.scene.add(xr.pad.mesh);
@@ -4809,7 +4789,7 @@ function xrMenuEnsure(){
   xr.menu.canvas = c;
   xr.menu.ctx = c.getContext('2d');
   xr.menu.tex = new THREE.CanvasTexture(c);
-  var mat = new THREE.MeshBasicMaterial({ map: xr.menu.tex, transparent: true, side: THREE.DoubleSide });
+  var mat = new THREE.MeshBasicMaterial({ map: xr.menu.tex, transparent: true, side: THREE.DoubleSide, fog: false });
   xr.menu.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5 * MENU_H / 1024), mat);
   xr.menu.mesh.visible = false;
   xr.scene.add(xr.menu.mesh);
@@ -5084,8 +5064,15 @@ APP.xrLimitsChanged = function(){
    表裏が逆なら transform の向きにY軸180度を掛ける */
 var MEDIA_MAX = 14; /* Questのレイヤー上限(16)からprojection分を引いた安全枠 */
 function xrScreenLayerWanted(s){
-  return S.renderMode !== 'classic' && !s.curved && s.mesh && s.video &&
+  /* 平面も湾曲も同じ条件。レイヤーの種類だけ変える(第2弾・2026-08-05d) */
+  return S.renderMode !== 'classic' && s.mesh && s.video &&
          s.video.readyState >= 2 && s.dim >= 0.999; /* 明るさを下げた画面は従来描画(レイヤーに明るさ調整が無い) */
+}
+
+/* 湾曲画面の弧の中心角。形を作る xrMakeScreenGeo と必ず同じ式にすること
+   (ずれると、板と映像の曲がり具合が食い違う) */
+function xrScreenAngle(s){
+  return Math.min(1.5, 0.85 * (xrScreenW(s) / Math.max(0.8, xr.params.width)));
 }
 /* 描画層を three 自身の入口から取る。`session.renderState` を直接読むと、
    WebXRの決まりで「次のフレームまで反映されない」ため、VR開始直後は空で、
@@ -5128,7 +5115,8 @@ function xrSyncMediaLayers(){
   }
   for (var j = xr.mediaLayers.length - 1; j >= 0; j--) {
     var e = xr.mediaLayers[j];
-    if (want.indexOf(e.s) < 0) {
+    /* 平面と湾曲を切り替えたらレイヤーの種類が変わるので、いったん外して作り直す */
+    if (want.indexOf(e.s) < 0 || e.curved !== !!e.s.curved) {
       xr.mediaTrash = xr.mediaTrash || [];
       xr.mediaTrash.push({ layer: e.layer, frames: 0 });
       if (e.s.mesh && e.s.mesh.material === xr.holeMat && xr.screens.indexOf(e.s) >= 0) {
@@ -5141,19 +5129,31 @@ function xrSyncMediaLayers(){
   want.forEach(function(s){
     for (var k = 0; k < xr.mediaLayers.length; k++) if (xr.mediaLayers[k].s === s) return;
     try {
-      var layer = xr.mediaBinding.createQuadLayer(s.video, {
-        space: xr.renderer.xr.getReferenceSpace(), width: 1, height: 1
-      });
+      var space = xr.renderer.xr.getReferenceSpace();
+      var layer;
+      if (s.curved) {
+        /* 湾曲は円柱レイヤー。半径と中心角は形を作るときと同じ値を使う。
+           縦横比は仕様上「見える幅(=半径×中心角=画面の幅)÷高さ」なので映像の比そのもの */
+        var ang0 = xrScreenAngle(s) || 0.001;
+        layer = xr.mediaBinding.createCylinderLayer(s.video, {
+          space: space, centralAngle: ang0,
+          radius: xrScreenW(s) / ang0, aspectRatio: s.aspect || (16 / 9)
+        });
+      } else {
+        layer = xr.mediaBinding.createQuadLayer(s.video, {
+          space: space, width: 1, height: 1
+        });
+      }
       if (!xr.holeMat) {
         /* 穴あけ材質: RGBA(0,0,0,0)を直書きして、背景に「窓」を開ける。
            メッシュ自体は残すので、当たり判定・つかみ・バーは無改修で動く */
         xr.holeMat = new THREE.MeshBasicMaterial({
           color: 0x000000, opacity: 0, transparent: true,
-          blending: THREE.NoBlending, side: THREE.DoubleSide
+          blending: THREE.NoBlending, side: THREE.DoubleSide, fog: false
         });
       }
       s.mesh.material = xr.holeMat;
-      xr.mediaLayers.push({ s: s, layer: layer, sig: '' });
+      xr.mediaLayers.push({ s: s, layer: layer, sig: '', curved: !!s.curved });
       changed = true;
     } catch (_e) { /* 作成に失敗した画面は従来描画のまま */ }
   });
@@ -5178,20 +5178,39 @@ function xrSyncMediaLayers(){
     m.getWorldQuaternion(xr.tmpQ);
     var w = (m.userData.w || 1) * m.scale.x;
     var h = (m.userData.h || 1) * m.scale.y;
+    var ang = e.curved ? xrScreenAngle(e.s) : 0;
     var sig = xr.tmpV1.x.toFixed(3) + ',' + xr.tmpV1.y.toFixed(3) + ',' + xr.tmpV1.z.toFixed(3) + ','
       + xr.tmpQ.x.toFixed(3) + ',' + xr.tmpQ.y.toFixed(3) + ',' + xr.tmpQ.z.toFixed(3) + ',' + xr.tmpQ.w.toFixed(3) + ','
-      + w.toFixed(3) + ',' + h.toFixed(3);
+      + w.toFixed(3) + ',' + h.toFixed(3) + ',' + ang.toFixed(4);
     if (sig === e.sig) return;
     e.sig = sig;
+    var px = xr.tmpV1.x, py = xr.tmpV1.y, pz = xr.tmpV1.z;
+    if (e.curved) {
+      /* 円柱レイヤーの位置は「円の中心」を指す。いまのメッシュは弧の中央が原点で
+         そこから奥へ膨らむ形(xrMakeScreenGeo の z = (1-cosθ)R)なので、
+         円の中心は板の位置から奥へ半径ぶん進んだ点になる。板の向きの
+         「奥」= 回転させた (0,0,1) 方向。
+         調整点: 画面が手前/奥へ大きくずれたら、この足し算の符号を反転する */
+      var rad = w / Math.max(0.001, ang);
+      if (!xr.tmpV2b) xr.tmpV2b = new THREE.Vector3();
+      xr.tmpV2b.set(0, 0, 1).applyQuaternion(xr.tmpQ);
+      px += xr.tmpV2b.x * rad; py += xr.tmpV2b.y * rad; pz += xr.tmpV2b.z * rad;
+    }
     e.layer.transform = new XRRigidTransform(
-      { x: xr.tmpV1.x, y: xr.tmpV1.y, z: xr.tmpV1.z },
+      { x: px, y: py, z: pz },
       { x: xr.tmpQ.x, y: xr.tmpQ.y, z: xr.tmpQ.z, w: xr.tmpQ.w }
     );
-    /* 実機の観測(2026-08-05)で、全幅指定だと拡大表示になった=Quadの
-       width/heightは「半分の幅」で解釈される。逆に縮んで見えたら 2 で割るのを
-       やめる(調整点)。表裏が逆なら上のquatにY軸180度(調整点・未発症) */
-    e.layer.width = w / 2;
-    e.layer.height = h / 2;
+    if (e.curved) {
+      e.layer.centralAngle = ang;
+      e.layer.radius = w / Math.max(0.001, ang);
+      e.layer.aspectRatio = (h > 0.0001) ? (w / h) : (16 / 9);
+    } else {
+      /* 実機の観測(2026-08-05)で、全幅指定だと拡大表示になった=Quadの
+         width/heightは「半分の幅」で解釈される。逆に縮んで見えたら 2 で割るのを
+         やめる(調整点)。表裏が逆なら上のquatにY軸180度(調整点・未発症) */
+      e.layer.width = w / 2;
+      e.layer.height = h / 2;
+    }
   });
   if (changed) {
     var arr = [];
