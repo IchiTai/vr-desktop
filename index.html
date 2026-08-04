@@ -1728,7 +1728,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-05f';
+var APP_VER = '2026-08-05g';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -3746,6 +3746,11 @@ function xrDrawHud(){
   ctx.font = 'bold 26px sans-serif';
   ctx.textAlign = 'right';
   ctx.fillText(drawJp, W - 40, 112);
+  if (xr.cylInfo) {
+    ctx.fillStyle = '#8f89a8';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillText(xr.cylInfo, W - 40, 144);
+  }
   ctx.textAlign = 'left';
 
   var adjJp = (S.stick === 'right') ? '右' : '左';
@@ -3827,7 +3832,7 @@ async function xrEnter(){
     session.addEventListener('selectend', xrOnSelectEnd);
     await xr.renderer.xr.setSession(session);
     xr.mediaTries = 0; /* 描画層は毎フレーム取り直しを試みる(下の xrEnsureMedia) */
-    xr.fps = 0; xr.frameCount = 0; xr.fpsAt = 0; xr.hudFps = undefined; xr.hudLayN = -1; /* 計測を初期化 */
+    xr.fps = 0; xr.frameCount = 0; xr.fpsAt = 0; xr.hudFps = undefined; xr.hudLayN = -1; xr.hudCyl = null; xr.cylInfo = ''; /* 計測を初期化 */
     xr.mediaTrash = []; /* 破棄待ちのレイヤー((d)③対策) */
     xr.needsRecenter = true;
     xr.hudPinned = false;
@@ -5075,6 +5080,17 @@ var MEDIA_MAX = 14; /* Questのレイヤー上限(16)からprojection分を引�
    -1 = 反対側へ半径ぶん
    **調整点**: 湾曲が真っ黒/位置がずれるときは、この数字だけを 0 / +1 / -1 で試す */
 var CYL_POSE_R = 0;
+/* 円柱レイヤーは位置も作成時に渡し、以後は書き換えない(書き換えが効いていない
+   疑いのため。2026-08-05g)。動かされたら作り直すが、つかんで動かしている最中に
+   毎コマ作り直すと重いので、動きが止まってから作り直す */
+var CYL_SETTLE_MS = 200;
+function xrPoseSig(mesh){
+  mesh.getWorldPosition(xr.tmpV1);
+  if (!xr.tmpQ) xr.tmpQ = new THREE.Quaternion();
+  mesh.getWorldQuaternion(xr.tmpQ);
+  return xr.tmpV1.x.toFixed(3) + ',' + xr.tmpV1.y.toFixed(3) + ',' + xr.tmpV1.z.toFixed(3) + ','
+    + xr.tmpQ.x.toFixed(3) + ',' + xr.tmpQ.y.toFixed(3) + ',' + xr.tmpQ.z.toFixed(3) + ',' + xr.tmpQ.w.toFixed(3);
+}
 function xrScreenLayerWanted(s){
   /* 平面も湾曲も同じ条件。レイヤーの種類だけ変える(第2弾・2026-08-05d) */
   return S.renderMode !== 'classic' && s.mesh && s.video &&
@@ -5127,8 +5143,17 @@ function xrSyncMediaLayers(){
   }
   for (var j = xr.mediaLayers.length - 1; j >= 0; j--) {
     var e = xr.mediaLayers[j];
+    /* 湾曲は位置を作成時に固定するので、動かされたら作り直す(止まってから) */
+    var needMove = false;
+    if (e.curved && e.s.mesh && want.indexOf(e.s) >= 0) {
+      var nowSig = xrPoseSig(e.s.mesh);
+      if (nowSig !== e.poseSig) {
+        if (nowSig !== e.pendSig) { e.pendSig = nowSig; e.pendAt = performance.now(); }
+        else if (performance.now() - (e.pendAt || 0) >= CYL_SETTLE_MS) needMove = true;
+      } else { e.pendSig = null; }
+    }
     /* 平面と湾曲を切り替えたらレイヤーの種類が変わるので、いったん外して作り直す */
-    if (want.indexOf(e.s) < 0 || e.curved !== !!e.s.curved) {
+    if (want.indexOf(e.s) < 0 || e.curved !== !!e.s.curved || needMove) {
       xr.mediaTrash = xr.mediaTrash || [];
       xr.mediaTrash.push({ layer: e.layer, frames: 0 });
       if (e.shape && xr.screens.indexOf(e.s) >= 0) {
@@ -5157,7 +5182,15 @@ function xrSyncMediaLayers(){
            描く」と説明している。こちらで半径・中心角・縦横比を渡したり作成後に
            書き換えたりすると映らなかった(2026-08-05d/e の実機で真っ黒)。
            形はブラウザに任せ、読み取って板の側を合わせる(xrFitMeshToLayer) */
-        layer = xr.mediaBinding.createCylinderLayer(s.video, { space: space });
+        s.mesh.getWorldPosition(xr.tmpV1);
+        if (!xr.tmpQ) xr.tmpQ = new THREE.Quaternion();
+        s.mesh.getWorldQuaternion(xr.tmpQ);
+        layer = xr.mediaBinding.createCylinderLayer(s.video, {
+          space: space,
+          transform: new XRRigidTransform(
+            { x: xr.tmpV1.x, y: xr.tmpV1.y, z: xr.tmpV1.z },
+            { x: xr.tmpQ.x, y: xr.tmpQ.y, z: xr.tmpQ.z, w: xr.tmpQ.w })
+        });
       } else {
         layer = xr.mediaBinding.createQuadLayer(s.video, {
           space: space, width: 1, height: 1
@@ -5172,7 +5205,8 @@ function xrSyncMediaLayers(){
         });
       }
       s.mesh.material = xr.holeMat;
-      xr.mediaLayers.push({ s: s, layer: layer, sig: '', curved: !!s.curved });
+      xr.mediaLayers.push({ s: s, layer: layer, sig: '', curved: !!s.curved,
+        poseSig: s.curved ? xrPoseSig(s.mesh) : null });
       changed = true;
     } catch (_e) { /* 作成に失敗した画面は従来描画のまま */ }
   });
@@ -5212,12 +5246,14 @@ function xrSyncMediaLayers(){
       py += xr.tmpV2b.y * rad * CYL_POSE_R;
       pz += xr.tmpV2b.z * rad * CYL_POSE_R;
     }
-    e.layer.transform = new XRRigidTransform(
-      { x: px, y: py, z: pz },
-      { x: xr.tmpQ.x, y: xr.tmpQ.y, z: xr.tmpQ.z, w: xr.tmpQ.w }
-    );
+    if (!e.curved) {
+      e.layer.transform = new XRRigidTransform(
+        { x: px, y: py, z: pz },
+        { x: xr.tmpQ.x, y: xr.tmpQ.y, z: xr.tmpQ.z, w: xr.tmpQ.w }
+      );
+    }
     if (e.curved) {
-      /* 形(半径・中心角・縦横比)は書き換えない。書き換えると映らなくなる */
+      /* 位置も形も書き換えない(作成時に渡した値のまま) */
     } else {
       /* 実機の観測(2026-08-05)で、全幅指定だと拡大表示になった=Quadの
          width/heightは「半分の幅」で解釈される。逆に縮んで見えたら 2 で割るのを
@@ -5243,6 +5279,21 @@ function xrSyncMediaLayers(){
     if (old) old.dispose();
     if (typeof xrPlaceBar === 'function') xrPlaceBar(e.s);
   });
+
+  /* レイヤーが実際に持っている値を控える(切り分け用の表示。位置がこちらの指定
+     どおりなら書き換え/受け渡しは効いており、原点のままなら効いていない) */
+  xr.cylInfo = '';
+  for (var q = 0; q < xr.mediaLayers.length; q++) {
+    var ee = xr.mediaLayers[q];
+    if (!ee.curved) continue;
+    try {
+      var tp = ee.layer.transform && ee.layer.transform.position;
+      xr.cylInfo = '湾曲: 半径' + (+ee.layer.radius).toFixed(2)
+        + ' 角' + Math.round((+ee.layer.centralAngle) * 180 / Math.PI) + '°'
+        + (tp ? ' 位置(' + tp.x.toFixed(1) + ',' + tp.y.toFixed(1) + ',' + tp.z.toFixed(1) + ')' : ' 位置なし');
+    } catch (_e) { xr.cylInfo = '湾曲: 値を読めません'; }
+    break;
+  }
 
   if (changed) {
     var arr = [];
@@ -5271,9 +5322,10 @@ function xrRender(){
   var layN = xr.mediaLayers ? xr.mediaLayers.length : 0;
   if (xr.hud && xr.hud.visible &&
       (xr.hudFps === undefined || Math.abs((xr.fps || 0) - xr.hudFps) >= 2
-       || layN !== xr.hudLayN)) {
+       || layN !== xr.hudLayN || (xr.cylInfo || '') !== xr.hudCyl)) {
     xr.hudFps = xr.fps || 0;
     xr.hudLayN = layN; /* 枚数が変わったときも描き直す(内訳の表示のため) */
+    xr.hudCyl = xr.cylInfo || '';
     xrDrawHud();
   }
   xr.camera.getWorldPosition(xr.camPos);
