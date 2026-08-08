@@ -677,7 +677,8 @@ var pc = {
   screens: [],        /* {slot, stream, call, mon} */
   nextSlot: 1,
   helperOn: false, monitors: [], monSig: '',
-  inputQueue: [], timers: [],
+  inputQueue: [],
+  sendWorker: null, sendUrl: null, sendTimer: null, /* 操作送信の合図(05n。Worker/退避用interval) */
   ctlBlock: false     /* 「操作しない」画面を見ている間は、操作を通さない */
 };
 
@@ -882,6 +883,7 @@ function pcCreatePeer(attempt){
        あふれたら一番古い接続を切って新しい方を受け入れる */
     pc.conns = pc.conns.filter(function(c){
       if (c !== conn && c.peer === conn.peer) {
+        pcReleaseHeld(c); /* 置き換えられる側が押していたら離す(05v) */
         try { c.close(); } catch (_e) {}
         return false;
       }
@@ -889,6 +891,7 @@ function pcCreatePeer(attempt){
     });
     while (pc.conns.length >= 3) {
       var oldC = pc.conns.shift();
+      pcReleaseHeld(oldC); /* あふれて切られる側も同じ(05v) */
       try { oldC.close(); } catch (_e) {}
     }
     pc.conns.push(conn);
@@ -898,8 +901,9 @@ function pcCreatePeer(attempt){
       try { conn.send({ t: 'helper', on: pc.helperOn, os: pc.helperOs || '' }); } catch (_e) {}
       pc.screens.forEach(function(item){ pcCallScreenTo(item, conn); });
     });
-    conn.on('data', function(m){ if (pc.conns.indexOf(conn) >= 0) pcOnData(m); });
+    conn.on('data', function(m){ if (pc.conns.indexOf(conn) >= 0) pcOnData(m, conn); });
     conn.on('close', function(){
+      pcReleaseHeld(conn); /* 押している最中に切れたら肩代わりして離す(05v) */
       var i = pc.conns.indexOf(conn);
       if (i < 0) return; /* 置き換え済みの古い接続 */
       pc.conns.splice(i, 1);
@@ -944,8 +948,53 @@ async function pcPingLoop(){
 }
 function pcStartHelperLoop(){
   pc.stopped = false;
+  /* 前回の共有の残りを持ち越さない(05s)。停止のあとに飛行中だった便が
+     失敗して着地すると、差し戻しで dn やキーがキューに戻ることがある。
+     そのまま次の共有を始めると、押した覚えのない dn が送られて
+     ボタンが押しっぱなしになりうる */
+  pc.inputQueue = [];
+  pc.inputBusy = false;
   pcPingLoop();
-  pc.timers.push(setInterval(pcFlushInput, 33));
+  pcStartSendLoop();
+}
+
+/* 操作送信の合図(33ms)は Web Worker(ページとは別に動く裏方)から出す(2026-08-05n)。
+   ページ本体のタイマーは、ウィンドウの最小化や、他のウィンドウに完全に覆われて
+   「見えないページ」扱いになると、ブラウザにより毎秒1回まで間引かれる
+   (免除は音を鳴らすページだけ。WebRTC使用は5分後の「毎分1回」への強い間引きを
+   免れるだけで、毎秒1回の間引きは受ける)。送信が毎秒1回に落ちると、移動は
+   合算されて最終位置だけになり、毎秒1回のテレポート=カーソル飛び飛びの
+   主因になる(第7節(h)①)。Workerのタイマーはこの間引きの対象外。
+   Workerを作れない環境では従来どおり setInterval に自動で戻る。
+   33ms刻み・前の便が終わるまで次を出さない(04s)という送信の性質は不変。 */
+function pcStartSendLoop(){
+  pcStopSendLoop(); /* 共有のやり直しで二重駆動にならないよう、先に必ず片付ける */
+  var ok = false;
+  try {
+    var src = 'setInterval(function(){ postMessage(0); }, 33);';
+    pc.sendUrl = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+    pc.sendWorker = new Worker(pc.sendUrl);
+    pc.sendWorker.onmessage = function(){ pcFlushInput(); };
+    pc.sendWorker.onerror = function(){
+      /* 万一Worker側が読み込めない・動かないときの保険。
+         先に片付けてから従来方式へ切り替える(二重駆動の防止)。
+         terminate 済みなので、この保険が繰り返し走ることはない。
+         「使えない環境」として覚えず、次の共有では再びWorkerを試す
+         (一度きりの失敗で恒久的に間引かれる方式へ落ちないため) */
+      pcStopSendLoop();
+      pc.sendTimer = setInterval(pcFlushInput, 33);
+    };
+    ok = true;
+  } catch (_e) {}
+  if (!ok) {
+    pcStopSendLoop(); /* 途中まで作ったURL等を捨ててから退避 */
+    pc.sendTimer = setInterval(pcFlushInput, 33);
+  }
+}
+function pcStopSendLoop(){
+  if (pc.sendWorker) { try { pc.sendWorker.terminate(); } catch (_e) {} pc.sendWorker = null; }
+  if (pc.sendUrl) { try { URL.revokeObjectURL(pc.sendUrl); } catch (_e) {} pc.sendUrl = null; }
+  if (pc.sendTimer) { clearInterval(pc.sendTimer); pc.sendTimer = null; }
 }
 
 async function pcPingHelper(){
@@ -965,7 +1014,18 @@ async function pcPingHelper(){
         if (j && j.monitors && j.monitors.length) monitors = j.monitors;
         hv = (j && typeof j.hv === 'number') ? j.hv : 0;
         if (j && j.os) pc.helperOs = j.os; /* 'mac' | 'win'。リモートズームの修飾キー選びに使う */
-      } catch (_e) {}
+        pc.pingBroken = false;
+      } catch (pe) {
+        pc.pingBroken = true;
+        /* ここを黙って捨てていたために、応答が壊れていても「ヘルパーが古い」
+           としか出ず、原因にたどり着けなかった前例がある(第7節(i))。
+           ヘルパーは動いている(HTTPは200)ので操作モードはONのまま続け、
+           何が起きたかだけを診断行に残す(05w) */
+        pc.lastPingFail = { name: '応答を読めません(' + ((pe && pe.name) || 'Error') + ')',
+                            msg: 'ヘルパーの応答が壊れています。ヘルパーを最新版に差し替えてください',
+                            ms: Math.round(performance.now() - t0),
+                            at: new Date().toLocaleTimeString() };
+      }
     } else {
       /* HTTPは届いたが失敗(多重起動の別プロセス等) */
       pc.lastPingFail = { name: 'HTTP ' + r.status, msg: r.statusText || '', 
@@ -1010,11 +1070,15 @@ async function pcPingHelper(){
     pcRenderScreens();
   }
 
-  /* 診断行: OFFの間だけ、直近の失敗の中身と推定を出し続ける(既知の問題cの採取) */
+  /* 診断行: OFFの間、および応答が壊れている間、直近の失敗の中身と推定を出し続ける
+     (既知の問題cの採取。応答が壊れている場合は操作モードON表示のままなので、
+      05wでこちらも出すようにした=黙って捨てると原因にたどり着けない) */
   var dg = $('helperDiag');
-  if (!on && pc.lastPingFail) {
+  if ((!on || pc.pingBroken) && pc.lastPingFail) {
     var f = pc.lastPingFail;
-    var hint = (f.ms < 50 && f.name.indexOf('HTTP') !== 0)
+    var hint = pc.pingBroken
+      ? '' /* 中身がそのまま原因なので、時間からの推定は当てはまらない */
+      : (f.ms < 50 && f.name.indexOf('HTTP') !== 0)
       ? ' → 通信が遮断/拒否されています(ブラウザの許可設定が有力。ページの再読み込みで再許可を)'
       : (f.ms >= PING_TIMEOUT_MS - 100
         ? ' → ヘルパーが応答していません(固まりか多重起動。ヘルパーを起動し直してください)'
@@ -1062,12 +1126,84 @@ function pcKeysAllowed(){
   return false;
 }
 
-function pcOnData(msg){
-  pcOnDataInner(msg);
+/* 押しっぱなしの後始末(2026-08-05v)。
+   「押した」は届いたのに「離した」が届かない経路が系のどこにも
+   受け皿を持っていなかった: 見る側は conn.open のときだけ送るので、
+   押している最中に通信が切れる(Wi-Fiの瞬断・Questのスリープ・タブを
+   閉じる)と離す合図が捨てられ、PC側のボタンが押しっぱなしになる。
+   実物のマウスをクリックするまで戻らないので実害が大きい。
+   離す合図を出せるのは見る側だけなのに、その見る側が消えている
+   ——だから、PC側が「誰がどのボタンを押しているか」を覚えておき、
+   その相手がいなくなった時点で肩代わりして離す。
+   数えるのは見る側ごと(conn._held)。1台が切れても、別の台が
+   押しているボタンは離さない */
+function pcNoteButton(conn, down, b){
+  if (!conn) return;
+  if (!conn._held) conn._held = {};
+  if (down) conn._held[b] = true;
+  else delete conn._held[b];
+}
+
+function pcReleaseHeld(conn){
+  if (!conn || !conn._held) return;
+  var keys = Object.keys(conn._held);
+  conn._held = {};
+  if (!keys.length || !pc.helperOn) return;
+  /* 関門(pcCtlGate)は通さない。離す合図は無条件に通すのが従来からの
+     取り決めで、ここで止めると押しっぱなしが直らなくなる */
+  keys.forEach(function(k){ pc.inputQueue.push({ t: 'up', b: k | 0 }); });
+  pcTrimQueue();
+}
+
+/* 押しているボタンを離して片付ける。
+   飛行中の便に `dn` が乗っていることがあり、そこへ別便で `up` を送ると
+   到着順が保証されない(Mac側は接続ごとに担当を分けるので本当に競争になる)。
+   `up` が先に着くと、あとから `dn` が効いて押しっぱなしが残る=05vで
+   直したはずの症状に戻る。そこで順番で解く:
+     飛行中でない → その場で送る(順番の問題なし)
+     飛行中       → 前の便が終わってから送る(20msごとに様子を見る)
+   送る中身はここで手元に取っておくので、このあと `pcStop` が待ち行列を
+   空にしても、接続を畳んでも影響を受けない(待たせない片付けと両立する) */
+function pcReleaseAllNow(){
+  var ups = [];
+  pc.conns.forEach(function(c){
+    if (!c._held) return;
+    Object.keys(c._held).forEach(function(k){ ups.push({ t: 'up', b: k | 0 }); });
+    c._held = {};
+  });
+  if (!ups.length || !pc.helperOn) return;
+  /* 待ち行列に残っているぶんも一緒に運んで取りこぼさない */
+  var batch = pc.inputQueue.concat(ups);
+  pc.inputQueue = [];
+  if (!pc.inputBusy) { pcSendNow(batch); return; }
+  var t0 = Date.now();
+  var tick = function(){
+    if (!pc.inputBusy) { pcSendNow(batch); return; }
+    /* 前の便が打ち切られるまでが上限。それでも空かなければ、
+       押しっぱなしを残すよりはと割り切って送る */
+    if (Date.now() - t0 > INPUT_TIMEOUT_MS) { pcSendNow(batch); return; }
+    setTimeout(tick, 20);
+  };
+  tick();
+}
+
+function pcSendNow(batch){
+  try {
+    fetch(HELPER_URL + '/input', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(batch),
+      keepalive: true /* ページを閉じる途中でも送り切れるようにする */
+    }).catch(function(){});
+  } catch (_e) {}
+}
+
+function pcOnData(msg, conn){
+  pcOnDataInner(msg, conn);
   pcTrimQueue(); /* どの種類の操作でも、積んだ直後に必ず上限を効かせる */
 }
 
-function pcOnDataInner(msg){
+function pcOnDataInner(msg, conn){
   if (!msg || !msg.t) return;
   if (!pc.helperOn && msg.t !== 'q') return; /* ヘルパーOFF中は操作をためない */
   if ((msg.t === 'key' || msg.t === 'txt' || msg.t === 'kb' || msg.t === 'ch')
@@ -1075,7 +1211,13 @@ function pcOnDataInner(msg){
   if (msg.t === 'mv') {
     var item = pcFindScreen(msg.s);
     if (pcCtlGate(item)) return;
-    var out = { t: 'mv', x: msg.x, y: msg.y, s: item ? item.mon : 0 };
+    /* 値は0〜1の数として検証してから積む(05t)。以前は素通しで、
+       文字列や NaN がそのままヘルパーへ渡り、向こうの型変換で
+       例外になると同じ便の残り(離す信号を含む)まで巻き添えに
+       なりえた。mvr は前から同じ流儀で検証している */
+    var mx = +msg.x, my = +msg.y;
+    if (!isFinite(mx) || !isFinite(my)) return;
+    var out = { t: 'mv', x: clamp(mx, 0, 1), y: clamp(my, 0, 1), s: item ? item.mon : 0 };
     var q = pc.inputQueue;
     if (q.length && q[q.length - 1].t === 'mv' && q[q.length - 1].s === out.s) {
       q[q.length - 1] = out; /* 連続する移動はまとめる */
@@ -1092,11 +1234,27 @@ function pcOnDataInner(msg){
       if (msg.s !== undefined) { if (pcCtlGate(pcFindScreen(msg.s))) return; }
       else if (pc.ctlBlock) return;
     }
-    pc.inputQueue.push({ t: msg.t, b: msg.b });
+    /* ボタン番号も0(左)/1(中)/2(右)へ正規化してから積む(05t。mvと同じ理由) */
+    var bn = msg.b | 0;
+    if (bn !== 1 && bn !== 2) bn = 0;
+    pcNoteButton(conn, msg.t === 'dn', bn); /* 誰が何を押しているかを控える(05v) */
+    pc.inputQueue.push({ t: msg.t, b: bn });
   } else if (msg.t === 'sc') {
     if (msg.s !== undefined) { if (pcCtlGate(pcFindScreen(msg.s))) return; }
     else if (pc.ctlBlock) return;
-    pc.inputQueue.push({ t: 'sc', d: msg.d | 0, h: msg.h | 0 });
+    /* 連続するスクロールは1件に合算する(05q)。詰まっている間に溜まった
+       数十件が待ち行列を膨らませ、復帰の瞬間に連射されるのを防ぐ
+       (総スクロール量は意図どおり届ける。減らすのは件数と処理負荷)。
+       合算は直前の要素がscのときだけ=押す/離すをまたいで混ざらず順序不変。
+       d(縦)とh(横)を両方持つ形は、ヘルパー版3が1イベントで処理し、
+       版2は従来どおり h を静かに無視する(誤動作なし) */
+    var lastS = pc.inputQueue[pc.inputQueue.length - 1];
+    if (lastS && lastS.t === 'sc') {
+      lastS.d = (lastS.d | 0) + (msg.d | 0);
+      lastS.h = (lastS.h | 0) + (msg.h | 0);
+    } else {
+      pc.inputQueue.push({ t: 'sc', d: msg.d | 0, h: msg.h | 0 });
+    }
   } else if (msg.t === 'q') {
     pcSetQuality(msg.p);
   } else if (msg.t === 'key') {
@@ -1139,11 +1297,26 @@ function pcTrimQueue(){
     if (q.length - i <= INPUT_QUEUE_MAX / 2) { keep.push(q[i]); continue; }
     if (q[i].t !== 'mv' && q[i].t !== 'mvr') keep.push(q[i]);
   }
-  /* それでも多いときは、古いほうから機械的に落とす */
-  if (keep.length > INPUT_QUEUE_MAX) keep = keep.slice(keep.length - INPUT_QUEUE_MAX);
+  /* それでも多いときの切り詰め(05t)。以前は古いほうから機械的に落として
+     いたが、それでは押す/離すやキーまで消え、離す信号を失って
+     ボタンが押しっぱなしになりうる。落としてよいのは移動と
+     スクロールだけなので、古い順にその2種だけを間引く。
+     全部が押す/離す・キーなら、上限を超えていても捨てない
+     (操作が壊れるより、一時的に行列が伸びるほうがましと判断) */
+  if (keep.length > INPUT_QUEUE_MAX) {
+    var over = keep.length - INPUT_QUEUE_MAX;
+    var thin = [];
+    for (var j = 0; j < keep.length; j++) {
+      var e = keep[j];
+      if (over > 0 && (e.t === 'mv' || e.t === 'mvr' || e.t === 'sc')) { over--; continue; }
+      thin.push(e);
+    }
+    keep = thin;
+  }
   pc.inputQueue = keep;
 }
 async function pcFlushInput(){
+  if (pc.stopped) return;                /* 停止後は出さない(05s。生存確認と同じ流儀) */
   if (pc.inputBusy) return;              /* 前の便が飛んでいる間は出さない */
   if (!pc.helperOn || pc.inputQueue.length === 0) return;
   var batch = pc.inputQueue;
@@ -1160,8 +1333,25 @@ async function pcFlushInput(){
     });
   } catch (_e) {
     /* 送れなかった便は先頭へ戻す。捨てるとボタンを離す合図が失われ、
-       押しっぱなしになることがある。順序も保たれる */
-    pc.inputQueue = batch.concat(pc.inputQueue);
+       押しっぱなしになることがある。順序も保たれる。
+       ただし古い移動(mv/mvr)は差し戻さず捨てる(05q): 打ち切りは2秒前の
+       位置で、動かし直しても復帰の瞬間の逆走や大ジャンプになるだけ
+       (第7節(h)⑤)。例外として、直後に dn が続く移動はクリックの
+       位置決めなので残す(捨てると古いカーソル位置で誤クリックする。
+       絶対モードは mv+dn、なぞるモードは mvr+dn が対で届く)。
+       **便の末尾の移動も必ず残す(05s)**: mv と dn は別々の便に割れる
+       ことがあり(見る側は別メッセージで送るので、間に33msの合図が
+       入りうる)、末尾を捨てると次の便の dn が古い位置で押される。
+       up/dn/キー/scは従来どおり必ず残す */
+    var kept = [];
+    for (var bi = 0; bi < batch.length; bi++) {
+      var be = batch[bi];
+      if ((be.t === 'mv' || be.t === 'mvr') &&
+          bi < batch.length - 1 &&
+          !(batch[bi + 1] && batch[bi + 1].t === 'dn')) continue;
+      kept.push(be);
+    }
+    pc.inputQueue = kept.concat(pc.inputQueue);
     pcTrimQueue();
   } finally {
     clearTimeout(t);
@@ -1170,6 +1360,7 @@ async function pcFlushInput(){
 }
 
 function pcStop(){
+  pcReleaseAllNow(); /* 畳む前に、押しているボタンを離す最後の1便(05v) */
   pc.screens.forEach(function(item){
     item.stream.getTracks().forEach(function(t){ try { t.stop(); } catch (_e) {} });
     pcEachCall(item, function(c){ try { c.close(); } catch (_e) {} });
@@ -1178,8 +1369,12 @@ function pcStop(){
   if (pc.peer) { try { pc.peer.destroy(); } catch (_e) {} pc.peer = null; }
   pc.conns = [];
   pc.stopped = true;
-  pc.timers.forEach(function(id){ clearInterval(id); clearTimeout(id); });
-  pc.timers = [];
+  /* 動いている周期処理は2つだけ: 生存確認(pc.pingTimer)と操作送信
+     (pcStopSendLoop が受け持つ)。以前あった汎用の入れ物 pc.timers は、
+     05nで送信をWorkerへ移したあと積む側が消えて空回りしていたので
+     05uで削除した。周期処理を足すときは、専用の欄を1つ設けて
+     ここで確実に止めること(まとめ入れの箱は、止め忘れの温床になる) */
+  pcStopSendLoop(); /* 操作送信のWorker(または退避用interval)を止める(05n) */
   if (pc.pingTimer) { clearTimeout(pc.pingTimer); pc.pingTimer = null; }
   pc.inputQueue = [];
   pc.helperOn = false;
@@ -1310,7 +1505,12 @@ function questDialStart(host){
   host.dialTries++;
   questDetachConn(host);
   questLog('ダイヤル ' + host.dialTries + '回目 → vrdd-' + host.code);
-  host.conn = qs.peer.connect(PEER_PREFIX + host.code, { serialization: 'json' });
+  /* reliable: true は外さないこと(05p)。PeerJS 1.5.2 は reliable の値をそのまま
+     DataChannel の ordered(順序保証)に渡すため、未指定だと「必ず届くが順不同」の
+     通信路になる。順不同だと電波の乱れで新しい移動が古い移動を追い越し、カーソルの
+     一瞬の逆走や、押す/離すの逆転(押しっぱなし)が起きうる(第7節(h)②)。
+     設定は接続する側=見る側が決めるので、PC側が旧版でも効く。再接続側も同じ */
+  host.conn = qs.peer.connect(PEER_PREFIX + host.code, { serialization: 'json', reliable: true });
   if (!host.conn) {
     questLog('ダイヤルを開始できませんでした → 受付の復帰を待ちます');
     host.dialTries--;
@@ -1373,11 +1573,19 @@ function questDetachConn(host){
 }
 
 /* 選ばれた直結経路の種類をログに出す */
-function questLogRouteType(host, conn){
+/* 経路の種類をログに出す。統計が揃う時刻は環境で違うので、読めなければ
+   1.2秒おきに5回まで見に行く(05w。以前は1回きりで、遅い環境では
+   何も出ないまま終わっていた)。5回でも読めなければ静かにあきらめる */
+function questLogRouteType(host, conn, attempt){
   try {
     var pcn = conn.peerConnection;
     if (!pcn || !pcn.getStats) return;
+    var tries = attempt || 1;
+    var again = function(){
+      if (tries < 5 && host.conn === conn) questLogRouteType(host, conn, tries + 1);
+    };
     setTimeout(function(){
+      if (host.conn !== conn) return; /* 置き換え済みの古い接続 */
       pcn.getStats().then(function(stats){
         var pairId = null, pairs = {}, cands = {};
         stats.forEach(function(r){
@@ -1392,7 +1600,7 @@ function questLogRouteType(host, conn){
             if (!pair && r.state === 'succeeded' && (r.selected || r.nominated)) pair = r;
           });
         }
-        if (!pair) return;
+        if (!pair) { again(); return; }
         var lc = cands[pair.localCandidateId];
         var rc = cands[pair.remoteCandidateId];
         var lt = lc && lc.candidateType;
@@ -1405,8 +1613,10 @@ function questLogRouteType(host, conn){
           questLog('経路の種類: 同一ネットワーク直結');
         } else if (lt || rt) {
           questLog('経路の種類: 直結(NAT越え)');
+        } else {
+          again(); /* 候補の種類がまだ埋まっていない */
         }
-      }).catch(function(){});
+      }).catch(function(){ again(); });
     }, 1200);
   } catch (_e) {}
 }
@@ -1488,7 +1698,19 @@ function questWireConn(host){
   });
 }
 
-/* 切断時: 同じコードで約2分間、静かに再接続を試みる */
+/* 切断時: 同じコードで約2分間、静かに再接続を試みる。
+
+   タイマーが3段(待機 retryTimer → ダイヤル → 見張り retryWatch)に
+   なっていて追いにくいので、守っている約束を書いておく(05w)。
+   **どの瞬間も、1つのホストにつき待機と見張りは合わせて1つだけ**。
+   担保は3つ: ①入口で必ず `clearTimeout(host.retryTimer)` ②見張りを
+   張る直前に必ず `clearTimeout(host.retryWatch)` ③つながったら
+   `conn.on('open')` が両方を解除する。**この3つのどれを外しても、
+   切断の通知が重なった瞬間にタイマーが増殖する**。
+   終わりは2つ: `host.retryUntil`(初回の切断から2分)を過ぎたら
+   `questDropHost`、`host.gone` が立っていれば即座に何もしない。
+   6場面の切り出し検証で、多重呼び出し・見張り切れ・ギブアップ・
+   gone・ダイヤル例外の連続でもタイマーが1つを超えないことを確認済み */
 function questConnLost(host){
   if (host.gone) return;
   if (!host.retryUntil) host.retryUntil = Date.now() + 120000;
@@ -1505,7 +1727,8 @@ function questConnLost(host){
     if (host.gone) return;
     try {
       questDetachConn(host);
-      host.conn = qs.peer.connect(PEER_PREFIX + host.code, { serialization: 'json' });
+      /* reliable: true 必須(05p。理由は questDialStart のコメント) */
+      host.conn = qs.peer.connect(PEER_PREFIX + host.code, { serialization: 'json', reliable: true });
       questWireConn(host);
       clearTimeout(host.retryWatch);
       host.retryWatch = setTimeout(function(){
@@ -1694,6 +1917,7 @@ function questConnectedUi(){
 }
 
 function questUiSync(){
+  questStatsTimer(); /* つなぎ先が増減したら計測の要否も見直す(05x) */
   var box = $('qHosts');
   if (!box) return;
   box.innerHTML = '';
@@ -1749,7 +1973,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-05m';
+var APP_VER = '2026-08-05x';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2027,6 +2251,22 @@ async function questStatsTick(){
   statsRefreshUi();
 }
 
+/* 計測のタイマーは、計測が要るときだけ持つ(05x)。
+   以前はページを開いた瞬間から2秒ごとに永久に回っていた。設定がOFFで
+   早期に抜けるとはいえ、見るだけの人のところでも止まらないのは無駄。
+   設定を切り替えたときと、つなぎ先が増減したときに呼び直す */
+function questStatsTimer(){
+  var want = S.stats && qs.hosts.length > 0;
+  if (want && !qs.statsTimer) {
+    qs.statsTimer = setInterval(questStatsTick, 2000);
+    questStatsTick();
+  } else if (!want && qs.statsTimer) {
+    clearInterval(qs.statsTimer);
+    qs.statsTimer = null;
+    questStatsTick(); /* 表示を消すため1回だけ通す */
+  }
+}
+
 function statsRefreshUi(){
   qs.hosts.forEach(function(h){
     var el = $('hstat' + h.idx);
@@ -2253,7 +2493,7 @@ function initSettingsUi(){
   $('chkStats').addEventListener('change', function(){
     S.stats = $('chkStats').checked;
     saveS();
-    questStatsTick();
+    questStatsTimer(); /* 要るときだけ回す(05x。中で1回計測もする) */
   });
   $('selRScale').addEventListener('change', function(){
     var v = parseFloat($('selRScale').value);
@@ -2310,7 +2550,7 @@ function initSettingsUi(){
     saveS();
     applyVolume();
   });
-  setInterval(questStatsTick, 2000);
+  questStatsTimer(); /* 計測が要るときだけ2秒ごとに回す(05x) */
 }
 
 /* ================================================================
@@ -3001,7 +3241,13 @@ function initTouchUi(){
     if (document.fullscreenElement) {
       try { document.exitFullscreen(); } catch (_e) {}
     } else {
-      var el = $('touchView');
+      /* 全画面の対象はページ全体(05r)。タッチビューの要素を対象にすると、
+         ブラウザがその要素だけを「最上層」へ持ち上げて描くため、DOM上
+         外側にある設定モーダル(#setModal)が裏に隠れて見えない・押せない
+         になる(第6節)。ページ全体なら、窓表示と同じ重ね順
+         (タッチビューz50 < モーダルz60)がそのまま全画面でも効く。
+         要素単位の全画面に戻さないこと */
+      var el = document.documentElement;
       if (el.requestFullscreen) el.requestFullscreen().catch(function(){});
     }
   });
@@ -5177,7 +5423,7 @@ function xrMenuActivate(id){
   } else if (id === 'st') {
     S.stats = !S.stats;
     saveS();
-    questStatsTick();
+    questStatsTimer(); /* 要るときだけ回す(05x) */
     xrDrawHud();
   } else if (id === 'vol:-' || id === 'vol:+') {
     S.vol = clamp(Math.round((S.vol + (id === 'vol:+' ? 0.1 : -0.1)) * 10) / 10, 0, 1);
@@ -5438,14 +5684,23 @@ function xrRender(){
     xr.lastSave = now;
     xrSaveLayout();
   }
-  if (xr.hud) xr.hud.visible = xr.hudPinned || now < xr.hudUntil;
+  if (xr.hud) {
+    var wantHud = xr.hudPinned || now < xr.hudUntil;
+    /* 隠れている間に時刻などが変わっていたら、出す瞬間に描き直す(05x) */
+    if (wantHud && !xr.hud.visible && xr.hudStale) { xr.hudStale = false; xrDrawHud(); }
+    xr.hud.visible = wantHud;
+  }
 
-  /* 時計の分更新と休憩リマインダー */
+  /* 時計の分更新と休憩リマインダー。
+     描き直すのはガイドが見えているときだけ(05x。1024x920のキャンバスを
+     57箇所描き直してGPUへ送る処理なので、隠れている間に毎分走らせる
+     意味がない)。分は覚えておき、次に出したときに新しい時刻で描かれる */
   var dclk = new Date();
   var clkStr = dclk.getHours() + ':' + ('0' + dclk.getMinutes()).slice(-2);
   if (clkStr !== xr.lastClock) {
     xr.lastClock = clkStr;
-    xrDrawHud();
+    if (xr.hud && xr.hud.visible) xrDrawHud();
+    else xr.hudStale = true; /* 隠れている間の変化。出すときに描き直す */
   }
   if (xr.remindAt && Date.now() >= xr.remindAt) {
     xr.remindAt = 0;

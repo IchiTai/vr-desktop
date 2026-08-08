@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -19,6 +20,18 @@ PORT = 8765
 # ヘルパーの版(通し番号)。ヘルパーの仕様を変えたら +1 し、
 # index.html の HELPER_VER_REQUIRED も同じ値に上げること
 HELPER_VER = 3  # 版2: 中ボタン(b:1) / 版3: 横スクロール(sc の h)
+
+# ---- このパソコンを操作してよいページ (2026-08-08) ----
+# ヘルパーはマウスもキーボードも動かせるので、対にした相手は
+# 事実上このパソコンの操作権を持つ。以前は「最初に話しかけてきた
+# 相手」を無条件で対にしていたため、ブラウザで開いている無関係な
+# サイトが先に話しかければ、そのサイトが操作できてしまった。
+# 自分が公開しているページのURL(https://〜。末尾の / は付けない)を
+# ここに書くと、そのページだけを受け付ける:
+#     ALLOW_ORIGIN = "https://自分の名前.github.io"
+# 空のままなら、従来どおり先着順で対を決める(ファイルを直接開いて
+# 試すときに困らないように)。どちらの状態かは起動画面に出る。
+ALLOW_ORIGIN = ""
 
 
 def ensure_pyautogui():
@@ -366,6 +379,7 @@ def do_scroll(d, h=0):
 
 
 paired = None
+warned_origin = False  # 拒否の知らせは1回だけ(画面を埋めないため)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -374,6 +388,24 @@ class Handler(BaseHTTPRequestHandler):
     # スレッドを取られ続けないよう時間切れを設ける。生存確認は3秒ごとに
     # 来るので、30秒あれば使用中の接続が切れることはない。
     timeout = 30
+    # ただし「つないだだけで何も言ってこない」接続は話が別で、
+    # ブラウザが先回りで開けた空の接続がこれにあたる。これを30秒
+    # 抱えると、上限(16本)がその間ふさがる。最初の要求が来るまでは
+    # 10秒で見切る(Windows側の空接続10秒と同じ考え方。2026-08-08)。
+    FIRST_TIMEOUT = 10
+
+    def setup(self):
+        super().setup()
+        # 1本目の要求が来るまでは短く待つ
+        self.connection.settimeout(self.FIRST_TIMEOUT)
+
+    def handle_one_request(self):
+        super().handle_one_request()
+        # 1本目を捌いたら、使い回しの待ち時間へ戻す
+        try:
+            self.connection.settimeout(self.timeout)
+        except Exception:
+            pass
 
     def log_message(self, *args):
         pass
@@ -399,9 +431,17 @@ class Handler(BaseHTTPRequestHandler):
         self._reply(204, b"")
 
     def do_GET(self):
-        global paired
+        global paired, warned_origin
         if self.path == "/ping":
             origin = self.headers.get("Origin")
+            # ALLOW_ORIGIN を設定してあるときは、そのページ以外には
+            # 版番号もモニター構成も返さない(返す必要のない情報のため)
+            if ALLOW_ORIGIN and origin != ALLOW_ORIGIN:
+                if not warned_origin:
+                    warned_origin = True
+                    print("   拒否しました:", origin, "(許可したページではありません)")
+                self._reply(200, b'{"ok":0}')
+                return
             if paired is None and origin:
                 paired = origin
                 print("   接続されました:", origin)
@@ -415,7 +455,8 @@ class Handler(BaseHTTPRequestHandler):
             self._reply(404, b'{"ok":0}')
             return
         origin = self.headers.get("Origin")
-        if paired and origin and origin != paired:
+        if (paired and origin and origin != paired) or \
+           (ALLOW_ORIGIN and origin != ALLOW_ORIGIN):
             self._reply(403, b'{"ok":0}')
             return
         try:
@@ -428,7 +469,14 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(n) if n > 0 else b"[]"
         try:
             events = json.loads(raw.decode("utf-8"))
-            for e in events:
+        except Exception:
+            events = []
+        # 1件の壊れた操作で、同じ便の残りを巻き添えにしない(2026-08-08)。
+        # 以前は便全体を1つの try で囲っていたため、たとえば mv の値が
+        # 壊れていると、そのあとの up(離す)まで実行されず、ボタンが
+        # 押しっぱなしになりえた。ここは1件ずつ切り離して守る。
+        for e in events:
+            try:
                 t = e.get("t")
                 if t == "mv":
                     si = int(e.get("s", 0) or 0)
@@ -454,9 +502,60 @@ class Handler(BaseHTTPRequestHandler):
                     do_kb(str(e.get("c", "")), int(e.get("m", 0) or 0))
                 elif t == "ch":
                     do_ch(str(e.get("s", ""))[:8])
-        except Exception:
-            pass
+            except Exception:
+                continue
         self._reply()
+
+
+class CappedServer(ThreadingHTTPServer):
+    """同時接続に上限を設けたサーバ(2026-08-08)。
+
+    ThreadingHTTPServer は接続ごとにスレッドを作るので、暴走した
+    相手や不具合で接続が積み上がると、スレッドが際限なく増える。
+    Windows側は16本で頭打ちにしてあるので、両OSの性質を揃える。
+    実際に使う接続はページ1つにつき1〜2本なので、16本あれば余る。
+    """
+
+    daemon_threads = True   # 終了時に残ったスレッドを待たない
+    MAX_CONN = 16
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._live = 0
+        self._lock = threading.Lock()
+        self._warned = False
+
+    def process_request(self, request, client_address):
+        with self._lock:
+            if self._live >= self.MAX_CONN:
+                over = True
+            else:
+                over = False
+                self._live += 1
+        if over:
+            # 上限に達している間は、新しい接続をその場で閉じる。
+            # 使用中の接続は時間切れ(30秒)で自然に空くので、
+            # 落ち着けば元どおりつながる。
+            if not self._warned:
+                self._warned = True
+                print(f"   接続が多すぎます({self.MAX_CONN}本)。新しい接続を一時的に断ります。")
+            self.shutdown_request(request)
+            return
+        super().process_request(request, client_address)
+
+    def handle_error(self, request, client_address):
+        # 相手が急に切ったときの例外を画面に出さない(利用者が見る窓なので、
+        # 赤い長文が出ると不具合と誤解される。既存の log_message と同じ趣旨)
+        pass
+
+    def shutdown_request(self, request):
+        super().shutdown_request(request)
+
+    def close_request(self, request):
+        super().close_request(request)
+        with self._lock:
+            if self._live > 0:
+                self._live -= 1
 
 
 def main():
@@ -465,6 +564,8 @@ def main():
     print("   VR Desktop 操作ヘルパー (Mac)")
     print(f"   ヘルパーの版: {HELPER_VER}")
     print("  ================================================")
+    print("   操作を許可するページ: "
+          + (ALLOW_ORIGIN if ALLOW_ORIGIN else "未設定(最初に話しかけたページ)"))
     print(f"   モニター  : {len(MONITORS)}枚")
     for i, m in enumerate(MONITORS):
         tag = "(メイン)" if i == 0 else ""
@@ -479,7 +580,7 @@ def main():
     print("      「ターミナル」をオンにして、ヘルパーを起動し直してください。")
     print()
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+        server = CappedServer(("127.0.0.1", PORT), Handler)
     except OSError:
         print(f"   ポート {PORT} が使われています。")
         print("   すでにヘルパーが別のウィンドウで動いていないか確認してください。")

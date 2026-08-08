@@ -13,6 +13,32 @@ exit /b
 # No installation. Close this window to stop.
 # ----------------------------------------------------------------
 $ErrorActionPreference = 'Stop'
+
+# Helper version (integer). Bump this AND HELPER_VER_REQUIRED in
+# index.html together whenever the helper protocol changes.
+# Keep these two definitions here at the top: $pingBody below reads
+# $helperVer. They used to sit after $pingBody, and PowerShell reads an
+# undefined variable as empty, so /ping returned broken JSON
+# ("hv": with no value). The page then showed "helper too old",
+# dropped middle clicks (b:1) and saw an empty monitor list.
+# Fixed 2026-08-08; the page protocol is unchanged (version stays 3).
+$helperVer = 3
+# Build date. Shown at startup so you can confirm the file was replaced.
+# Bump this whenever this file changes (the version number above only
+# changes when the agreement with the page changes).
+$helperBuild = '2026-08-08e'
+
+# ---- Which page may control this PC (2026-08-08e) ----
+# The helper can move the mouse and type, so whoever it pairs with
+# effectively gets control of this computer. It used to pair with
+# whoever pinged first, which means any site open in your browser
+# could grab it. Put your own published page URL here (scheme + host,
+# no trailing slash) and only that page will be accepted:
+#     $allowOrigin = 'https://yourname.github.io'
+# Leave it empty to keep the old first-come behaviour (handy when
+# opening the file locally for a quick test). The startup screen
+# always shows which mode is active.
+$allowOrigin = ''
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -72,13 +98,6 @@ foreach ($mm in $mons) {
 }
 
 $port = 8765
-# Helper version (integer). Bump this AND HELPER_VER_REQUIRED in
-# index.html together whenever the helper protocol changes.
-$helperVer = 3
-# Build date. Shown at startup so you can confirm the file was replaced.
-# Bump this whenever this file changes (the version number above only
-# changes when the agreement with the page changes).
-$helperBuild = '2026-08-04'
 $paired = $null
 
 try {
@@ -97,6 +116,7 @@ Write-Host "  ================================================"
 Write-Host "   VR Desktop - Control Helper (Windows)"
 Write-Host ("   Helper version : " + $helperVer + "   (updated " + $helperBuild + ")")
 Write-Host "  ================================================"
+Write-Host ("   Allowed page: " + $(if ($allowOrigin) { $allowOrigin } else { "(not set - first page that connects wins)" }))
 Write-Host ("   Monitors    : " + $mons.Count)
 for ($mi = 0; $mi -lt $mons.Count; $mi++) {
     $b = $mons[$mi].Bounds
@@ -110,104 +130,158 @@ Write-Host "   Keep this window open while using VR."
 Write-Host "   Close this window to turn VR control off."
 Write-Host ""
 
-while ($true) {
-    $client = $null
-    try {
-        $client = $listener.AcceptTcpClient()
-        $client.NoDelay = $true
-        $stream = $client.GetStream()
-        # Loopback only: a real request arrives right after connect, so a short
-        # wait is enough. Keeping this small stops one empty connection (Chrome
-        # opens sockets ahead of time) from stalling every ping behind it.
-        # Tuning point: if long text sends ever get cut off, raise this to 1000.
-        $stream.ReadTimeout = 300
-        $stream.WriteTimeout = 1000
+# ----------------------------------------------------------------
+# Watch loop (2026-08-08b). Replaces the old one-connection-at-a-time
+# loop. Design record: handover doc, section 7 (h)-3.
+#  - Nobody waits on anybody: a socket is only read when its data has
+#    already arrived, so an empty pre-opened browser socket costs
+#    nothing (it used to stall every request behind it for 300ms).
+#  - Connections are kept alive and reused (HTTP/1.1 default), so
+#    mouse moves no longer open ~30 new connections per second.
+#  - Input still executes strictly one event at a time, in arrival
+#    order, on this single thread. No runspaces, no races.
+#  - A failure on one connection closes only that connection; the
+#    outer loop itself never exits.
+# The 04s guards are unchanged: origin pair and declared size are
+# checked before the body is handled; bodies are capped at 256 KB.
+# ----------------------------------------------------------------
+$EMPTY_MS = 10000   # accepted, nothing received yet (pre-opened sockets may speak later; waiting is free now)
+$STALL_MS = 2000    # a request started but is incomplete (matches the page 2000ms abort)
+$IDLE_MS  = 30000   # kept-alive connection with no traffic (same value as the Mac helper)
+$MAX_CONN = 16      # safety cap; beyond this the oldest connection is dropped
+$HDR_MAX  = 32768   # a request head larger than this is nonsense - drop the connection
 
-        $ms = New-Object System.IO.MemoryStream
-        $buf = New-Object byte[] 8192
-        $raw = ''
-        $headerEnd = -1
-        while ($headerEnd -lt 0) {
-            $n = $stream.Read($buf, 0, $buf.Length)
-            if ($n -le 0) { break }
-            $ms.Write($buf, 0, $n)
-            $raw = [System.Text.Encoding]::ASCII.GetString($ms.ToArray())
-            $headerEnd = $raw.IndexOf("`r`n`r`n")
-        }
-        if ($headerEnd -lt 0) { $client.Close(); continue }
+$conns     = New-Object 'System.Collections.Generic.List[object]'
+$readBuf   = New-Object byte[] 16384
+$checkList = New-Object System.Collections.ArrayList
 
-        $head = $raw.Substring(0, $headerEnd)
-        $lines = $head -split "`r`n"
-        $reqParts = $lines[0] -split ' '
-        $method = $reqParts[0]
-        $path = $reqParts[1]
-        $hdr = @{}
-        if ($lines.Count -gt 1) {
-            foreach ($l in $lines[1..($lines.Count - 1)]) {
-                $ix = $l.IndexOf(':')
-                if ($ix -gt 0) {
-                    $hdr[$l.Substring(0, $ix).Trim().ToLower()] = $l.Substring($ix + 1).Trim()
-                }
+function Close-Conn($cn) {
+    try { $cn.client.Close() } catch { }
+    try { $cn.buf.Dispose() } catch { }   # Pump-Request also disposes; keep both sides tidy
+}
+
+# One HTTP response on a kept-alive connection.
+function Send-Res($cn, $status, $origin, $resBody) {
+    $bb = [System.Text.Encoding]::UTF8.GetBytes($resBody)
+    $res = "HTTP/1.1 $status`r`n" +
+           "Access-Control-Allow-Origin: $origin`r`n" +
+           "Vary: Origin`r`n" +
+           "Access-Control-Allow-Methods: GET, POST, OPTIONS`r`n" +
+           "Access-Control-Allow-Headers: Content-Type`r`n" +
+           "Access-Control-Allow-Private-Network: true`r`n" +
+           "Content-Type: application/json`r`n" +
+           "Content-Length: $($bb.Length)`r`n" +
+           "Connection: keep-alive`r`n`r`n"
+    $rb = [System.Text.Encoding]::ASCII.GetBytes($res)
+    $cn.stream.Write($rb, 0, $rb.Length)
+    if ($bb.Length -gt 0) { $cn.stream.Write($bb, 0, $bb.Length) }
+    $cn.stream.Flush()
+}
+
+# A bare refusal; the caller closes the connection afterwards.
+# Half-close (shutdown Send) first, so the bytes already written are
+# delivered instead of being dropped by an immediate reset.
+function Send-Refuse($cn, $status) {
+    $rb = [System.Text.Encoding]::ASCII.GetBytes(
+        "HTTP/1.1 $status`r`nContent-Length: 0`r`nConnection: close`r`n`r`n")
+    $cn.stream.Write($rb, 0, $rb.Length)
+    $cn.stream.Flush()
+    try { $cn.client.Client.Shutdown([System.Net.Sockets.SocketShutdown]::Send) } catch { }
+}
+
+# Serves ONE complete request sitting in $cn.buf, if there is one.
+# Returns 'more' (served; leftover may hold the next request),
+# 'wait' (incomplete), or 'close' (connection must be closed).
+function Pump-Request($cn) {
+    $all = $cn.buf.ToArray()
+    $raw = [System.Text.Encoding]::ASCII.GetString($all)
+    $headerEnd = $raw.IndexOf("`r`n`r`n")
+    if ($headerEnd -lt 0) {
+        if ($all.Length -gt $HDR_MAX) { return 'close' }
+        return 'wait'
+    }
+
+    $head = $raw.Substring(0, $headerEnd)
+    $lines = $head -split "`r`n"
+    $reqParts = $lines[0] -split ' '
+    $method = $reqParts[0]
+    $path = ''
+    if ($reqParts.Count -gt 1) { $path = $reqParts[1] }
+    if (-not $method -or -not $path) { return 'close' }
+    $hdr = @{}
+    if ($lines.Count -gt 1) {
+        foreach ($l in $lines[1..($lines.Count - 1)]) {
+            $ix = $l.IndexOf(':')
+            if ($ix -gt 0) {
+                $hdr[$l.Substring(0, $ix).Trim().ToLower()] = $l.Substring($ix + 1).Trim()
             }
         }
+    }
 
-        $origin = $hdr['origin']
-        if (-not $origin) { $origin = '*' }
+    $origin = $hdr['origin']
+    if (-not $origin) { $origin = '*' }
 
-        # Check the caller and the declared size BEFORE reading the body,
-        # so an unpaired page cannot make us read a huge payload.
-        if ($path -eq '/input' -and $method -eq 'POST' -and
-            $paired -and $origin -ne '*' -and $origin -ne $paired) {
-            $rb = [System.Text.Encoding]::ASCII.GetBytes(
-                "HTTP/1.1 403 Forbidden`r`nContent-Length: 0`r`nConnection: close`r`n`r`n")
-            $stream.Write($rb, 0, $rb.Length); $stream.Flush()
-            $client.Close(); continue
-        }
+    # Check the caller and the declared size BEFORE handling the body,
+    # so an unpaired page cannot make us process a huge payload (04s).
+    if ($path -eq '/input' -and $method -eq 'POST' -and
+        (($script:paired -and $origin -ne '*' -and $origin -ne $script:paired) -or
+         ($allowOrigin -and $origin -ne $allowOrigin))) {
+        Send-Refuse $cn '403 Forbidden'
+        return 'close'
+    }
 
-        $clen = 0
-        if ($hdr['content-length']) { $clen = [int]$hdr['content-length'] }
-        # Upper bound. A real batch is a few KB (the page caps text at 1000 chars).
-        if ($clen -gt 262144) {
-            $rb = [System.Text.Encoding]::ASCII.GetBytes(
-                "HTTP/1.1 413 Payload Too Large`r`nContent-Length: 0`r`nConnection: close`r`n`r`n")
-            $stream.Write($rb, 0, $rb.Length); $stream.Flush()
-            $client.Close(); continue
-        }
-        while (($ms.Length - ($headerEnd + 4)) -lt $clen) {
-            $n = $stream.Read($buf, 0, $buf.Length)
-            if ($n -le 0) { break }
-            $ms.Write($buf, 0, $n)
-        }
-        $all = $ms.ToArray()
-        $body = ''
-        $avail = $all.Length - ($headerEnd + 4)
-        if ($clen -gt 0 -and $avail -gt 0) {
-            $take = [Math]::Min($clen, $avail)
-            $body = [System.Text.Encoding]::UTF8.GetString($all, $headerEnd + 4, $take)
-        }
+    $clen = 0
+    if ($hdr['content-length']) { $clen = [int]$hdr['content-length'] }
+    # Upper bound. A real batch is a few KB (the page caps text at 1000 chars).
+    if ($clen -gt 262144) {
+        Send-Refuse $cn '413 Payload Too Large'
+        return 'close'
+    }
 
-        $status = '200 OK'
-        $resBody = '{"ok":1}'
+    $bodyStart = $headerEnd + 4
+    if ($all.Length - $bodyStart -lt $clen) { return 'wait' }
 
-        if ($method -eq 'OPTIONS') {
-            $resBody = ''
-        }
-        elseif ($path -eq '/ping') {
-            if ($null -eq $paired -and $origin -ne '*') {
-                $paired = $origin
+    $body = ''
+    if ($clen -gt 0) { $body = [System.Text.Encoding]::UTF8.GetString($all, $bodyStart, $clen) }
+
+    $status = '200 OK'
+    $resBody = '{"ok":1}'
+
+    if ($method -eq 'OPTIONS') {
+        $resBody = ''
+    }
+    elseif ($path -eq '/ping') {
+        # With $allowOrigin set, only that page may become the pair, and
+        # nobody else gets the monitor list or the version number back.
+        if ($allowOrigin -and $origin -ne $allowOrigin) {
+            if (-not $script:warnedOrigin) {
+                $script:warnedOrigin = $true
+                Write-Host "   Refused     : $origin (not the allowed page)"
+            }
+            $resBody = '{"ok":0}'
+        } else {
+            if ($null -eq $script:paired -and $origin -ne '*') {
+                $script:paired = $origin
                 Write-Host "   Connected   : $origin"
             }
             $resBody = $pingBody
         }
-        elseif ($path -eq '/input' -and $method -eq 'POST') {
-            if ($paired -and $origin -ne '*' -and $origin -ne $paired) {
-                $status = '403 Forbidden'
-                $resBody = '{"ok":0}'
-            } else {
-                try {
-                    $events = $body | ConvertFrom-Json
-                    foreach ($e in $events) {
-                        switch ($e.t) {
+    }
+    elseif ($path -eq '/input' -and $method -eq 'POST') {
+        if (($script:paired -and $origin -ne '*' -and $origin -ne $script:paired) -or
+            ($allowOrigin -and $origin -ne $allowOrigin)) {
+            $status = '403 Forbidden'
+            $resBody = '{"ok":0}'
+        } else {
+            # One bad event must not take the rest of the batch with it
+            # (2026-08-08d). The per-event try below keeps a malformed 'mv'
+            # from skipping a later 'up', which would leave a button held
+            # down. The outer try still guards JSON parsing itself.
+            try {
+                $events = $body | ConvertFrom-Json
+                foreach ($e in $events) {
+                  try {
+                    switch ($e.t) {
                             'mv' {
                                 $si = 0
                                 if ($null -ne $e.s) { $si = [int]$e.s }
@@ -337,31 +411,107 @@ while ($true) {
                                 }
                             }
                         }
-                    }
-                } catch { }
+                  } catch { }
+                }
+            } catch { }
+        }
+    }
+    else {
+        $status = '404 Not Found'
+        $resBody = '{"ok":0}'
+    }
+
+    Send-Res $cn $status $origin $resBody
+
+    # Keep the connection. Any leftover bytes are the start of the
+    # next request; carry them into a fresh buffer.
+    $left = $all.Length - ($bodyStart + $clen)
+    $nb = New-Object System.IO.MemoryStream
+    if ($left -gt 0) {
+        $nb.Write($all, $bodyStart + $clen, $left)
+        $cn.phase = 'reading'
+        $cn.deadline = [DateTime]::UtcNow.AddMilliseconds($STALL_MS)
+    } else {
+        $cn.phase = 'idle'
+        $cn.deadline = [DateTime]::UtcNow.AddMilliseconds($IDLE_MS)
+    }
+    try { $cn.buf.Dispose() } catch { }
+    $cn.buf = $nb
+    return 'more'
+}
+
+while ($true) {
+    # Sleep until any socket (the listener included) has something,
+    # 250ms at most so deadlines are still swept. Zero CPU while idle.
+    $checkList.Clear()
+    [void]$checkList.Add($listener.Server)
+    foreach ($cn in $conns) { [void]$checkList.Add($cn.client.Client) }
+    try {
+        [System.Net.Sockets.Socket]::Select($checkList, $null, $null, 250000)
+    } catch {
+        Start-Sleep -Milliseconds 20   # never spin if Select itself fails
+    }
+
+    # New arrivals. Pending() does not block. The whole block is wrapped:
+    # if Pending() itself ever throws, this loop must not exit ($Error-
+    # ActionPreference is 'Stop', so an unguarded throw would end the helper).
+    try {
+        while ($listener.Pending()) {
+            $c = $null
+            try {
+                $c = $listener.AcceptTcpClient()
+                $c.NoDelay = $true
+                $s = $c.GetStream()
+                $s.WriteTimeout = 1000
+                $cn = @{
+                    client = $c
+                    stream = $s
+                    buf = (New-Object System.IO.MemoryStream)
+                    phase = 'empty'
+                    deadline = [DateTime]::UtcNow.AddMilliseconds($EMPTY_MS)
+                }
+                $conns.Add($cn)
+            } catch {
+                try { if ($c) { $c.Close() } } catch { }
+            }
+            while ($conns.Count -gt $MAX_CONN) {
+                Close-Conn $conns[0]
+                $conns.RemoveAt(0)
             }
         }
-        else {
-            $status = '404 Not Found'
-            $resBody = '{"ok":0}'
-        }
+    } catch {
+        Start-Sleep -Milliseconds 20
+    }
 
-        $bb = [System.Text.Encoding]::UTF8.GetBytes($resBody)
-        $res = "HTTP/1.1 $status`r`n" +
-               "Access-Control-Allow-Origin: $origin`r`n" +
-               "Vary: Origin`r`n" +
-               "Access-Control-Allow-Methods: GET, POST, OPTIONS`r`n" +
-               "Access-Control-Allow-Headers: Content-Type`r`n" +
-               "Access-Control-Allow-Private-Network: true`r`n" +
-               "Content-Type: application/json`r`n" +
-               "Content-Length: $($bb.Length)`r`n" +
-               "Connection: close`r`n`r`n"
-        $rb = [System.Text.Encoding]::ASCII.GetBytes($res)
-        $stream.Write($rb, 0, $rb.Length)
-        if ($bb.Length -gt 0) { $stream.Write($bb, 0, $bb.Length) }
-        $stream.Flush()
-    } catch { }
-    finally {
-        if ($client) { try { $client.Close() } catch { } }
+    # Pump every connection that has data; sweep deadlines and closed peers.
+    $now = [DateTime]::UtcNow
+    foreach ($cn in @($conns)) {
+        try {
+            $got = $false
+            while ($cn.stream.DataAvailable) {
+                $n = $cn.stream.Read($readBuf, 0, $readBuf.Length)
+                if ($n -le 0) { throw 'closed' }
+                $cn.buf.Write($readBuf, 0, $n)
+                $got = $true
+                if ($cn.phase -ne 'reading') {
+                    $cn.phase = 'reading'
+                    $cn.deadline = $now.AddMilliseconds($STALL_MS)
+                }
+            }
+            if ($got) {
+                $r = 'more'
+                while ($r -eq 'more') { $r = Pump-Request $cn }
+                if ($r -eq 'close') { throw 'refused' }
+            }
+            # A vanished peer: readable with zero bytes means closed.
+            if ($cn.client.Client.Poll(0, [System.Net.Sockets.SelectMode]::SelectRead) -and
+                $cn.client.Client.Available -eq 0) {
+                throw 'gone'
+            }
+            if ($now -gt $cn.deadline) { throw 'expired' }
+        } catch {
+            Close-Conn $cn
+            [void]$conns.Remove($cn)
+        }
     }
 }
