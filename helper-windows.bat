@@ -26,7 +26,7 @@ $helperVer = 3
 # Build date. Shown at startup so you can confirm the file was replaced.
 # Bump this whenever this file changes (the version number above only
 # changes when the agreement with the page changes).
-$helperBuild = '2026-08-08e'
+$helperBuild = '2026-08-08f'
 
 # ---- Which page may control this PC (2026-08-08e) ----
 # The helper can move the mouse and type, so whoever it pairs with
@@ -484,8 +484,12 @@ while ($true) {
     }
 
     # Pump every connection that has data; sweep deadlines and closed peers.
+    # Snapshot with ToArray() so the list can be modified while we walk it.
+    # Do NOT write @($conns) here: PowerShell throws "Argument types do not
+    # match" when it array-wraps a Generic.List[object], which killed the
+    # helper on the first loop pass (2026-08-08f).
     $now = [DateTime]::UtcNow
-    foreach ($cn in @($conns)) {
+    foreach ($cn in $conns.ToArray()) {
         try {
             $got = $false
             while ($cn.stream.DataAvailable) {
