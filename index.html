@@ -1451,7 +1451,9 @@ function questLog(msg){
   var t = new Date();
   var line = ('0' + t.getMinutes()).slice(-2) + ':' + ('0' + t.getSeconds()).slice(-2) + ' ' + msg;
   qs.diag.push(line);
-  if (qs.diag.length > 14) qs.diag.shift();
+  /* 上限40行(12c)。14行では1回の調査(挑戦3回ぶん)で頭が欠けた。
+     「記録をコピー」で全体を写す運用が柱になったので広げる */
+  if (qs.diag.length > 40) qs.diag.shift();
   var el = $('qDiag');
   if (el) {
     var body = $('qDiagText');
@@ -1743,7 +1745,18 @@ function questProbeScreenFrames(host, entry, attempt){
         stats.forEach(function(rep){
           if (!inb && rep.type === 'inbound-rtp' && (rep.kind === 'video' || rep.mediaType === 'video')) inb = rep;
         });
-        if (!inb) return;
+        if (!inb) {
+          /* 受信の統計そのものがまだ無い=経路が開かずRTPが1つも届いて
+             いない状態(ICEが失敗している間はここに来る)。12bはここで
+             黙って諦めてしまい、失敗中の挑戦にフレームの記録が1行も
+             出なかった(実機ログで発覚)。フレーム0と同じ扱いで見続ける */
+          if (tries === 1) {
+            questLog('画面' + entry.slot + ': 4秒たっても映像の受信が始まりません(経路が開いていない可能性)');
+          }
+          if (tries < 8) questProbeScreenFrames(host, entry, tries + 1);
+          else questLog('画面' + entry.slot + ': 32秒たっても受信が始まらないまま(送信側か経路で確定)');
+          return;
+        }
         var dec = (typeof inb.framesDecoded === 'number') ? inb.framesDecoded : -1;
         var recv = (typeof inb.framesReceived === 'number') ? inb.framesReceived : -1;
         var codec = '';
@@ -1811,6 +1824,56 @@ function questLogCallRoute(host, call, slot, attempt){
       }).catch(function(){ if (tries < 5) questLogCallRoute(host, call, slot, tries + 1); });
     } catch (_e) {}
   }, 1200);
+}
+
+/* 失敗の瞬間の内訳(12d)。映像の通話が15秒で死ぬとき、その中身
+   (どの種類の経路候補が集まり、相手から何が届き、検査の対がどんな
+   状態だったか)がこれまで見えなかった。失敗イベントの瞬間に読むと
+   直後の片付けと競争するため、通話の10秒後(死ぬ前・検査の最中)に読む。
+   フレームが届いている健全なときは黙る。読み方:
+   - 自分に srflx が無い → 外側の住所が取れていない(STUNが塞がれている)
+   - 相手に srflx が無い → 相手側が外側の住所を取れていない
+   - 対が failed だらけ → 住所は揃ったのに検査が全滅(通り道が塞がれている)
+   - 対が無い/in-progressのみ → 検査相手がまだ居ない(候補が届いていない) */
+function questCallCensus(host, call, slot){
+  setTimeout(function(){
+    try {
+      if (host.gone) return;
+      var entry = null;
+      host.screens.forEach(function(x){ if (x.call === call) entry = x; });
+      if (entry && entry.framesOk) return; /* 健全なら黙る */
+      var pcn = call.peerConnection;
+      if (!pcn || !pcn.getStats) return;
+      pcn.getStats().then(function(stats){
+        var loc = { host: 0, srflx: 0, relay: 0, other: 0 }, mdns = 0;
+        var rem = { host: 0, srflx: 0, relay: 0, other: 0 };
+        var pairs = {};
+        stats.forEach(function(rep){
+          if (rep.type === 'local-candidate') {
+            var t = rep.candidateType;
+            if (loc[t] !== undefined) loc[t]++; else loc.other++;
+            var a = rep.address || rep.ip || '';
+            if (/\.local$/.test(String(a))) mdns++;
+          } else if (rep.type === 'remote-candidate') {
+            var t2 = rep.candidateType;
+            if (rem[t2] !== undefined) rem[t2]++; else rem.other++;
+          } else if (rep.type === 'candidate-pair') {
+            var s = rep.state || '?';
+            pairs[s] = (pairs[s] || 0) + 1;
+          }
+        });
+        var fmt = function(o){
+          var parts = [];
+          ['host', 'srflx', 'relay'].forEach(function(k){ if (o[k]) parts.push(k + '×' + o[k]); });
+          if (o.other) parts.push('他×' + o.other);
+          return parts.length ? parts.join(' ') : 'なし';
+        };
+        var pf = Object.keys(pairs).map(function(k){ return k + '×' + pairs[k]; }).join(' ') || 'なし';
+        questLog('画面' + slot + ': 10秒時点の内訳 → 自分[' + fmt(loc)
+          + (mdns ? '(仮名' + mdns + ')' : '') + '] 相手[' + fmt(rem) + '] 対[' + pf + ']');
+      }).catch(function(){});
+    } catch (_e) {}
+  }, 10000);
 }
 
 function questWireConn(host){
@@ -1944,6 +2007,7 @@ function questOnCall(call){
       + ((e && (e.type || e.message)) || '不明'));
   });
   var callT0 = Date.now();
+  questCallCensus(host, call, slot); /* 10秒後に失敗の内訳を読む(12d。健全なら黙る) */
   call.on('stream', function(stream){
     questLog('画面' + slot + ': 映像の通話が開通(' + ((Date.now() - callT0) / 1000).toFixed(1) + '秒)');
     questLogCallRoute(host, call, slot); /* 映像側の通り道を記録(12b) */
@@ -2184,7 +2248,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-12b';
+var APP_VER = '2026-08-12d';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
