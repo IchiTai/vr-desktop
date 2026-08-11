@@ -360,11 +360,14 @@ footer.site a{color:var(--muted);text-decoration:underline}
       <input class="code-input" id="codeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
       <p class="msg-err" id="qErr"></p>
       <p class="msg-info" id="qPeerStat" style="margin-top:2px"></p>
-      <div class="diag hidden" id="qDiag"></div>
       <button class="btn btn-wide" id="btnConnect">接続する</button>
       <p class="msg-info" id="xrNote" style="margin-top:10px"></p>
     </div>
   </div>
+
+  <!-- 診断欄(12a): 以前は接続の入力画面の中にあり、接続に成功すると親ごと
+       隠れて読めなかった。段階の切り替えの外に置き、両方の画面から読める -->
+  <div class="diag hidden" id="qDiag"></div>
 
   <div id="qStepB" class="hidden">
     <div class="panel">
@@ -1451,6 +1454,7 @@ function questLog(msg){
   if (el) {
     el.textContent = qs.diag.join('\n');
     el.scrollTop = el.scrollHeight;
+    show(el, questDiagWanted()); /* 新しい記録が困りごとなら、その場で見せる(12a) */
   }
 }
 
@@ -1708,6 +1712,51 @@ function questArmVideoWatch(host, conn){
   }, 8000);
 }
 
+/* 画面が消えたときの記録と、見張りの再装填(12a)。05yの見張りは最初の
+   画面が届くと店じまいし、その後に画面が消えても再開しなかった。
+   「黒い画面→消滅→映像待ちのまま」の形(iPadのMac接続で観測)では、
+   張り直しが二度と出ない。通信路が生きていて画面がゼロに戻ったときは、
+   見張りを張り直して同じ8秒の手順を繰り返す */
+function questNoteScreenGone(host, slot, why){
+  questLog('画面' + slot + 'が消えました(' + why + ')');
+  if (!host.gone && host.state === 'open' && host.conn && host.screens.length === 0) {
+    questArmVideoWatch(host, host.conn);
+  }
+}
+
+/* 受信フレーム数の記録(12a)。「黒い」の切り分け用: 画面が届いて4秒後に
+   復号済みフレーム数を1回だけ読む。0なら映像がこの端末まで来ていない
+   (送信側か経路)、増えていれば来ているのに黒=描画側、と場所が割れる */
+function questProbeScreenFrames(host, entry){
+  setTimeout(function(){
+    try {
+      if (host.gone || host.screens.indexOf(entry) < 0) return;
+      var pcn = entry.call && entry.call.peerConnection;
+      if (!pcn || !pcn.getStats) return;
+      pcn.getStats().then(function(stats){
+        var byId = {}, inb = null;
+        stats.forEach(function(rep){ byId[rep.id] = rep; });
+        stats.forEach(function(rep){
+          if (!inb && rep.type === 'inbound-rtp' && (rep.kind === 'video' || rep.mediaType === 'video')) inb = rep;
+        });
+        if (!inb) return;
+        var dec = (typeof inb.framesDecoded === 'number') ? inb.framesDecoded : -1;
+        var recv = (typeof inb.framesReceived === 'number') ? inb.framesReceived : -1;
+        var codec = '';
+        var c = inb.codecId && byId[inb.codecId];
+        if (c && c.mimeType) codec = String(c.mimeType).replace('video/', '');
+        if (dec <= 0) {
+          questLog('画面' + entry.slot + ': 4秒でフレーム0(受信' + (recv < 0 ? '不明' : recv + '枚')
+            + ')。映像がこの端末まで来ていません(送信側か経路の問題)');
+        } else {
+          questLog('画面' + entry.slot + ': フレーム受信OK(' + dec + '枚'
+            + (codec ? '・' + codec : '') + ')。それでも黒い場合は描画側の問題');
+        }
+      }).catch(function(){});
+    } catch (_e) {}
+  }, 4000);
+}
+
 function questWireConn(host){
   var conn = host.conn;
   questWatchIce(host, conn);
@@ -1736,6 +1785,7 @@ function questWireConn(host){
       if (APP.xrHud) APP.xrHud();
     } else if (m.t === 'del') {
       questRemoveScreen(host, m.s);
+      questNoteScreenGone(host, m.s, 'PC側が共有を終了');
     }
   });
   conn.on('close', function(){
@@ -1842,7 +1892,10 @@ function questOnCall(call){
     /* 再接続で作り直した新しい画面を、古い接続の後始末で消さない */
     var cur = null;
     host.screens.forEach(function(x){ if (x.slot === slot) cur = x; });
-    if (cur && cur.call === call) questRemoveScreen(host, slot);
+    if (cur && cur.call === call) {
+      questRemoveScreen(host, slot);
+      questNoteScreenGone(host, slot, '映像の通話が閉じました');
+    }
   });
 }
 
@@ -1868,7 +1921,9 @@ function questAddScreen(host, slot, stream, call){
   });
   v.volume = S.vol;
   $('qVideos').appendChild(v);
-  host.screens.push({ slot: slot, stream: stream, video: v, call: call || null, pv: null });
+  var entry = { slot: slot, stream: stream, video: v, call: call || null, pv: null };
+  host.screens.push(entry);
+  questProbeScreenFrames(host, entry); /* 4秒後にフレーム数を1回記録(12a) */
   qApplyLatencyToCall(call);
   if (!qs.anyStream) { qs.anyStream = true; questConnectedUi(); }
   questUiSync();
@@ -1976,6 +2031,18 @@ function questConnectedUi(){
   $('btnConnect').textContent = '接続する';
 }
 
+/* 診断欄を出すか(12a)。全部順調(全つなぎ先が開通して画面も届いている)の
+   ときだけ隠す。順調なら邪魔をせず、困っているとき(映像待ち・再接続中・
+   接続失敗の直後)は接続後でも読める */
+function questDiagWanted(){
+  if (!qs.hosts.length) return true; /* 未接続(失敗直後を含む)は従来どおり */
+  for (var i = 0; i < qs.hosts.length; i++) {
+    var h = qs.hosts[i];
+    if (h.state !== 'open' || h.screens.length === 0) return true;
+  }
+  return false;
+}
+
 function questUiSync(){
   questStatsTimer(); /* つなぎ先が増減したら計測の要否も見直す(05x) */
   var box = $('qHosts');
@@ -2009,6 +2076,7 @@ function questUiSync(){
   if (qsEl) qsEl.textContent = anyRetry
     ? '接続が切れました。自動で再接続しています…'
     : 'パソコンの画面を受信しています。';
+  show($('qDiag'), qs.diag.length > 0 && questDiagWanted()); /* 12a */
   if (APP.xrPadSync) APP.xrPadSync();
 }
 
@@ -2033,7 +2101,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-11b';
+var APP_VER = '2026-08-12a';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
