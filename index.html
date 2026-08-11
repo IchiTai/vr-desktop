@@ -268,7 +268,8 @@ footer.site a{color:var(--muted);text-decoration:underline}
 <div class="wrap">
 
 <header class="site">
-  <div class="brand"><span class="goggle">🥽</span>VR Desktop<small>パソコンの画面を、VRの大画面で</small></div>
+  <div class="brand"><span class="goggle">🥽</span>VR Desktop<!-- タイトル下の説明文は空欄にしている(2026-08-11の要望)。
+       戻すときは <small>文言</small> をこの位置に --></div>
   <div style="display:flex;gap:12px;align-items:center">
     <button class="btn-ghost btn-sm" id="btnTopSet">⚙ 設定</button>
     <a href="guide.html" target="_blank" rel="noopener">使い方ガイド</a>
@@ -2027,7 +2028,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-05y';
+var APP_VER = '2026-08-11a';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
