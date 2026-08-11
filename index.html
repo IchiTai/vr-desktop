@@ -366,8 +366,10 @@ footer.site a{color:var(--muted);text-decoration:underline}
   </div>
 
   <!-- 診断欄(12a): 以前は接続の入力画面の中にあり、接続に成功すると親ごと
-       隠れて読めなかった。段階の切り替えの外に置き、両方の画面から読める -->
-  <div class="diag hidden" id="qDiag"></div>
+       隠れて読めなかった。段階の切り替えの外に置き、両方の画面から読める。
+       12bで本文(qDiagText)とコピーボタンの2部構成に(iPadで手選択が難しく、
+       表示中に欄が消えると写せないため。ボタンは全記録を写す) -->
+  <div class="diag hidden" id="qDiag"><pre id="qDiagText" style="margin:0;white-space:pre-wrap;font:inherit"></pre><button class="btn-ghost btn-sm" id="qDiagCopy" style="margin-top:6px">記録をコピー</button></div>
 
   <div id="qStepB" class="hidden">
     <div class="panel">
@@ -1452,7 +1454,8 @@ function questLog(msg){
   if (qs.diag.length > 14) qs.diag.shift();
   var el = $('qDiag');
   if (el) {
-    el.textContent = qs.diag.join('\n');
+    var body = $('qDiagText');
+    if (body) body.textContent = qs.diag.join('\n');
     el.scrollTop = el.scrollHeight;
     show(el, questDiagWanted()); /* 新しい記録が困りごとなら、その場で見せる(12a) */
   }
@@ -1727,7 +1730,8 @@ function questNoteScreenGone(host, slot, why){
 /* 受信フレーム数の記録(12a)。「黒い」の切り分け用: 画面が届いて4秒後に
    復号済みフレーム数を1回だけ読む。0なら映像がこの端末まで来ていない
    (送信側か経路)、増えていれば来ているのに黒=描画側、と場所が割れる */
-function questProbeScreenFrames(host, entry){
+function questProbeScreenFrames(host, entry, attempt){
+  var tries = attempt || 1;
   setTimeout(function(){
     try {
       if (host.gone || host.screens.indexOf(entry) < 0) return;
@@ -1745,16 +1749,68 @@ function questProbeScreenFrames(host, entry){
         var codec = '';
         var c = inb.codecId && byId[inb.codecId];
         if (c && c.mimeType) codec = String(c.mimeType).replace('video/', '');
-        if (dec <= 0) {
+        if (dec > 0) {
+          /* フレームが届いた。順調の印を立てる(診断欄の自動非表示の条件。12b) */
+          entry.framesOk = true;
+          if (tries === 1) {
+            questLog('画面' + entry.slot + ': フレーム受信OK(' + dec + '枚'
+              + (codec ? '・' + codec : '') + ')。それでも黒い場合は描画側の問題');
+          } else {
+            questLog('画面' + entry.slot + ': 遅れてフレーム受信OK(' + (tries * 4) + '秒・' + dec + '枚'
+              + (codec ? '・' + codec : '') + ')');
+          }
+          questUiSync();
+          return;
+        }
+        if (tries === 1) {
           questLog('画面' + entry.slot + ': 4秒でフレーム0(受信' + (recv < 0 ? '不明' : recv + '枚')
             + ')。映像がこの端末まで来ていません(送信側か経路の問題)');
-        } else {
-          questLog('画面' + entry.slot + ': フレーム受信OK(' + dec + '枚'
-            + (codec ? '・' + codec : '') + ')。それでも黒い場合は描画側の問題');
         }
+        /* 来るまで4秒ごとに見続ける(上限8回=32秒。記録は変わり目だけ) */
+        if (tries < 8) questProbeScreenFrames(host, entry, tries + 1);
+        else questLog('画面' + entry.slot + ': 32秒たってもフレーム0のまま(送信側か経路で確定)');
       }).catch(function(){});
     } catch (_e) {}
   }, 4000);
+}
+
+/* 映像の通話そのものの経路の種類を記録する(12b)。操作用と映像用は別々に
+   経路を作るので、操作用の「経路の種類」だけでは映像側の通り道が分からない。
+   「同一ネットワークなのに映像だけ失敗」「映像だけ遠回り」の切り分けに使う */
+function questLogCallRoute(host, call, slot, attempt){
+  var tries = attempt || 1;
+  setTimeout(function(){
+    try {
+      if (host.gone) return;
+      var pcn = call.peerConnection;
+      if (!pcn || !pcn.getStats) return;
+      pcn.getStats().then(function(stats){
+        var byId = {}, pairId = null;
+        stats.forEach(function(rep){ byId[rep.id] = rep; });
+        stats.forEach(function(rep){
+          if (rep.type === 'transport' && rep.selectedCandidatePairId) pairId = rep.selectedCandidatePairId;
+        });
+        var pair = pairId ? byId[pairId] : null;
+        if (!pair) {
+          stats.forEach(function(rep){
+            if (!pair && rep.type === 'candidate-pair' && rep.state === 'succeeded' && (rep.selected || rep.nominated)) pair = rep;
+          });
+        }
+        if (!pair) { if (tries < 5) questLogCallRoute(host, call, slot, tries + 1); return; }
+        var lc = byId[pair.localCandidateId], rc = byId[pair.remoteCandidateId];
+        var lt = lc && lc.candidateType, rt = rc && rc.candidateType;
+        if (lt === 'relay' || rt === 'relay') {
+          questLog('画面' + slot + 'の経路: ⚠ 中継サーバー経由');
+        } else if (lt === 'host' && (rt === 'host' || !rt)) {
+          questLog('画面' + slot + 'の経路: 同一ネットワーク直結');
+        } else if (lt || rt) {
+          questLog('画面' + slot + 'の経路: 直結(NAT越え)');
+        } else if (tries < 5) {
+          questLogCallRoute(host, call, slot, tries + 1);
+        }
+      }).catch(function(){ if (tries < 5) questLogCallRoute(host, call, slot, tries + 1); });
+    } catch (_e) {}
+  }, 1200);
 }
 
 function questWireConn(host){
@@ -1887,7 +1943,13 @@ function questOnCall(call){
     questLog('映像の通話が失敗(PC ' + host.code + ' 画面' + slot + '): '
       + ((e && (e.type || e.message)) || '不明'));
   });
-  call.on('stream', function(stream){ questTuneLatency(call); questAddScreen(host, slot, stream, call); });
+  var callT0 = Date.now();
+  call.on('stream', function(stream){
+    questLog('画面' + slot + ': 映像の通話が開通(' + ((Date.now() - callT0) / 1000).toFixed(1) + '秒)');
+    questLogCallRoute(host, call, slot); /* 映像側の通り道を記録(12b) */
+    questTuneLatency(call);
+    questAddScreen(host, slot, stream, call);
+  });
   call.on('close', function(){
     /* 再接続で作り直した新しい画面を、古い接続の後始末で消さない */
     var cur = null;
@@ -2039,8 +2101,29 @@ function questDiagWanted(){
   for (var i = 0; i < qs.hosts.length; i++) {
     var h = qs.hosts[i];
     if (h.state !== 'open' || h.screens.length === 0) return true;
+    /* 画面が「ある」だけでは順調と数えない(12b)。黒い画面(フレームが
+       届いていない)でも1枚は1枚なので、12aの条件では失敗の周期に
+       合わせて欄が点滅消失し、記録が写せなかった(実機で発覚)。
+       フレーム到着を確認(probeがframesOkを立てる)して初めて順調 */
+    for (var k = 0; k < h.screens.length; k++) {
+      if (!h.screens[k].framesOk) return true;
+    }
   }
   return false;
+}
+
+/* 診断の全記録をコピーする(12b)。iPadでは小さな欄の文字の手選択が難しく、
+   欄の表示中にしか写せないため、1タップで全部を写せるボタンを付けた */
+function questCopyDiag(){
+  var b = $('qDiagCopy');
+  var done = function(ok){
+    if (!b) return;
+    b.textContent = ok ? 'コピーしました' : 'コピーできませんでした(画面写真で代用を)';
+    setTimeout(function(){ b.textContent = '記録をコピー'; }, 1800);
+  };
+  try {
+    navigator.clipboard.writeText(qs.diag.join('\n')).then(function(){ done(true); }, function(){ done(false); });
+  } catch (_e) { done(false); }
 }
 
 function questUiSync(){
@@ -2101,7 +2184,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-12a';
+var APP_VER = '2026-08-12b';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -5894,6 +5977,7 @@ function bootApp(){
   }
   wireCodeInput('codeInput', function(){ $('btnConnect').click(); });
   wireCodeInput('codeInput2', function(){ $('btnConnect2').click(); });
+  $('qDiagCopy').addEventListener('click', questCopyDiag);
 
   window.addEventListener('beforeunload', function(){
     if (pc.screens.length) pcStop();
