@@ -369,6 +369,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
        隠れて読めなかった。段階の切り替えの外に置き、両方の画面から読める。
        12bで本文(qDiagText)とコピーボタンの2部構成に(iPadで手選択が難しく、
        表示中に欄が消えると写せないため。ボタンは全記録を写す) -->
+  <p style="margin:6px 0 0"><button class="btn-ghost btn-sm" id="qDiagToggle">診断の記録を隠す</button></p>
   <div class="diag hidden" id="qDiag"><pre id="qDiagText" style="margin:0;white-space:pre-wrap;font:inherit"></pre><button class="btn-ghost btn-sm" id="qDiagCopy" style="margin-top:6px">記録をコピー</button></div>
 
   <div id="qStepB" class="hidden">
@@ -1459,7 +1460,7 @@ function questLog(msg){
     var body = $('qDiagText');
     if (body) body.textContent = qs.diag.join('\n');
     el.scrollTop = el.scrollHeight;
-    show(el, questDiagWanted()); /* 新しい記録が困りごとなら、その場で見せる(12a) */
+    /* 表示・非表示はここでは触らない(12e)。開閉は利用者の選択だけで決まる */
   }
 }
 
@@ -2138,7 +2139,6 @@ function questOnPeerError(err){
 
 function questShowErr(msg){
   if (APP.xrPadMsg) APP.xrPadMsg(msg);
-  if (qs.diag.length) show($('qDiag'), true); /* ログは問題が起きたときだけ表示 */
   if (!$('qStepA').classList.contains('hidden')) {
     $('qErr').textContent = msg;
     $('btnConnect').disabled = false;
@@ -2157,23 +2157,21 @@ function questConnectedUi(){
   $('btnConnect').textContent = '接続する';
 }
 
-/* 診断欄を出すか(12a)。全部順調(全つなぎ先が開通して画面も届いている)の
-   ときだけ隠す。順調なら邪魔をせず、困っているとき(映像待ち・再接続中・
-   接続失敗の直後)は接続後でも読める */
-function questDiagWanted(){
-  if (!qs.hosts.length) return true; /* 未接続(失敗直後を含む)は従来どおり */
-  for (var i = 0; i < qs.hosts.length; i++) {
-    var h = qs.hosts[i];
-    if (h.state !== 'open' || h.screens.length === 0) return true;
-    /* 画面が「ある」だけでは順調と数えない(12b)。黒い画面(フレームが
-       届いていない)でも1枚は1枚なので、12aの条件では失敗の周期に
-       合わせて欄が点滅消失し、記録が写せなかった(実機で発覚)。
-       フレーム到着を確認(probeがframesOkを立てる)して初めて順調 */
-    for (var k = 0; k < h.screens.length; k++) {
-      if (!h.screens[k].framesOk) return true;
-    }
-  }
-  return false;
+/* 診断欄の開閉(12e)。12a〜12bでは「順調かどうか」をアプリが判断して
+   自動で出し入れしていたが、その判断が読みたい瞬間に欄を消す原因に
+   なった(実機で指摘)。**開閉は利用者が決める**。この選択は端末に保存し、
+   アプリは中身を書くだけで、表示・非表示には一切触らない */
+function questDiagRender(){
+  var open = (S.diagOpen !== false);
+  show($('qDiag'), open);
+  var b = $('qDiagToggle');
+  if (b) b.textContent = open ? '診断の記録を隠す' : '診断の記録を表示';
+}
+
+function questToggleDiag(){
+  S.diagOpen = (S.diagOpen === false);
+  saveS();
+  questDiagRender();
 }
 
 /* 診断の全記録をコピーする(12b)。iPadでは小さな欄の文字の手選択が難しく、
@@ -2223,7 +2221,6 @@ function questUiSync(){
   if (qsEl) qsEl.textContent = anyRetry
     ? '接続が切れました。自動で再接続しています…'
     : 'パソコンの画面を受信しています。';
-  show($('qDiag'), qs.diag.length > 0 && questDiagWanted()); /* 12a */
   if (APP.xrPadSync) APP.xrPadSync();
 }
 
@@ -2248,7 +2245,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-12d';
+var APP_VER = '2026-08-12e';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2314,6 +2311,7 @@ function loadS(){
   s.panoStereo = (['tb', 'lr'].indexOf(s.panoStereo) >= 0) ? s.panoStereo : 'mono'; /* 全天球映像の立体視の並び */
   if (s.bg === 'photo' || s.bg === 'video') s.bg = 'dark'; /* 写真も映像もこの場かぎり */
   s.stats = !!s.stats;
+  s.diagOpen = (s.diagOpen !== false); /* 診断欄の開閉は利用者が決める(12e)。既定は開 */
   s.vol = (typeof s.vol === 'number' && s.vol >= 0 && s.vol <= 1) ? s.vol : 1;
   s.scrollDir = (s.scrollDir === -1) ? -1 : 1;
   s.scrollSpd = ([0, 1, 2].indexOf(s.scrollSpd) >= 0) ? s.scrollSpd : 1;
@@ -6042,6 +6040,8 @@ function bootApp(){
   wireCodeInput('codeInput', function(){ $('btnConnect').click(); });
   wireCodeInput('codeInput2', function(){ $('btnConnect2').click(); });
   $('qDiagCopy').addEventListener('click', questCopyDiag);
+  $('qDiagToggle').addEventListener('click', questToggleDiag);
+  questDiagRender(); /* 保存されている開閉の選択を復元(12e) */
 
   window.addEventListener('beforeunload', function(){
     if (pc.screens.length) pcStop();
