@@ -753,6 +753,11 @@ function pcCallScreenTo(item, conn){
     var old = item.calls[conn.peer];
     if (old) { try { old.close(); } catch (_e) {} }
     var call = pc.peer.call(conn.peer, item.stream, { metadata: { slot: item.slot } });
+    call.on('error', function(e){
+      /* 映像発信の失敗はこれまで沈黙していた(05y)。PC側に診断欄はないので
+         開発者コンソールへ。見る側には8秒の見張りと張り直し(recall)がある */
+      try { console.warn('映像の発信が失敗(見る側 ' + conn.peer + ' 画面' + item.slot + ')', e); } catch (_e2) {}
+    });
     item.calls[conn.peer] = call;
     pcApplyQualityToCall(call, 0);
   } catch (_e) {}
@@ -1205,6 +1210,15 @@ function pcOnData(msg, conn){
 
 function pcOnDataInner(msg, conn){
   if (!msg || !msg.t) return;
+  if (msg.t === 'recall') {
+    /* 見る側からの「映像が届いていないので張り直して」(05y)。
+       操作ではないので、ヘルパーの有無や関門に関係なく応じる。
+       pcCallScreenTo は同じ相手への古い通話を閉じてから作るので、
+       何度届いても安全。旧版のページは未知の種類を静かに無視する
+       作りなので、版が混ざっても壊れない */
+    if (conn) pc.screens.forEach(function(item){ pcCallScreenTo(item, conn); });
+    return;
+  }
   if (!pc.helperOn && msg.t !== 'q') return; /* ヘルパーOFF中は操作をためない */
   if ((msg.t === 'key' || msg.t === 'txt' || msg.t === 'kb' || msg.t === 'ch')
       && !pcKeysAllowed()) return;
@@ -1474,7 +1488,17 @@ function questHostByPeerId(pid){
 function questAddHost(codeRaw, errEl){
   var code = String(codeRaw || '').replace(/\D/g, '');
   if (code.length !== 6) { errEl.textContent = '6桁のコードを入力してください。'; return false; }
-  if (questHostByPeerId(PEER_PREFIX + code)) { errEl.textContent = 'そのコードにはすでに接続しています。'; return false; }
+  var exist = questHostByPeerId(PEER_PREFIX + code);
+  if (exist) {
+    /* 記録の有無だけで「接続済み」と言わない(05y)。失敗の残骸でも記録は
+       残るため、いまの状態を添え、外してやり直す道筋まで案内する */
+    var exSt = exist.state === 'connecting' ? '接続中'
+      : exist.state === 'retry' ? '再接続中'
+      : exist.screens.length ? ('画面' + exist.screens.length + '枚を受信中')
+      : '映像待ち';
+    errEl.textContent = 'そのコードには接続済みです(' + exSt + ')。つながらないときは、接続一覧の「切断」でいったん外してからやり直してください。';
+    return false;
+  }
   errEl.textContent = '';
   var host = { idx: qs.nextHost++, code: code, conn: null, screens: [], helperOn: false, state: 'connecting', dialTries: 0 };
   qs.hosts.push(host);
@@ -1659,6 +1683,25 @@ function questWatchIce(host, conn){
   }, 250);
 }
 
+/* 映像の見張り(05y)。操作の通信路と映像の通話は別々に経路(ICE)を作るため、
+   「通信路は開いたのに映像だけ失敗」が構造上ありうる。従来はその失敗が
+   どこにも現れず、ホスト行が「映像待ち」のまま永遠に止まっていた
+   (Macで報告された症状。第7節(n))。開通から8秒たっても画面が1枚も
+   届かなければ、診断欄に記録してPC側へ張り直し(recall)を1回だけ頼む。
+   それでも8秒来なければ、原因の候補を記録して打ち止め(自動では追わない) */
+function questArmVideoWatch(host, conn){
+  clearTimeout(host.videoWatch);
+  host.videoWatch = setTimeout(function(){
+    if (host.gone || host.conn !== conn || host.screens.length) return;
+    questLog('接続はできましたが、映像が8秒届いていません(PC ' + host.code + ') → 張り直しを頼みます');
+    hostSend(host, { t: 'recall' });
+    host.videoWatch = setTimeout(function(){
+      if (host.gone || host.conn !== conn || host.screens.length) return;
+      questLog('張り直し後も映像が届きません(PC ' + host.code + ')。PC側のページに画面のプレビューが出ているか、Macなら画面収録の権限とファイアウォールを確認してください');
+    }, 8000);
+  }, 8000);
+}
+
 function questWireConn(host){
   var conn = host.conn;
   questWatchIce(host, conn);
@@ -1666,6 +1709,7 @@ function questWireConn(host){
     if (host.gone || host.conn !== conn) { try { conn.close(); } catch (_e) {} return; }
     questLog('接続できました(PC ' + host.code + ')');
     questLogRouteType(host, conn);
+    questArmVideoWatch(host, conn); /* 映像が来ない事態の見張り(05y) */
     if (qs.pendingHost === host) qs.pendingHost = null;
     host.state = 'open';
     host.retryUntil = 0;
@@ -1713,6 +1757,7 @@ function questWireConn(host){
    gone・ダイヤル例外の連続でもタイマーが1つを超えないことを確認済み */
 function questConnLost(host){
   if (host.gone) return;
+  clearTimeout(host.videoWatch); /* 通信路ごと切れた。開通し直せば見張りも張り直す(05y) */
   if (!host.retryUntil) host.retryUntil = Date.now() + 120000;
   if (Date.now() > host.retryUntil) {
     questDropHost(host, '再接続できませんでした。パソコン側の共有を確認して、もう一度コードを入力してください。');
@@ -1779,6 +1824,13 @@ function questOnCall(call){
   if (!host) { try { call.close(); } catch (_e) {} return; }
   var slot = (call.metadata && call.metadata.slot != null) ? call.metadata.slot : 0;
   call.answer(null, { sdpTransform: preferH264 });
+  call.on('error', function(e){
+    /* 映像の通話の失敗は、これまでどこにも現れなかった(05y)。
+       操作の通信路と映像の通話は別々に経路を作るため、
+       「通信路は通ったのに映像だけ失敗」が構造上ありうる */
+    questLog('映像の通話が失敗(PC ' + host.code + ' 画面' + slot + '): '
+      + ((e && (e.type || e.message)) || '不明'));
+  });
   call.on('stream', function(stream){ questTuneLatency(call); questAddScreen(host, slot, stream, call); });
   call.on('close', function(){
     /* 再接続で作り直した新しい画面を、古い接続の後始末で消さない */
@@ -1789,6 +1841,7 @@ function questOnCall(call){
 }
 
 function questAddScreen(host, slot, stream, call){
+  clearTimeout(host.videoWatch); /* 映像が来たので見張りは終わり(05y) */
   questRemoveScreen(host, slot, true); /* 同じ番号の作り直しに備える */
   var v = document.createElement('video');
   v.className = 'preview';
@@ -1840,6 +1893,7 @@ function questDropHost(host, msg){
   clearTimeout(host.connWatch);
   clearTimeout(host.retryTimer);
   clearTimeout(host.retryWatch);
+  clearTimeout(host.videoWatch);
   var i = qs.hosts.indexOf(host);
   if (i < 0) return;
   host.screens.slice().forEach(function(sc){ questRemoveScreen(host, sc.slot, true); });
@@ -1973,7 +2027,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-05x';
+var APP_VER = '2026-08-05y';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
