@@ -460,10 +460,6 @@ footer.site a{color:var(--muted);text-decoration:underline}
     <div id="setPaneCtl" class="hidden">
       <div id="kmRows"></div>
       <div class="set-row">
-        <label>Bluetoothキーボードをそのまま送る</label>
-        <input type="checkbox" id="chkKbFwd" style="width:18px;height:18px;accent-color:var(--accent)">
-      </div>
-      <div class="set-row">
         <label>トリガーのドラッグ</label>
         <select class="monsel" id="selTrig">
           <option value="vd">スクロール対応(長押し→動かすとスクロール)</option>
@@ -525,7 +521,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
           <option value="off">しない(ブラウザ任せ)</option>
         </select>
       </div>
-      <p class="set-note">映像の受け取り側の溜め(揺らぎ吸収用のバッファ)を最小にするようブラウザへ希望します。<b>次に接続したときから</b>反映。映像の乱れ(コマ飛び)が増えたと感じたら「しない」に戻してください。</p>
+      <p class="set-note">映像の受け取り側の溜め(揺らぎ吸収用のバッファ)を最小にするようブラウザへ希望します。<b>切り替えたその場で</b>反映されます(受信中の映像にも効きます)。映像の乱れ(コマ飛び)が増えたと感じたら「しない」に戻してください。この項目は環境タブの「低遅延モード」と同じ設定です。</p>
       <p class="set-note">標準の方式は、平面の画面を合成器が直接描くため文字がくっきりし、消費電力も下がります(対応機のみ)。<b>湾曲の画面はこの方式を使えません</b>(合成器が湾曲の映像を描けないため)。くっきりさせたい画面は「平面」にしてください。表示に不具合が出たときは「従来」に切り替えてください(即時反映)。</p>
     </div>
     <div id="setPaneEnv" class="hidden">
@@ -573,7 +569,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
           <label>文字のちらつき低減(ミップマップ)</label>
           <input type="checkbox" id="chkAniso" style="width:18px;height:18px;accent-color:var(--accent)">
         </div>
-        <p class="set-note">描画解像度は、次にVRへ入るときに反映されます。これらはVRの中の設定メニュー(標準では左手のXボタン)からもその場で変えられます。背景も即時に切り替わりますが、パススルーとの行き来だけはVRの入り直しで反映されます(対応機のみ)。</p>
+        <p class="set-note">描画解像度は、次にVRへ入るときに反映されます(文字のちらつき低減はその場で反映)。<b>背景・画面の最大距離・画面の最大の幅</b>は、VRの中の設定メニュー(標準では左手のXボタン)からもその場で変えられます。背景も即時に切り替わりますが、パススルーとの行き来だけはVRの入り直しで反映されます(対応機のみ)。</p>
       </div>
       <div class="set-row">
         <label>スクロールの向き</label>
@@ -588,6 +584,12 @@ footer.site a{color:var(--muted);text-decoration:underline}
           <option value="abs">そのまま(触れた場所・マウス位置へ)</option>
           <option value="rel">なぞって動かす(トラックパッド式)</option>
         </select>
+      </div>
+      <!-- キーボード直送はVR中もタッチで見る中も働くため、VR専用の #envVrOnly の外に置く。
+           操作タブ(VR対応機にしか出ない)へ戻すと、VR非対応の機器からOFFにできなくなる -->
+      <div class="set-row">
+        <label>Bluetoothキーボードをそのまま送る</label>
+        <input type="checkbox" id="chkKbFwd" style="width:18px;height:18px;accent-color:var(--accent)">
       </div>
       <div class="set-row">
         <label>低遅延モード(受信のため込みを最小化)</label>
@@ -2291,7 +2293,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-12i';
+var APP_VER = '2026-08-13a';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2334,7 +2336,8 @@ function kmValid(km){
   if (!km) return false;
   for (var i = 0; i < KM_BTNS.length; i++) {
     var v = km[KM_BTNS[i]];
-    if (typeof v !== 'string' || !(v in KM_ACT_LABEL)) return false;
+    /* `in` だと 'toString' 等の継承キーが通り、壊れた保存を弾けない(13a) */
+    if (typeof v !== 'string' || !Object.prototype.hasOwnProperty.call(KM_ACT_LABEL, v)) return false;
   }
   return true;
 }
@@ -2365,12 +2368,15 @@ function loadS(){
   s.codec = (s.codec === 'vp8') ? 'vp8' : 'h264'; /* 映像の圧縮形式。h264=ハードウェア復号優先 */
   s.renderMode = (s.renderMode === 'classic') ? 'classic' : 'layers'; /* VRの画面の描画方式 */
   s.aa = (s.aa === false) ? false : true; /* VRのぼかし(4サンプル)。切ると描画が軽くなる */
-  s.lowLat = (s.lowLat === false) ? false : true; /* 受信の溜めを最小に希望(操作の機敏さ優先) */
+  s.lowLat = (s.lowLat !== false); /* 低遅延モード(操作の機敏さ優先): 受信の溜めを最小に希望。初期ON */
   s.stick = (s.stick === 'right') ? 'right'
     : (s.km && s.km.stick === 'right') ? 'right' : 'left'; /* 旧保存からの引き継ぎ */
-  if (!kmValid(s.km2) || kmIsOldDefault(s.km2)) s.km2 = kmDefault();
+  /* 旧標準からの移行は、印の無い保存(=まだ移行していない)にだけ効かせる(13a)。
+     印なしで毎回判定すると、いまの標準と1項目しか違わない割り当て
+     (右スティック押し込み=割り当てない)が読み込みのたびに標準へ戻される */
+  if (!kmValid(s.km2) || (!s.kmMigrated && kmIsOldDefault(s.km2))) s.km2 = kmDefault();
+  s.kmMigrated = true;
   delete s.km;
-  s.lowLat = (s.lowLat !== false); /* 低遅延モード: 初期ON */
   s.trig = (s.trig === 'plain') ? 'plain' : 'vd';
   s.kbfwd = (s.kbfwd !== false); /* BTキーボード直送: 初期ON */
   s.ptrMode = (s.ptrMode === 'rel') ? 'rel' : 'abs'; /* カーソルの移動方法(タッチで見る) */
@@ -2421,7 +2427,9 @@ function pcApplyFps(vt, fps){
 }
 
 function pcSetQuality(p){
-  if (!QUALITY[p]) p = 'balance';
+  /* p は見る側から届く値。`QUALITY[p]` だけでは 'constructor' 等の継承キーが
+     真になって検証をすり抜け、br/deg/fps が undefined のまま適用される(13a) */
+  if (!Object.prototype.hasOwnProperty.call(QUALITY, p)) p = 'balance';
   pc.quality = p;
   if (S.q !== p) { S.q = p; saveS(); refreshSettingsUi(); }
   var q = QUALITY[p];
@@ -2631,48 +2639,46 @@ function renderSettings(){
   show($('setPanePic'), setTab === 'pic');
   show($('setPaneEnv'), setTab === 'env');
 
+  syncSetControls();
   if (setTab === 'ctl') renderKm();
   if (setTab === 'pic') renderQGrid();
   if (setTab === 'env') renderEnv();
-  syncSetControls(); /* どのタブでも全項目に保存値を書き戻す(12i) */
 }
 
-/* 設定画面の全項目に、保存されている値を書き戻す(12i)。
-   以前は書き戻しが renderKm()(操作タブ)と renderEnv()(環境タブ)に
-   分かれて置かれていたが、renderKm が面倒を見ていた11項目のうち6項目は
-   別のタブにあった(圧縮の形式・描画方式・アンチエイリアス・低遅延=画質、
-   スクロール方向・全天球の立体視=環境)。そのため画質タブだけを開くと、
-   これらは保存値ではなく HTML に書かれた先頭の選択肢が表示され、
-   **画面はH.264優先、実際の設定はVP8**という食い違いが起きていた(実機で発覚)。
-   置き場所をタブに合わせて直すのではなく、一箇所に集めて毎回全部を
-   書き戻す形にした。同じ設定に対する操作欄が2つある場合(低遅延は
-   環境タブのチェックと画質タブの選択の2つ)も、これで足並みが揃う。 */
+/* 設定画面の操作欄すべてに、保存値を書き戻す。
+   タブごとに分けないこと(操作欄の所在タブと書き戻す条件がずれると、そのタブを
+   開いたときに保存値ではなくHTMLの先頭の選択肢が表示される)。
+   操作欄を1つ足したら、ここにも1行足すこと。
+   同じ設定に操作欄が2つある低遅延(selLowLat/chkLowLat)は、両方をここで書く。
+   3つのrenderより前に呼ぶこと(renderが落ちても書き戻しは済ませるため)。
+   画質・背景・ボタン割り当ての「選択中」表示は、各タブのrender側が受け持つ */
 function syncSetControls(){
-  /* 操作 */
+  var volPct = Math.round(S.vol * 100);
+  /* 操作タブ */
   $('selTrig').value = S.trig;
-  $('chkKbFwd').checked = S.kbfwd;
   $('chkPtrStab').checked = S.ptrStab;
   $('selStick').value = S.stick;
   $('selScrollSpd').value = String(S.scrollSpd);
-  /* 画質 */
+  /* 画質タブ */
   $('selCodec').value = S.codec;
   $('selRender').value = S.renderMode;
-  $('selAA').value = (S.aa === false) ? 'off' : 'on';
-  $('selLowLat').value = (S.lowLat === false) ? 'off' : 'on';
-  /* 環境 */
+  $('selAA').value = S.aa ? 'on' : 'off';
+  $('selLowLat').value = S.lowLat ? 'on' : 'off';
+  /* 環境タブ */
   $('selScrollDir').value = String(S.scrollDir);
-  if ($('selPanoStereo')) $('selPanoStereo').value = S.panoStereo || 'mono';
-  $('chkStats').checked = S.stats;
+  $('selPanoStereo').value = S.panoStereo;
+  $('selPtrMode').value = S.ptrMode;
+  $('chkKbFwd').checked = S.kbfwd;
   $('chkLowLat').checked = S.lowLat;
+  $('chkStats').checked = S.stats;
   $('selRScale').value = String(S.rscale);
   $('chkAniso').checked = S.aniso;
-  $('selPtrMode').value = S.ptrMode;
   $('rangeMaxD').value = String(S.maxDist);
   $('valMaxD').textContent = S.maxDist + 'm';
   $('rangeMaxW').value = String(S.maxW);
   $('valMaxW').textContent = S.maxW + 'm';
-  $('volRange').value = String(Math.round(S.vol * 100));
-  $('volVal').textContent = Math.round(S.vol * 100) + '%';
+  $('volRange').value = String(volPct);
+  $('volVal').textContent = volPct + '%';
 }
 
 function renderKm(){
@@ -2716,7 +2722,7 @@ function renderQGrid(){
       saveS();
       if (setRole === 'pc') { if (pc.screens.length) pcSetQuality(p); }
       else { qSendQualityAll(); }
-      renderQGrid();
+      renderSettings();
     });
     box.appendChild(b);
   });
@@ -2736,15 +2742,27 @@ var BG_LIST = [
   ['video',  '全天球の映像',        '手元の映像を空にする(下で選ぶ。読み込み直すと消えます)']
 ];
 
+/* 選べない背景の判定。2D設定・VR内メニューの表示・VR内メニューの実行の3箇所が
+   同じ答えを使うこと(片方だけ緩いと、実体の無い背景がS.bgに入って選択表示だけ残る) */
+function bgUnavailable(key){
+  return (key === 'pass' && !qs.arOk)
+    || (key === 'photo' && !(xr.bg && xr.bg.pano))
+    || (key === 'video' && !(xr.bg && xr.bg.panoVid));
+}
+
 function renderEnv(){
   show($('envVrOnly'), !!qs.xrOk); /* 背景や最大距離/幅はVRでしか使わない */
+  /* 写真・映像の警告は、この画面を組み直すたびに引っ込める。
+     出しっぱなしにすると、別の背景に切り替えた後も残る(13a) */
+  ['bgPhotoErr', 'bgVidErr'].forEach(function(id){
+    var e = $(id);
+    if (e) { e.textContent = ''; show(e, false); }
+  });
   var box = $('bgGrid');
   box.innerHTML = '';
   BG_LIST.forEach(function(item){
     var b = document.createElement('button');
-    var unavailable = (item[0] === 'pass' && !qs.arOk)
-      || (item[0] === 'photo' && !(xr.bg && xr.bg.pano))
-      || (item[0] === 'video' && !(xr.bg && xr.bg.panoVid));
+    var unavailable = bgUnavailable(item[0]);
     b.className = 'opt' + (S.bg === item[0] ? ' on' : '');
     b.disabled = unavailable;
     b.innerHTML = '<b>' + item[1] + '</b>'
@@ -2758,7 +2776,7 @@ function renderEnv(){
       S.bg = item[0];
       saveS();
       if (APP.xrBgChanged) APP.xrBgChanged();
-      renderEnv();
+      renderSettings();
     });
     box.appendChild(b);
   });
@@ -2815,15 +2833,18 @@ function initSettingsUi(){
   $('selLowLat').addEventListener('change', function(){
     S.lowLat = ($('selLowLat').value !== 'off');
     saveS();
+    qApplyLatencyAll(); /* 低遅延は操作欄が2つ(画質タブ/環境タブ)。両方から即時反映する(13a) */
   });
   $('selScrollSpd').addEventListener('change', function(){
-    S.scrollSpd = parseInt($('selScrollSpd').value, 10) || 1;
+    /* 0(ゆっくり)は正当な値。`|| 1` で既定へ倒すと 0 が保存できない(13a) */
+    var sp = parseInt($('selScrollSpd').value, 10);
+    S.scrollSpd = ([0, 1, 2].indexOf(sp) >= 0) ? sp : 1;
     saveS();
   });
   $('btnKmReset').addEventListener('click', function(){
     S.km2 = kmDefault();
     saveS();
-    renderKm();
+    renderSettings(); /* Sを変えたら全書き戻しを通すこと(部分描画だけだと他項目が古いまま残る) */
     if (APP.xrKmChanged) APP.xrKmChanged();
   });
   $('chkStats').addEventListener('change', function(){
@@ -3569,7 +3590,7 @@ function initTouchUi(){
     S.ptrMode = (S.ptrMode === 'rel') ? 'abs' : 'rel';
     saveS();
     tvUpdateModeBtn();
-    $('selPtrMode').value = S.ptrMode;
+    refreshSettingsUi();
     if (navigator.vibrate) { try { navigator.vibrate(15); } catch (_e) {} }
   });
   $('tvZoomReset').addEventListener('click', tvZoomReset);
@@ -3953,7 +3974,7 @@ function xrSetPanoFile(file){
     xr.bg.panoUrl = url; /* 解放用に控える */
     S.bg = 'photo';
     saveS();
-    renderEnv();
+    renderSettings(); /* この後に出す警告より前に呼ぶこと(renderEnvが警告を消すため) */
     APP.xrBgChanged();
     if (Math.abs(img.width / Math.max(1, img.height) - 2) > 0.35 && el) {
       el.textContent = 'この写真は横と縦が2対1ではないため、空がゆがんで見えることがあります('
@@ -3988,7 +4009,7 @@ function xrSetPanoVideo(file){
     xr.bg.panoVidUrl = url;
     S.bg = 'video';
     saveS();
-    renderEnv();
+    renderSettings();
     APP.xrBgChanged();
   });
   v.addEventListener('error', function(){
@@ -5681,7 +5702,7 @@ function xrMenuDraw(){
   BG_LIST.forEach(function(item, i){
     var r = Math.floor(i / 3), c = i % 3;
     btn('bg:' + item[0], 36 + c * 325, 258 + r * 70, 310, 56, item[1],
-        S.bg === item[0], item[0] === 'pass' && !qs.arOk, true);
+        S.bg === item[0], bgUnavailable(item[0]), true);
   });
 
   label('画面の最大距離', 36, 448);
@@ -5738,7 +5759,7 @@ function xrMenuActivate(id){
     qSendQualityAll();
   } else if (p[0] === 'bg') {
     var b = p[1];
-    if (b === 'pass' && !qs.arOk) return;
+    if (bgUnavailable(b)) return;
     S.bg = b;
     saveS();
     if (b === 'pass' && xr.mode === 'immersive-vr' && xr.session) {
