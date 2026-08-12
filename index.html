@@ -233,15 +233,13 @@ video.preview{
 .tv-tab.on{color:var(--ink);border-color:var(--accent);background:var(--accent-soft)}
 .tv-stats{font-size:11px;color:var(--muted);font-family:var(--font-disp);white-space:nowrap}
 .tv-stage{position:relative;flex:1;overflow:hidden;touch-action:none;background:#000}
-.tv-zoom{position:absolute;inset:0;transform-origin:0 0}
-.tv-zoom video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+#tvVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
 .tv-touch{position:absolute;inset:0;touch-action:none}
 .tv-note{
   position:absolute;left:50%;bottom:16px;transform:translateX(-50%);
   background:rgba(19,17,32,.92);border:1px solid var(--line);color:var(--warn);
   font-size:12px;padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap;
 }
-.tv-float{position:absolute;right:12px;bottom:16px;background:rgba(19,17,32,.92)}
 .tv-keybar{
   display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:8px 10px;
   background:rgba(19,17,32,.97);border-bottom:1px solid var(--line);
@@ -438,10 +436,9 @@ footer.site a{color:var(--muted);text-decoration:underline}
   </div>
   <div class="tv-stage" id="tvStage">
     <div id="tvRipple"></div>
-    <div class="tv-zoom" id="tvZoom"><video id="tvVideo" autoplay playsinline muted></video></div>
+    <video id="tvVideo" autoplay playsinline muted></video>
     <div class="tv-touch" id="tvTouch"></div>
     <div class="tv-note hidden" id="tvNote">操作モード OFF(見るだけ)</div>
-    <button class="btn-ghost btn-sm tv-float hidden" id="tvZoomReset">等倍に戻す</button>
   </div>
 </div>
 
@@ -491,14 +488,21 @@ footer.site a{color:var(--muted);text-decoration:underline}
     <div id="setPanePic" class="hidden">
       <div class="optgrid" id="qGrid"></div>
       <p class="set-note" id="qNote">見る側で変えると、共有中のパソコンにもすぐ反映されます。文字がにじむときは「くっきり」、動画がカクつくときは「なめらか」を試してください。</p>
-      <div class="set-row">
-        <label>映像の圧縮形式(見る側のみ)</label>
-        <select class="monsel" id="selCodec">
-          <option value="h264">H.264優先(ハードウェア復号・標準)</option>
-          <option value="vp8">従来(VP8)</option>
-        </select>
+      <div id="picCodecBox">
+        <div class="set-row">
+          <label>映像の圧縮形式</label>
+          <select class="monsel" id="selCodec">
+            <option value="h264">H.264優先(ハードウェア復号・標準)</option>
+            <option value="vp8">従来(VP8)</option>
+          </select>
+        </div>
+        <p class="set-note">形式は<b>次に接続したときから</b>反映されます。切り替えたあと下のボタンを押すと、映像だけを張り直してその場で切り替わります(VRの画面の配置はそのまま保たれます)。いま使われている形式は品質表示の「形式」で確認できます。</p>
+        <p style="margin-top:-6px">
+          <button class="btn-ghost btn-sm" id="btnCodecApply">いま反映する(映像を張り直す)</button>
+          <span id="codecApplyNote" class="hidden" style="margin-left:10px;color:var(--muted);font-size:13px"></span>
+        </p>
       </div>
-      <p class="set-note">形式は<b>次に接続したときから</b>反映されます。切替後はいったん切断してつなぎ直してください。いま使われている形式は品質表示の「形式」で確認できます。</p>
+      <p class="set-note hidden" id="picCodecPcNote">映像の圧縮形式は<b>見る側の端末</b>(Quest・スマホ・タブレット)の設定で決まります。このパソコンの設定画面からは変えられないため、ここには出していません。</p>
       <div class="set-row">
         <label>画面の描画方式(VR)</label>
         <select class="monsel" id="selRender">
@@ -507,13 +511,13 @@ footer.site a{color:var(--muted);text-decoration:underline}
         </select>
       </div>
       <div class="set-row">
-        <label>VRのぼかし(ふちのギザギザ取り)</label>
+        <label>ふちのギザギザ取り(VR)</label>
         <select class="monsel" id="selAA">
           <option value="on">あり(標準)</option>
           <option value="off">なし(描画が軽くなる)</option>
         </select>
       </div>
-      <p class="set-note">ぼかしは<b>ページを読み込み直したときから</b>反映されます。VRの中の操作ガイドに出る「描画」の数字(1秒あたりのコマ数)を見ながら切り替えると、効き目が分かります。数字が低い(60を大きく下回る)ときは「なし」を試してください。</p>
+      <p class="set-note">レーザーの線・足元の格子・画面や操作ガイドの<b>ふちの階段状のギザギザ</b>をなめらかにします。<b>画面の中の文字には効きません</b>(文字は「VRの描画解像度」と「文字のちらつき低減」の担当です)。また、画面を「平面」にすると合成器が直接描くため、その画面には効きません。<b>ページを読み込み直したときから</b>反映されます。VRの中の操作ガイドに出る「描画」の数字(1秒あたりのコマ数)が低い(60を大きく下回る)ときは「なし」を試してください。</p>
       <div class="set-row">
         <label>操作の機敏さ優先</label>
         <select class="monsel" id="selLowLat">
@@ -569,6 +573,15 @@ footer.site a{color:var(--muted);text-decoration:underline}
           <label>文字のちらつき低減(ミップマップ)</label>
           <input type="checkbox" id="chkAniso" style="width:18px;height:18px;accent-color:var(--accent)">
         </div>
+        <div class="set-row">
+          <label>視界のふちの粗さ</label>
+          <select class="monsel" id="selFovea">
+            <option value="1">最大(標準・いちばん軽い)</option>
+            <option value="0.5">中くらい</option>
+            <option value="0">なし(ふちまで鮮明・重い)</option>
+          </select>
+        </div>
+        <p class="set-note">VRの機器は、視界の<b>中心から外れたところをわざと粗く描いて</b>負担を減らしています(標準は最大)。「<b>ふちの方だけぼやけて見える。頭を動かして正面に持ってくると直る</b>」ときはこれが原因なので、「なし」にすると消えます。かわりに描画のコマ数が落ち、電池の減りが速くなります。<b>次にVRへ入るときから</b>反映されます。</p>
         <p class="set-note">描画解像度は、次にVRへ入るときに反映されます(文字のちらつき低減はその場で反映)。<b>背景・画面の最大距離・画面の最大の幅</b>は、VRの中の設定メニュー(標準では左手のXボタン)からもその場で変えられます。背景も即時に切り替わりますが、パススルーとの行き来だけはVRの入り直しで反映されます(対応機のみ)。</p>
       </div>
       <div class="set-row">
@@ -724,7 +737,6 @@ async function pcStartShare(){
   pcSetQuality(S.q);
   pcCreatePeer(0);
   pcStartHelperLoop();
-  pcCheckPermission();
 }
 
 async function pcAddScreenClick(){
@@ -1015,6 +1027,7 @@ async function pcPingHelper(){
   var on = false;
   var monitors = [];
   var hv = 0;
+  pc.pingRefused = false;
   var t0 = performance.now();
   try {
     var ctl = new AbortController();
@@ -1022,13 +1035,9 @@ async function pcPingHelper(){
     var r = await fetch(HELPER_URL + '/ping', { method: 'GET', signal: ctl.signal });
     clearTimeout(t);
     if (r.ok) {
-      on = true;
-      pc.everHelperOn = true; /* このセッションでONになった実績(11b。診断行の表示条件に使う) */
+      var j = null;
       try {
-        var j = await r.json();
-        if (j && j.monitors && j.monitors.length) monitors = j.monitors;
-        hv = (j && typeof j.hv === 'number') ? j.hv : 0;
-        if (j && j.os) pc.helperOs = j.os; /* 'mac' | 'win'。リモートズームの修飾キー選びに使う */
+        j = await r.json();
         pc.pingBroken = false;
       } catch (pe) {
         pc.pingBroken = true;
@@ -1040,6 +1049,23 @@ async function pcPingHelper(){
                             msg: 'ヘルパーの応答が壊れています。ヘルパーを最新版に差し替えてください',
                             ms: Math.round(performance.now() - t0),
                             at: new Date().toLocaleTimeString() };
+      }
+      if (j && j.ok === 0) {
+        /* 断りも HTTP 200 で返るので、本文の ok を見ないとONと誤読する(13b)。
+           ヘルパーの「操作を許可するページ」($allowOrigin / ALLOW_ORIGIN)が
+           このページのURLと違うときにここへ来る(第7節(j))。
+           版もモニター構成も返らないので、従来は「ON(ヘルパーが古い)」に見えていた */
+        pc.pingRefused = true;
+        pc.lastPingFail = { name: '操作を許可されていません',
+                            msg: 'ヘルパー側の「操作を許可するページ」の設定が、このページのURLと違います',
+                            ms: Math.round(performance.now() - t0),
+                            at: new Date().toLocaleTimeString() };
+      } else {
+        on = true;
+        pc.everHelperOn = true; /* このセッションでONになった実績(11b。診断行の表示条件に使う) */
+        if (j && j.monitors && j.monitors.length) monitors = j.monitors;
+        hv = (j && typeof j.hv === 'number') ? j.hv : 0;
+        if (j && j.os) pc.helperOs = j.os; /* 'mac' | 'win'。リモートズームの修飾キー選びに使う */
       }
     } else {
       /* HTTPは届いたが失敗(多重起動の別プロセス等) */
@@ -1093,9 +1119,13 @@ async function pcPingHelper(){
      診断が常時出ていて紛らわしかった。(c)の再発=ONだったものが失敗する
      場面では従来どおり出るので、採取の力は落ちない */
   var dg = $('helperDiag');
-  if ((!on || pc.pingBroken) && pc.lastPingFail && pc.everHelperOn) {
+  /* 許可されていない場合(13b)は、ONの実績が無くても出すこと。ヘルパーは動いて
+     答えているのに断られている状態で、未起動という「日常の正常な状態」ではない */
+  if ((!on || pc.pingBroken) && pc.lastPingFail && (pc.everHelperOn || pc.pingRefused)) {
     var f = pc.lastPingFail;
-    var hint = pc.pingBroken
+    var hint = pc.pingRefused
+      ? ' → ヘルパーは動いていますが、このページからの操作を許可していません。helper-windows.bat の $allowOrigin(Macは helper-mac.py の ALLOW_ORIGIN)に、いま開いているページのURLを正確に書いてください(末尾の / は付けない)'
+      : pc.pingBroken
       ? '' /* 中身がそのまま原因なので、時間からの推定は当てはまらない */
       : (f.ms < 50 && f.name.indexOf('HTTP') !== 0)
       ? ' → ヘルパーが見つかりません。起動していなければ(閉じたのなら)これは正常な状態です。起動しているのにこの表示が続く場合は、ブラウザがローカル通信を止めていることがあります(ページの再読み込みで許可し直しを)'
@@ -1167,9 +1197,11 @@ function pcReleaseHeld(conn){
   if (!conn || !conn._held) return;
   var keys = Object.keys(conn._held);
   conn._held = {};
-  if (!keys.length || !pc.helperOn) return;
+  if (!keys.length) return;
   /* 関門(pcCtlGate)は通さない。離す合図は無条件に通すのが従来からの
-     取り決めで、ここで止めると押しっぱなしが直らなくなる */
+     取り決めで、ここで止めると押しっぱなしが直らなくなる。
+     ヘルパーOFF中でも積むこと(13b)。記録を消すのは helperOn の判定より
+     前なので、ここで止めると肩代わりの解放ごと失われて復帰後も押しっぱなしが残る */
   keys.forEach(function(k){ pc.inputQueue.push({ t: 'up', b: k | 0 }); });
   pcTrimQueue();
 }
@@ -1190,7 +1222,8 @@ function pcReleaseAllNow(){
     Object.keys(c._held).forEach(function(k){ ups.push({ t: 'up', b: k | 0 }); });
     c._held = {};
   });
-  if (!ups.length || !pc.helperOn) return;
+  if (!ups.length) return; /* OFF中でも送る(13b)。誤OFFのまま共有を止めると押しっぱなしが残るため。
+                              pcSendNow は失敗を握って捨てるので、本当に居ないときも無害 */
   /* 待ち行列に残っているぶんも一緒に運んで取りこぼさない */
   var batch = pc.inputQueue.concat(ups);
   pc.inputQueue = [];
@@ -1233,7 +1266,13 @@ function pcOnDataInner(msg, conn){
     if (conn) pc.screens.forEach(function(item){ pcCallScreenTo(item, conn); });
     return;
   }
-  if (!pc.helperOn && msg.t !== 'q') return; /* ヘルパーOFF中は操作をためない */
+  /* ヘルパーOFF中は操作をためない。ただし `up`(離す)だけは先へ通すこと(13b)。
+     OFFは一時的な無応答でも成立する(1.5秒の打ち切り×2回連続)ので、ここで捨てると
+     ドラッグ中に誤OFFが起きたときPC側のボタンが押されたまま残る(実物のマウスを
+     クリックするまで戻らない=05vで直したはずの症状)。実際に積むかは dn/up の
+     分岐で「その相手が本当に押しているか」を見て決める。送信ループはOFFの間
+     止まっている(pcFlushInput)ので、出るのは復帰してから */
+  if (!pc.helperOn && msg.t !== 'q' && msg.t !== 'up') return;
   if ((msg.t === 'key' || msg.t === 'txt' || msg.t === 'kb' || msg.t === 'ch')
       && !pcKeysAllowed()) return;
   if (msg.t === 'mv') {
@@ -1265,6 +1304,9 @@ function pcOnDataInner(msg, conn){
     /* ボタン番号も0(左)/1(中)/2(右)へ正規化してから積む(05t。mvと同じ理由) */
     var bn = msg.b | 0;
     if (bn !== 1 && bn !== 2) bn = 0;
+    /* OFF中に積むのは、その相手が実際に押している離す合図だけ(13b)。
+       押していないものまで積むと、復帰の瞬間に覚えのないクリックが飛ぶ */
+    if (!pc.helperOn && !(conn && conn._held && conn._held[bn])) return;
     pcNoteButton(conn, msg.t === 'dn', bn); /* 誰が何を押しているかを控える(05v) */
     pc.inputQueue.push({ t: msg.t, b: bn });
   } else if (msg.t === 'sc') {
@@ -2076,7 +2118,9 @@ function questOnCall(call){
 
 function questAddScreen(host, slot, stream, call){
   clearTimeout(host.videoWatch); /* 映像が来たので見張りは終わり(05y) */
-  questRemoveScreen(host, slot, true); /* 同じ番号の作り直しに備える */
+  /* 同じ番号の作り直しに備える。いま開通した通話は畳まないこと(13b。
+     1つの通話で 'stream' は映像と音声の2回発火し、2回目がここへ来る) */
+  questRemoveScreen(host, slot, true, call);
   var v = document.createElement('video');
   v.className = 'preview';
   v.autoplay = true;
@@ -2106,7 +2150,8 @@ function questAddScreen(host, slot, stream, call){
   if (APP.tvSync) APP.tvSync();
 }
 
-function questRemoveScreen(host, slot, silent){
+/* keepCall: この通話だけは畳まない(同じ番号の作り直しで自分の通話を殺さないため) */
+function questRemoveScreen(host, slot, silent, keepCall){
   var idx = -1;
   for (var i = 0; i < host.screens.length; i++) {
     if (host.screens[i].slot === slot) { idx = i; break; }
@@ -2117,6 +2162,21 @@ function questRemoveScreen(host, slot, silent){
     if (sc.video) { sc.video.srcObject = null; sc.video.remove(); }
   } catch (_e) {}
   host.screens.splice(idx, 1);
+  /* 受信の後始末(13b)。PC側の pcRemoveScreen は前から track.stop() と call.close() の
+     両方をしていて、見る側だけが抜けていた。畳まないと、消えた画面の復号が
+     PeerJS の ICE 失敗検知(数十秒)まで居残り、付け外しを繰り返すほど積み上がる。
+     **必ず splice のあとに畳むこと**: call.close() は同期で 'close' を発火し、
+     その受け口(questOnCall)がここを再入するため、先に畳むと添字がずれる。
+     **keepCall と同じ通話は畳まないこと**: 1つの通話で 'stream' は映像と音声の
+     2回発火するので、2回目の作り直しで、開通したばかりの通話を自分で殺す */
+  if (!(keepCall && sc.call === keepCall)) {
+    if (sc.call) { try { sc.call.close(); } catch (_e2) {} }
+    try {
+      if (sc.stream && sc.stream.getTracks) {
+        sc.stream.getTracks().forEach(function(tr){ try { tr.stop(); } catch (_e3) {} });
+      }
+    } catch (_e4) {}
+  }
   if (!silent) {
     questUiSync();
     if (APP.xrSync) APP.xrSync();
@@ -2293,7 +2353,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-13a';
+var APP_VER = '2026-08-13b';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2367,7 +2427,7 @@ function loadS(){
   s.ptrStab = (s.ptrStab === false) ? false : true; /* ポインターの安定化(手ぶれ補正) */
   s.codec = (s.codec === 'vp8') ? 'vp8' : 'h264'; /* 映像の圧縮形式。h264=ハードウェア復号優先 */
   s.renderMode = (s.renderMode === 'classic') ? 'classic' : 'layers'; /* VRの画面の描画方式 */
-  s.aa = (s.aa === false) ? false : true; /* VRのぼかし(4サンプル)。切ると描画が軽くなる */
+  s.aa = (s.aa === false) ? false : true; /* ふちのギザギザ取り(4サンプルのMSAA)。切ると描画が軽くなる */
   s.lowLat = (s.lowLat !== false); /* 低遅延モード(操作の機敏さ優先): 受信の溜めを最小に希望。初期ON */
   s.stick = (s.stick === 'right') ? 'right'
     : (s.km && s.km.stick === 'right') ? 'right' : 'left'; /* 旧保存からの引き継ぎ */
@@ -2381,6 +2441,7 @@ function loadS(){
   s.kbfwd = (s.kbfwd !== false); /* BTキーボード直送: 初期ON */
   s.ptrMode = (s.ptrMode === 'rel') ? 'rel' : 'abs'; /* カーソルの移動方法(タッチで見る) */
   s.rscale = ([1, 1.15, 1.3].indexOf(+s.rscale) >= 0) ? +s.rscale : 1.15; /* VR描画解像度 */
+  s.fovea = ([0, 0.5, 1].indexOf(+s.fovea) >= 0) ? +s.fovea : 1; /* 視界のふちの粗さ。1=three既定(最大)なので初期値は従来と同じ */
   s.aniso = (s.aniso !== false); /* 文字のちらつき低減: 初期ON */
   if (!Array.isArray(s.slots) || s.slots.length !== 3) s.slots = [null, null, null];
   s.slots = s.slots.map(function(x){
@@ -2638,6 +2699,10 @@ function renderSettings(){
   show($('setPaneCtl'), setTab === 'ctl');
   show($('setPanePic'), setTab === 'pic');
   show($('setPaneEnv'), setTab === 'env');
+  /* 圧縮形式は見る側の応答SDPを書き換える方式なので、共有する側で操作しても
+     何も起きない(13b)。効かない欄を出したままにしない */
+  show($('picCodecBox'), setRole === 'q');
+  show($('picCodecPcNote'), setRole !== 'q');
 
   syncSetControls();
   if (setTab === 'ctl') renderKm();
@@ -2673,6 +2738,7 @@ function syncSetControls(){
   $('chkStats').checked = S.stats;
   $('selRScale').value = String(S.rscale);
   $('chkAniso').checked = S.aniso;
+  $('selFovea').value = String(S.fovea);
   $('rangeMaxD').value = String(S.maxDist);
   $('valMaxD').textContent = S.maxDist + 'm';
   $('rangeMaxW').value = String(S.maxW);
@@ -2822,6 +2888,21 @@ function initSettingsUi(){
     S.codec = ($('selCodec').value === 'vp8') ? 'vp8' : 'h264';
     saveS();
   });
+  $('btnCodecApply').addEventListener('click', function(){
+    /* つないでいる全PCへ「張り直して」を送る(05yの recall に相乗り)。
+       PC側は古い通話を閉じて全画面を発信し直し、見る側は questOnCall で
+       そのときの S.codec を使って応答する = その場で形式が切り替わる。
+       PC側もヘルパーも無改修。旧版のPCページは未知の種類を静かに無視する */
+    var n = 0;
+    qs.hosts.forEach(function(h){
+      if (h.conn && h.conn.open) { hostSend(h, { t: 'recall' }); n++; }
+    });
+    var note = $('codecApplyNote');
+    note.textContent = n
+      ? ('映像を張り直しています…(' + n + '台)。数秒お待ちください')
+      : 'つないでいるパソコンがありません';
+    show(note, true);
+  });
   $('selRender').addEventListener('change', function(){
     S.renderMode = ($('selRender').value === 'classic') ? 'classic' : 'layers';
     saveS();
@@ -2866,6 +2947,12 @@ function initSettingsUi(){
     S.aniso = $('chkAniso').checked;
     saveS();
     if (APP.xrAnisoChanged) APP.xrAnisoChanged();
+  });
+  $('selFovea').addEventListener('change', function(){
+    var fv = parseFloat($('selFovea').value);
+    S.fovea = ([0, 0.5, 1].indexOf(fv) >= 0) ? fv : 1;
+    saveS();
+    if (APP.xrFoveaChanged) APP.xrFoveaChanged();
   });
   $('chkLowLat').addEventListener('change', function(){
     S.lowLat = $('chkLowLat').checked;
@@ -2964,13 +3051,12 @@ window.addEventListener('keydown', function(e){
 var tv = {
   open: false,
   key: null, host: null, slot: 0, video: null,
-  z: 1, tx: 0, ty: 0,
   ptrs: {},
   mode: '',            /* '' | 'move' | 'drag' | 'two' */
   start: null,         /* 1本指の開始情報 */
   holdTimer: null,
   two: null,           /* 2本指の開始情報 */
-  twoKind: '',         /* '' | 'pinch' | 'scroll' | 'pan' */
+  twoKind: '',         /* '' | 'pinch' | 'scroll' */
   ignoreSingle: false,
   lastMv: 0,
   unmuteTried: false,
@@ -3040,7 +3126,6 @@ function tvSync(){
   tv.zoomAcc = 0;
   if (changed || $('tvVideo').srcObject !== sel.sc.stream) {
     $('tvVideo').srcObject = sel.sc.stream;
-    if (changed) tvZoomReset();
   }
 
   var tabs = $('tvTabs');
@@ -3079,11 +3164,8 @@ APP.tvStats = function(){
 /* ---------- 座標変換: 画面タッチ位置 → 映像の中の割合(0〜1) ---------- */
 function tvUv(clientX, clientY){
   var rect = $('tvStage').getBoundingClientRect();
-  var sx = clientX - rect.left;
-  var sy = clientY - rect.top;
-  /* ズームを外す */
-  var cx = (sx - tv.tx) / tv.z;
-  var cy = (sy - tv.ty) / tv.z;
+  var cx = clientX - rect.left;
+  var cy = clientY - rect.top;
   /* object-fit:contain の黒帯を除いた実映像の範囲 */
   var vw = (tv.video && tv.video.videoWidth) || 16;
   var vh = (tv.video && tv.video.videoHeight) || 9;
@@ -3113,32 +3195,18 @@ function tvSendMv(uv){
   });
 }
 
-function tvApplyTransform(){
-  $('tvZoom').style.transform = 'translate(' + tv.tx + 'px,' + tv.ty + 'px) scale(' + tv.z + ')';
-  show($('tvZoomReset'), tv.z > 1.02);
-}
-
-function tvZoomReset(){
-  tv.z = 1; tv.tx = 0; tv.ty = 0;
-  tvApplyTransform();
-}
-
-function tvClampPan(){
-  var rect = $('tvStage').getBoundingClientRect();
-  var minX = rect.width * (1 - tv.z), minY = rect.height * (1 - tv.z);
-  tv.tx = clamp(tv.tx, minX, 0);
-  tv.ty = clamp(tv.ty, minY, 0);
-}
-
 var REL_TOUCH = 2.4, REL_MOUSE = 1.5;
+/* ピンチのリモートズーム(13b): 指の間隔がこの倍率になるごとに1目盛り送る。
+   感度の調整点はここ1箇所(小さくすると速く効く) */
+var PINCH_STEP = 1.15;
 
 function tvIsRel(){ return S.ptrMode === 'rel'; }
 
 /* トラックパッド式: 動かした量をそのままPCカーソルの移動量として送る */
 function tvSendRel(dx, dy, mult){
   if (!tvCanControl()) return;
-  tv.relX += dx * mult / Math.max(1, tv.z);
-  tv.relY += dy * mult / Math.max(1, tv.z);
+  tv.relX += dx * mult;
+  tv.relY += dy * mult;
   var ix = Math.trunc(tv.relX), iy = Math.trunc(tv.relY);
   if (!ix && !iy) return;
   /* 1通の上限±300で切り詰めた分は残差に残し、次回(33ms後)に持ち越す。
@@ -3362,7 +3430,8 @@ function tvDown(e){
       smx: (a.x + b.x) / 2, smy: (a.y + b.y) / 2,
       t: performance.now(),
       acc: 0,
-      acc2: 0 /* 横スクロールの蓄積(版3) */
+      acc2: 0, /* 横スクロールの蓄積(版3) */
+      zacc: 1 /* リモートズームの蓄積(13b。指の間隔の比を掛け合わせる) */
     };
   } else {
     /* 3本指: 同時タップなら中クリック(CRD/Jumpと同じ割当)。
@@ -3415,23 +3484,26 @@ function tvMove(e){
 
     if (!tv.twoKind) {
       if (Math.abs(d / tv.two.d - 1) > 0.09 && Math.abs(d - tv.two.d) > 24) tv.twoKind = 'pinch';
-      else if (Math.hypot(mx - tv.two.smx, my - tv.two.smy) > 12) tv.twoKind = (tv.z > 1.02) ? 'pan' : 'scroll';
+      else if (Math.hypot(mx - tv.two.smx, my - tv.two.smy) > 12) tv.twoKind = 'scroll';
       if (tv.twoKind) tv.tri = null; /* ジェスチャ確定後の3本目は中クリックにしない */
     }
 
     if (tv.twoKind === 'pinch') {
-      var nz = clamp(tv.z * (d / tv.two.d), 1, 5);
-      tv.tx = mx - (mx - tv.tx) * (nz / tv.z);
-      tv.ty = my - (my - tv.ty) * (nz / tv.z);
-      tv.z = nz;
+      /* ピンチは「相手のPCの拡大縮小」(13b)。PCのトラックパッドのピンチ
+         (Ctrl+ホイール経路)と意味を揃えてある。手元(この端末)を拡大する
+         仕組みは13bで撤去した。**手元ズームを戻さないこと**: 戻すと
+         「拡大中は2本指ドラッグが相手へスクロールを送らない」が再発する。
+         指の間隔の比を掛け合わせ、PINCH_STEP 倍ごとに1目盛り送る */
+      tv.two.zacc *= (d / tv.two.d);
       tv.two.d = d;
-      tvClampPan();
-      tvApplyTransform();
-    } else if (tv.twoKind === 'pan') {
-      tv.tx += mx - tv.two.mx;
-      tv.ty += my - tv.two.my;
-      tvClampPan();
-      tvApplyTransform();
+      while (tv.two.zacc >= PINCH_STEP || tv.two.zacc <= 1 / PINCH_STEP) {
+        var zin = tv.two.zacc > 1; /* 指を広げる=拡大 */
+        if (tvCanControl()) {
+          var zmod = (tv.host && tv.host.helperOs === 'mac') ? 8 : 1; /* 8=Cmd, 1=Ctrl(不明時はCtrl) */
+          hostSend(tv.host, { t: 'kb', c: zin ? 'Equal' : 'Minus', m: zmod });
+        }
+        tv.two.zacc = zin ? (tv.two.zacc / PINCH_STEP) : (tv.two.zacc * PINCH_STEP);
+      }
     } else if (tv.twoKind === 'scroll') {
       tv.two.acc += my - tv.two.my;
       while (Math.abs(tv.two.acc) >= 46) {
@@ -3439,7 +3511,7 @@ function tvMove(e){
         if (tvCanControl()) hostSend(tv.host, { t: 'sc', d: dir, s: tv.slot });
         tv.two.acc -= (tv.two.acc > 0 ? 46 : -46);
       }
-      /* 横(版3のヘルパーから)。等倍のときだけここに来る(ズーム中はpan) */
+      /* 横(版3のヘルパーから) */
       tv.two.acc2 += mx - tv.two.mx;
       while (Math.abs(tv.two.acc2) >= 46) {
         var dirH = (tv.two.acc2 > 0 ? 1 : -1) * S.scrollDir;
@@ -3593,7 +3665,6 @@ function initTouchUi(){
     refreshSettingsUi();
     if (navigator.vibrate) { try { navigator.vibrate(15); } catch (_e) {} }
   });
-  $('tvZoomReset').addEventListener('click', tvZoomReset);
   $('tvFull').addEventListener('click', function(){
     if (document.fullscreenElement) {
       try { document.exitFullscreen(); } catch (_e) {}
@@ -4175,6 +4246,15 @@ function xrSyncScreens(){
     if (s) {
       delete existing[d.key];
       s.host = d.host;
+      /* 同じ番号の画面が張り直されたら、映像の器も差し替えること(13b)。
+         以前は host しか更新しておらず、板が死んだ video を掴んだまま固まった
+         (くっきり合成中なら合成器のレイヤーも古い器を握るので、いったん手放す)。
+         既知の問題(b)「VR内でだけ真っ黒・パススルーでは板が透明」の候補でもある */
+      if (s.video !== d.video) {
+        xrAttachVideo(s, d.video);
+        xrDropScreenLayer(s);
+        xr.geoDirty = true;
+      }
     } else {
       s = xrCreateScreen(d);
     }
@@ -4226,6 +4306,14 @@ APP.xrAnisoChanged = function(){
     xrTuneTex(s.tex);
     s.tex.needsUpdate = true;
   });
+};
+
+/* 視界のふちの粗さ(13b)。three 0.149 は既定でこれを最大(1.0)にするため、
+   指定しないと視界の周辺が常に粗く描かれる(「ふちがぼける」の正体)。
+   セッションが始まってからでないと効かないので、xrEnter でも呼ぶこと */
+APP.xrFoveaChanged = function(){
+  if (!xr.built || !xr.session) return;
+  try { xr.renderer.xr.setFoveation(S.fovea); } catch (_e) {}
 };
 
 APP.xrSync = function(){ if (xr.built) xrSyncScreens(); };
@@ -4281,29 +4369,40 @@ function xrMakeScreenGeo(width, aspect, curved){
   return g;
 }
 
+/* 画面に映像の器(video)を結びつける。テクスチャは器ごとに作り直すしかないので、
+   新規作成と、同じ番号の画面が張り直されたときの差し替え(13b)で共通に使う */
+function xrAttachVideo(s, video){
+  var old = s.tex;
+  s.video = video;
+  s.tex = new THREE.VideoTexture(video);
+  xrTuneTex(s.tex);
+  s.tex.magFilter = THREE.LinearFilter;
+  s.tex.encoding = THREE.sRGBEncoding;
+  if (s.mat) { s.mat.map = s.tex; s.mat.needsUpdate = true; }
+  if (old && old !== s.tex) { try { old.dispose(); } catch (_e) {} }
+  if (video.videoWidth > 0) s.aspect = video.videoWidth / video.videoHeight;
+  video.addEventListener('resize', function(){
+    if (s.video !== video) return; /* 差し替えたあと、古い器からの通知は無視する */
+    if (video.videoWidth > 0) {
+      s.aspect = video.videoWidth / video.videoHeight;
+      xr.geoDirty = true;
+    }
+  });
+}
+
 function xrCreateScreen(d){
-  var tex = new THREE.VideoTexture(d.video);
-  xrTuneTex(tex);
-  tex.magFilter = THREE.LinearFilter;
-  tex.encoding = THREE.sRGBEncoding;
-  var mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, fog: false }); /* もやは足元の格子だけに効かせる(暗い空の背景。fog未指定だと遠い画面が暗く沈む) */
+  var mat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, fog: false }); /* もやは足元の格子だけに効かせる(暗い空の背景。fog未指定だと遠い画面が暗く沈む) */
   var s = {
-    key: d.key, host: d.host, slot: d.slot, video: d.video,
-    tex: tex, mat: mat, mesh: null, aspect: 16 / 9, wScale: 1,
+    key: d.key, host: d.host, slot: d.slot, video: null,
+    tex: null, mat: mat, mesh: null, aspect: 16 / 9, wScale: 1,
     curved: xr.params.curved, locked: false, custom: false, follow: false, dim: 1, prevScale: 0,
     bar: null, barSig: ''
   };
-  if (d.video.videoWidth > 0) s.aspect = d.video.videoWidth / d.video.videoHeight;
+  xrAttachVideo(s, d.video);
   s.mesh = new THREE.Mesh(xrMakeScreenGeo(xrScreenW(s), s.aspect, s.curved), mat);
   s.mesh.userData.w = xrScreenW(s);
   s.mesh.userData.h = xrScreenW(s) / s.aspect;
   s.mesh.userData.ref = s;
-  d.video.addEventListener('resize', function(){
-    if (d.video.videoWidth > 0) {
-      s.aspect = d.video.videoWidth / d.video.videoHeight;
-      xr.geoDirty = true;
-    }
-  });
   xrBuildBar(s);
   xr.root.add(s.mesh);
   return s;
@@ -4638,6 +4737,9 @@ async function xrEnter(){
     session.addEventListener('selectstart', xrOnSelectStart);
     session.addEventListener('selectend', xrOnSelectEnd);
     await xr.renderer.xr.setSession(session);
+    /* 視界のふちの粗さ(13b)。setSession の中で three が既定の最大へ戻すので、
+       必ずそのあとに指定すること */
+    try { xr.renderer.xr.setFoveation(S.fovea); } catch (_e3) {}
     xr.mediaTries = 0; /* 描画層は毎フレーム取り直しを試みる(下の xrEnsureMedia) */
     xr.fps = 0; xr.frameCount = 0; xr.fpsAt = 0; xr.hudFps = undefined; xr.hudLayN = -1; /* 計測を初期化 */
     xr.mediaTrash = []; /* 破棄待ちのレイヤー((d)③対策) */
@@ -5888,6 +5990,19 @@ var MEDIA_MAX = 14; /* Questのレイヤー上限(16)からprojection分を引�
 function xrScreenLayerWanted(s){
   return S.renderMode !== 'classic' && !s.curved && s.mesh && s.video &&
          s.video.readyState >= 2 && s.dim >= 0.999; /* 明るさを下げた画面は従来描画(レイヤーに明るさ調整が無い) */
+}
+/* 指定の画面の合成器レイヤーを手放す(13b)。映像の器が差し替わったとき、
+   レイヤーは古い器を握ったままなので、作り直させるにはいったん外すしかない。
+   破棄は即座にせず捨て待ち箱へ((d)③。その瞬間の合成にまだ使われている) */
+function xrDropScreenLayer(s){
+  if (!xr.mediaLayers) return;
+  for (var i = xr.mediaLayers.length - 1; i >= 0; i--) {
+    if (xr.mediaLayers[i].s !== s) continue;
+    xr.mediaTrash = xr.mediaTrash || [];
+    xr.mediaTrash.push({ layer: xr.mediaLayers[i].layer, frames: 0 });
+    if (s.mesh && s.mesh.material === xr.holeMat) s.mesh.material = s.mat;
+    xr.mediaLayers.splice(i, 1);
+  }
 }
 /* 描画層を three 自身の入口から取る。`session.renderState` を直接読むと、
    WebXRの決まりで「次のフレームまで反映されない」ため、VR開始直後は空で、
