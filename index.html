@@ -1795,34 +1795,56 @@ function questLogCallRoute(host, call, slot, attempt){
   var tries = attempt || 1;
   setTimeout(function(){
     try {
-      if (host.gone) return;
+      if (host.gone || call._routeLogged) return;
       var pcn = call.peerConnection;
       if (!pcn || !pcn.getStats) return;
+      /* 通話が畳まれたら追わない(12f)。死んだ通話に経路は無い */
+      if (pcn.connectionState === 'closed' || pcn.iceConnectionState === 'closed') return;
       pcn.getStats().then(function(stats){
-        var byId = {}, pairId = null;
+        if (call._routeLogged) return;
+        var byId = {}, pair = null, pairStates = {};
         stats.forEach(function(rep){ byId[rep.id] = rep; });
+        /* 選ばれた対の特定は4段構え(12g)。WebKitは transport の欄や
+           selected/nominated の印を出さないことがあり、12fまでの2段では
+           データ用は見つかるのに映像用は見つからず、しかも無言で諦めていた
+           (実機で発覚: 開通後も経路の行が最後まで書かれなかった) */
         stats.forEach(function(rep){
-          if (rep.type === 'transport' && rep.selectedCandidatePairId) pairId = rep.selectedCandidatePairId;
+          if (!pair && rep.type === 'transport' && rep.selectedCandidatePairId) pair = byId[rep.selectedCandidatePairId];
         });
-        var pair = pairId ? byId[pairId] : null;
+        stats.forEach(function(rep){
+          if (rep.type !== 'candidate-pair') return;
+          var s = rep.state || '?';
+          pairStates[s] = (pairStates[s] || 0) + 1;
+          if (!pair && rep.selected) pair = rep;
+        });
+        if (!pair) stats.forEach(function(rep){ if (!pair && rep.type === 'candidate-pair' && rep.state === 'succeeded' && rep.nominated) pair = rep; });
+        if (!pair) stats.forEach(function(rep){ if (!pair && rep.type === 'candidate-pair' && rep.state === 'succeeded') pair = rep; });
         if (!pair) {
-          stats.forEach(function(rep){
-            if (!pair && rep.type === 'candidate-pair' && rep.state === 'succeeded' && (rep.selected || rep.nominated)) pair = rep;
-          });
+          if (tries < 16) { questLogCallRoute(host, call, slot, tries + 1); return; }
+          /* 諦めるときも黙らない(12g)。以前は無言で終わり、開通したのに
+             経路の行が永遠に出なかった。対の状態の内訳を添えて必ず記録する */
+          call._routeLogged = true;
+          var pf = Object.keys(pairStates).map(function(k){ return k + '×' + pairStates[k]; }).join(' ') || 'なし';
+          questLog('画面' + slot + ': 経路を特定できず(対: ' + pf + ' / ice: ' + (pcn.iceConnectionState || '?') + ')');
+          return;
         }
-        if (!pair) { if (tries < 5) questLogCallRoute(host, call, slot, tries + 1); return; }
         var lc = byId[pair.localCandidateId], rc = byId[pair.remoteCandidateId];
         var lt = lc && lc.candidateType, rt = rc && rc.candidateType;
-        if (lt === 'relay' || rt === 'relay') {
-          questLog('画面' + slot + 'の経路: ⚠ 中継サーバー経由');
-        } else if (lt === 'host' && (rt === 'host' || !rt)) {
-          questLog('画面' + slot + 'の経路: 同一ネットワーク直結');
-        } else if (lt || rt) {
-          questLog('画面' + slot + 'の経路: 直結(NAT越え)');
-        } else if (tries < 5) {
-          questLogCallRoute(host, call, slot, tries + 1);
+        var label = (lt === 'relay' || rt === 'relay') ? '⚠ 中継サーバー経由'
+          : (lt === 'host' && (rt === 'host' || !rt)) ? '同一ネットワーク直結'
+          : (lt || rt) ? '直結(NAT越え)'
+          : null;
+        if (!label) {
+          if (tries < 16) { questLogCallRoute(host, call, slot, tries + 1); return; }
+          call._routeLogged = true;
+          questLog('画面' + slot + ': 経路を特定できず(候補の種類が読めない)');
+          return;
         }
-      }).catch(function(){ if (tries < 5) questLogCallRoute(host, call, slot, tries + 1); });
+        /* 開通の記録が2回出る通話(映像+音声)では、この記録係も2本並走する。
+           1本目が書いたら2本目は黙る(12g) */
+        call._routeLogged = true;
+        questLog('画面' + slot + 'の経路: ' + label);
+      }).catch(function(){ if (tries < 16) questLogCallRoute(host, call, slot, tries + 1); });
     } catch (_e) {}
   }, 1200);
 }
@@ -1971,7 +1993,10 @@ function questConnLost(host){
    解析に失敗したときは、元のSDPをそのまま返す(安全側) */
 function preferH264(sdp){
   try {
-    if (S.codec !== 'h264') return sdp;
+    if (S.codec !== 'h264') {
+      questLog('変換: 設定が従来(VP8)のため何もしない');
+      return sdp;
+    }
     var lines = sdp.split('\r\n');
     var h264 = {}, rtxOf = {};
     lines.forEach(function(l){
@@ -1980,10 +2005,18 @@ function preferH264(sdp){
       var r = l.match(/^a=fmtp:(\d+)\s+apt=(\d+)/);
       if (r) rtxOf[r[1]] = r[2]; /* 再送用の番号 → 本体の番号 */
     });
-    if (!Object.keys(h264).length) return sdp; /* H.264候補なし */
+    var n = Object.keys(h264).length;
+    if (!n) {
+      /* 「H.264優先の設定なのに実際はVP8」の一方の筋(12h)。応答書類に
+         そもそもH.264が載っていなければ、この変換は仕事のしようがない */
+      questLog('変換(H.264優先): 応答にH.264の項目なし → 素通り(VP8等で受信することになる)');
+      return sdp;
+    }
+    var found = false;
     for (var i = 0; i < lines.length; i++) {
       var mm = lines[i].match(/^(m=video\s+\S+\s+\S+)\s+(.+)$/);
       if (!mm) continue;
+      found = true;
       var pts = mm[2].split(' ');
       var first = [], rest = [];
       pts.forEach(function(pt){
@@ -1991,8 +2024,21 @@ function preferH264(sdp){
       });
       lines[i] = mm[1] + ' ' + first.concat(rest).join(' ');
     }
-    return lines.join('\r\n');
-  } catch (_e) { return sdp; }
+    if (!found) {
+      questLog('変換(H.264優先): 映像のm行が見つからない → 素通り');
+      return sdp;
+    }
+    var out = lines.join('\r\n');
+    /* もう一方の筋(12h): 並べ替えた(または既に先頭だった)のに実際はVP8なら、
+       並び順が交渉で尊重されていないことになる。どちらだったかを記録する */
+    questLog(out === sdp
+      ? ('変換(H.264優先): 応答にH.264×' + n + '(既に先頭) → 変更なし')
+      : ('変換(H.264優先): 応答にH.264×' + n + ' → 先頭へ並べ替えた'));
+    return out;
+  } catch (_e) {
+    try { questLog('変換(H.264優先): 読み取りに失敗 → 素通り'); } catch (_e2) {}
+    return sdp;
+  }
 }
 
 function questOnCall(call){
@@ -2245,7 +2291,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-12e';
+var APP_VER = '2026-08-12h';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
