@@ -330,6 +330,8 @@ footer.site a{color:var(--muted);text-decoration:underline}
       <div class="statusrow"><span class="dot dot-off" id="dotQuest"></span><span class="lbl" id="lblQuest">見る側の接続待ち</span></div>
       <div class="statusrow"><span class="dot dot-off" id="dotHelper"></span><span class="lbl" id="helperLabel">操作モード OFF(見るだけ)</span></div>
       <div class="notice-warn hidden" id="helperDiag"></div>
+      <p class="hidden" style="margin:6px 0 0" id="pcDiagBar"><button class="btn-ghost btn-sm" id="pcDiagToggle">操作モードの記録を隠す</button></p>
+      <div class="diag hidden" id="pcDiag"><pre id="pcDiagText" style="margin:0;white-space:pre-wrap;font:inherit"></pre><button class="btn-ghost btn-sm" id="pcDiagCopy" style="margin-top:6px">記録をコピー</button></div>
       <div class="hint" id="helperHint">
         VRやスマホからパソコンを操作したいときは、<b>操作ヘルパー</b>をこのパソコンで起動しておきます。<br>
         Windows: <a href="helper-windows.bat" download>helper-windows.bat</a> / Mac: <a href="helper-mac.py" download>helper-mac.py</a><br>
@@ -700,6 +702,7 @@ var pc = {
   nextSlot: 1,
   helperOn: false, monitors: [], monSig: '',
   inputQueue: [],
+  diag: [], offAt: 0,  /* 誤OFFの採取(13c)。診断行と違い、ONに戻っても消えない */
   sendWorker: null, sendUrl: null, sendTimer: null, /* 操作送信の合図(05n。Worker/退避用interval) */
   ctlBlock: false     /* 「操作しない」画面を見ている間は、操作を通さない */
 };
@@ -980,6 +983,10 @@ function pcStartHelperLoop(){
      ボタンが押しっぱなしになりうる */
   pc.inputQueue = [];
   pc.inputBusy = false;
+  /* 採取の区切り(13c)。記録はページを読み込み直すまで残すので、共有をやり直したときに
+     どこからが今回かが分かるようにする。まだ1件も無いときは区切りだけ書かない */
+  pc.offAt = 0;
+  if (pc.diag.length) pcDiagLog('— 共有をはじめから開始 —');
   pcPingLoop();
   pcStartSendLoop();
 }
@@ -1021,6 +1028,63 @@ function pcStopSendLoop(){
   if (pc.sendWorker) { try { pc.sendWorker.terminate(); } catch (_e) {} pc.sendWorker = null; }
   if (pc.sendUrl) { try { URL.revokeObjectURL(pc.sendUrl); } catch (_e) {} pc.sendUrl = null; }
   if (pc.sendTimer) { clearInterval(pc.sendTimer); pc.sendTimer = null; }
+}
+
+/* ---------- 誤OFFの採取(13c) ----------
+   診断行(helperDiag)はONに戻ると消えるため、**自己回復する誤OFFの証拠が最短6秒で
+   失われていた**。ここは復帰したあとも読める形で貯める側で、**判定
+   (PING_TIMEOUT_MS・2回連続でOFF・間隔の広げ方)には一切触らない**。
+   「見立てで直さず、まず測る」(第7節(h)④)にならい、測る側だけを作ってある。
+   表示・非表示は利用者の手動スイッチだけで決まる(12eと同じ設計)。アプリが触るのは
+   「記録が1件でもあるか」だけ(記録ゼロのうちは欄もボタンも出さない=11bの教訓) */
+function pcDiagLog(msg){
+  var t = new Date();
+  var hh = ('0' + t.getHours()).slice(-2), mm = ('0' + t.getMinutes()).slice(-2), ss = ('0' + t.getSeconds()).slice(-2);
+  pc.diag.push(hh + ':' + mm + ':' + ss + ' ' + msg);
+  if (pc.diag.length > 30) pc.diag.shift();
+  pcDiagRender();
+}
+
+function pcDiagRender(){
+  var has = pc.diag.length > 0;
+  show($('pcDiagBar'), has);
+  var open = has && (S.pcDiagOpen !== false);
+  show($('pcDiag'), open);
+  var b = $('pcDiagToggle');
+  if (b) b.textContent = open ? '操作モードの記録を隠す' : '操作モードの記録を表示';
+  var body = $('pcDiagText');
+  if (body) body.textContent = pc.diag.join('\n');
+  var box = $('pcDiag');
+  if (box) box.scrollTop = box.scrollHeight;
+}
+
+function pcToggleDiag(){
+  S.pcDiagOpen = (S.pcDiagOpen === false);
+  saveS();
+  pcDiagRender();
+}
+
+/* コピーには前提情報を先頭に付ける(採取のたびに版やヘルパーの状態を聞き返さずに済む) */
+function pcCopyDiag(){
+  var b = $('pcDiagCopy');
+  var done = function(ok){
+    if (!b) return;
+    b.textContent = ok ? 'コピーしました' : 'コピーできませんでした(画面写真で代用を)';
+    setTimeout(function(){ b.textContent = '記録をコピー'; }, 1800);
+  };
+  var head = [
+    'アプリの版: ' + APP_VER,
+    'ヘルパー: ' + (pc.lastOkInfo
+      ? (pc.lastOkInfo + (pc.helperOn ? '' : '(最後に応答したときの内容)'))
+      : 'このセッションで一度も応答していません'),
+    '共有中の画面: ' + pc.screens.length + '枚 / 見る側: ' + pc.conns.length + '台',
+    'いまの操作モード: ' + (pc.helperOn ? 'ON' : 'OFF'),
+    '生存確認: 間隔' + PING_MS + '〜' + PING_MS_MAX + 'ms / 打ち切り' + PING_TIMEOUT_MS + 'ms / 2回連続でOFF',
+    '---'
+  ];
+  try {
+    navigator.clipboard.writeText(head.concat(pc.diag).join('\n')).then(function(){ done(true); }, function(){ done(false); });
+  } catch (_e) { done(false); }
 }
 
 async function pcPingHelper(){
@@ -1066,6 +1130,9 @@ async function pcPingHelper(){
         if (j && j.monitors && j.monitors.length) monitors = j.monitors;
         hv = (j && typeof j.hv === 'number') ? j.hv : 0;
         if (j && j.os) pc.helperOs = j.os; /* 'mac' | 'win'。リモートズームの修飾キー選びに使う */
+        /* 最後に応答したときの内容を控える(13c)。失敗すると版もモニターも 0/空 に戻るため、
+           記録をコピーしたときの前提情報として、そのままでは役に立たない */
+        pc.lastOkInfo = '版' + hv + ' / ' + (pc.helperOs || 'OS不明') + ' / モニター' + monitors.length + '枚';
       }
     } else {
       /* HTTPは届いたが失敗(多重起動の別プロセス等) */
@@ -1087,17 +1154,39 @@ async function pcPingHelper(){
   /* ドラッグ中の混雑による一時的な無応答では、操作モードを落とさない(2回連続で確定) */
   if (!on) {
     pc.pingFails = (pc.pingFails || 0) + 1;
+    /* 採取(13c)。ONの実績があるときだけ記録する(ヘルパー未起動という日常の
+       正常な状態で欄を埋めないため=11bと同じ考え)。猶予で見送る1回目も残す:
+       「2回目までに何が起きたか」が切り分けの手がかりになる。
+       画面が見えていたかも控える(いまは ms の大きさから推測するしかなかった) */
+    if (pc.everHelperOn) {
+      var ff = pc.lastPingFail || {};
+      pcDiagLog('生存確認が失敗: ' + (ff.name || '不明') + (ff.msg ? ': ' + ff.msg : '')
+        + '(' + (ff.ms != null ? ff.ms + 'ms' : 'ms不明') + '・' + pc.pingFails + '回連続・画面は'
+        + (typeof document.visibilityState === 'string' && document.visibilityState !== 'visible'
+            ? '見えていない' : '見えている') + ')');
+    }
     if (pc.pingFails < 2 && pc.helperOn) return;
   } else {
     pc.pingFails = 0;
   }
 
+  var wasOn = pc.helperOn;
   var sig = JSON.stringify(monitors);
   var changed = (on !== pc.helperOn) || (sig !== pc.monSig) || (hv !== (pc.helperVer || 0));
   pc.helperOn = on;
   pc.monitors = monitors;
   pc.monSig = sig;
   pc.helperVer = hv;
+  /* 採取(13c)。最初にONになる瞬間は書かない(pc.offAt が立っていないため) */
+  if (pc.everHelperOn && on !== wasOn) {
+    if (!on) {
+      pc.offAt = Date.now();
+      pcDiagLog('▼ 操作モードがOFFになった');
+    } else if (pc.offAt) {
+      pcDiagLog('▲ 操作モードがONに戻った(' + ((Date.now() - pc.offAt) / 1000).toFixed(1) + '秒ぶり)');
+      pc.offAt = 0;
+    }
+  }
   if (changed) {
     setDot('dotHelper', on ? 'on' : 'off');
     var oldHelper = on && hv < HELPER_VER_REQUIRED;
@@ -2353,7 +2442,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-13b';
+var APP_VER = '2026-08-13c';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2421,6 +2510,7 @@ function loadS(){
   if (s.bg === 'photo' || s.bg === 'video') s.bg = 'dark'; /* 写真も映像もこの場かぎり */
   s.stats = !!s.stats;
   s.diagOpen = (s.diagOpen !== false); /* 診断欄の開閉は利用者が決める(12e)。既定は開 */
+  s.pcDiagOpen = (s.pcDiagOpen !== false); /* PC側の操作モードの記録の開閉(13c)。既定は開 */
   s.vol = (typeof s.vol === 'number' && s.vol >= 0 && s.vol <= 1) ? s.vol : 1;
   s.scrollDir = (s.scrollDir === -1) ? -1 : 1;
   s.scrollSpd = ([0, 1, 2].indexOf(s.scrollSpd) >= 0) ? s.scrollSpd : 1;
@@ -6241,6 +6331,9 @@ function bootApp(){
   $('qDiagCopy').addEventListener('click', questCopyDiag);
   $('qDiagToggle').addEventListener('click', questToggleDiag);
   questDiagRender(); /* 保存されている開閉の選択を復元(12e) */
+  $('pcDiagCopy').addEventListener('click', pcCopyDiag);
+  $('pcDiagToggle').addEventListener('click', pcToggleDiag);
+  pcDiagRender(); /* 記録が1件も無いうちは、欄もボタンも出ない(13c) */
 
   window.addEventListener('beforeunload', function(){
     if (pc.screens.length) pcStop();
