@@ -2291,7 +2291,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-12h';
+var APP_VER = '2026-08-12i';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2634,6 +2634,45 @@ function renderSettings(){
   if (setTab === 'ctl') renderKm();
   if (setTab === 'pic') renderQGrid();
   if (setTab === 'env') renderEnv();
+  syncSetControls(); /* どのタブでも全項目に保存値を書き戻す(12i) */
+}
+
+/* 設定画面の全項目に、保存されている値を書き戻す(12i)。
+   以前は書き戻しが renderKm()(操作タブ)と renderEnv()(環境タブ)に
+   分かれて置かれていたが、renderKm が面倒を見ていた11項目のうち6項目は
+   別のタブにあった(圧縮の形式・描画方式・アンチエイリアス・低遅延=画質、
+   スクロール方向・全天球の立体視=環境)。そのため画質タブだけを開くと、
+   これらは保存値ではなく HTML に書かれた先頭の選択肢が表示され、
+   **画面はH.264優先、実際の設定はVP8**という食い違いが起きていた(実機で発覚)。
+   置き場所をタブに合わせて直すのではなく、一箇所に集めて毎回全部を
+   書き戻す形にした。同じ設定に対する操作欄が2つある場合(低遅延は
+   環境タブのチェックと画質タブの選択の2つ)も、これで足並みが揃う。 */
+function syncSetControls(){
+  /* 操作 */
+  $('selTrig').value = S.trig;
+  $('chkKbFwd').checked = S.kbfwd;
+  $('chkPtrStab').checked = S.ptrStab;
+  $('selStick').value = S.stick;
+  $('selScrollSpd').value = String(S.scrollSpd);
+  /* 画質 */
+  $('selCodec').value = S.codec;
+  $('selRender').value = S.renderMode;
+  $('selAA').value = (S.aa === false) ? 'off' : 'on';
+  $('selLowLat').value = (S.lowLat === false) ? 'off' : 'on';
+  /* 環境 */
+  $('selScrollDir').value = String(S.scrollDir);
+  if ($('selPanoStereo')) $('selPanoStereo').value = S.panoStereo || 'mono';
+  $('chkStats').checked = S.stats;
+  $('chkLowLat').checked = S.lowLat;
+  $('selRScale').value = String(S.rscale);
+  $('chkAniso').checked = S.aniso;
+  $('selPtrMode').value = S.ptrMode;
+  $('rangeMaxD').value = String(S.maxDist);
+  $('valMaxD').textContent = S.maxDist + 'm';
+  $('rangeMaxW').value = String(S.maxW);
+  $('valMaxW').textContent = S.maxW + 'm';
+  $('volRange').value = String(Math.round(S.vol * 100));
+  $('volVal').textContent = Math.round(S.vol * 100) + '%';
 }
 
 function renderKm(){
@@ -2662,17 +2701,6 @@ function renderKm(){
     row.appendChild(sel);
     box.appendChild(row);
   });
-  $('selTrig').value = S.trig;
-  $('chkKbFwd').checked = S.kbfwd;
-  $('chkPtrStab').checked = S.ptrStab;
-  $('selStick').value = S.stick;
-  $('selScrollDir').value = String(S.scrollDir);
-  $('selCodec').value = S.codec;
-  $('selRender').value = S.renderMode;
-  $('selAA').value = (S.aa === false) ? 'off' : 'on';
-  if ($('selPanoStereo')) $('selPanoStereo').value = S.panoStereo || 'mono';
-  $('selLowLat').value = (S.lowLat === false) ? 'off' : 'on';
-  $('selScrollSpd').value = String(S.scrollSpd);
 }
 
 function renderQGrid(){
@@ -2734,17 +2762,6 @@ function renderEnv(){
     });
     box.appendChild(b);
   });
-  $('chkStats').checked = S.stats;
-  $('chkLowLat').checked = S.lowLat;
-  $('selRScale').value = String(S.rscale);
-  $('chkAniso').checked = S.aniso;
-  $('selPtrMode').value = S.ptrMode;
-  $('rangeMaxD').value = String(S.maxDist);
-  $('valMaxD').textContent = S.maxDist + 'm';
-  $('rangeMaxW').value = String(S.maxW);
-  $('valMaxW').textContent = S.maxW + 'm';
-  $('volRange').value = String(Math.round(S.vol * 100));
-  $('volVal').textContent = Math.round(S.vol * 100) + '%';
 }
 
 function initSettingsUi(){
