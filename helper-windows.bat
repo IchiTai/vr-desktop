@@ -1,7 +1,8 @@
 @echo off
 title VR Desktop - Control Helper
 echo Starting VR Desktop Control Helper ...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$c=[IO.File]::ReadAllText('%~f0');$i=$c.IndexOf('#PS'+'START#');iex $c.Substring($i)"
+set "VRDHELPERPATH=%~f0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$c=[IO.File]::ReadAllText($env:VRDHELPERPATH);$i=$c.IndexOf('#PS'+'START#');iex $c.Substring($i)"
 exit /b
 
 #PSSTART#
@@ -21,12 +22,17 @@ $ErrorActionPreference = 'Stop'
 # undefined variable as empty, so /ping returned broken JSON
 # ("hv": with no value). The page then showed "helper too old",
 # dropped middle clicks (b:1) and saw an empty monitor list.
-# Fixed 2026-08-08; the page protocol is unchanged (version stays 3).
-$helperVer = 3
+# Fixed 2026-08-08; that change did not alter the page protocol.
+# Version 4 (2026-08-14): the horizontal scroll direction is now the same
+# on Windows and Mac. A version 3 helper scrolls sideways the wrong way on
+# one of the two systems, and the page cannot tell which, so the number had
+# to move. Keep this equal to HELPER_VER in helper-mac.py and to
+# HELPER_VER_REQUIRED in index.html.
+$helperVer = 4
 # Build date. Shown at startup so you can confirm the file was replaced.
 # Bump this whenever this file changes (the version number above only
 # changes when the agreement with the page changes).
-$helperBuild = '2026-08-14'
+$helperBuild = '2026-08-14b'
 
 # ---- Which page may control this PC (2026-08-08e) ----
 # The helper can move the mouse and type, so whoever it pairs with
@@ -62,43 +68,64 @@ public static class VRMouse {
 '@
 Add-Type -TypeDefinition $csrc
 
-# Monitors: primary first, the rest ordered left to right
-$allScreens = [System.Windows.Forms.Screen]::AllScreens
-$prim = $null
-$rest = @()
-foreach ($s in $allScreens) {
-    if ($s.Primary) { $prim = $s } else { $rest += $s }
-}
-$rest = @($rest | Sort-Object { $_.Bounds.X })
-$mons = @()
-if ($prim) { $mons += $prim }
-$mons += $rest
-if ($mons.Count -eq 0) { $mons = @($allScreens[0]) }
+# Monitors: primary first, the rest ordered left to right.
+# Rebuilt on demand (Update-Monitors) so plugging a display in or changing the
+# resolution while the helper runs does not leave the page with stale
+# coordinates. Everything derived from the list is rebuilt in the same place.
+function Update-Monitors {
+    $allScreens = [System.Windows.Forms.Screen]::AllScreens
+    $prim = $null
+    $rest = @()
+    foreach ($s in $allScreens) {
+        if ($s.Primary) { $prim = $s } else { $rest += $s }
+    }
+    $rest = @($rest | Sort-Object { $_.Bounds.X })
+    $m2 = @()
+    if ($prim) { $m2 += $prim }
+    $m2 += $rest
+    if ($m2.Count -eq 0) { $m2 = @($allScreens[0]) }
+    $script:mons = $m2
 
-$monParts = @()
-foreach ($m in $mons) {
-    $b = $m.Bounds
-    $monParts += ('{"x":' + $b.X + ',"y":' + $b.Y + ',"w":' + $b.Width + ',"h":' + $b.Height + '}')
-}
-$monJson = '[' + ($monParts -join ',') + ']'
-$pingBody = '{"ok":1,"os":"win","hv":' + $helperVer + ',"monitors":' + $monJson + '}'
+    $monParts = @()
+    foreach ($m in $script:mons) {
+        $b = $m.Bounds
+        $monParts += ('{"x":' + $b.X + ',"y":' + $b.Y + ',"w":' + $b.Width + ',"h":' + $b.Height + '}')
+    }
+    $monJson = '[' + ($monParts -join ',') + ']'
+    $script:pingBody = '{"ok":1,"os":"win","hv":' + $script:helperVer + ',"monitors":' + $monJson + '}'
 
-# All monitors merged into one rectangle.
-# Used to keep trackpad-style (relative) moves from leaving the desktop.
-$bx0 = $mons[0].Bounds.X
-$by0 = $mons[0].Bounds.Y
-$bx1 = $mons[0].Bounds.X + $mons[0].Bounds.Width - 1
-$by1 = $mons[0].Bounds.Y + $mons[0].Bounds.Height - 1
-foreach ($mm in $mons) {
-    $bb = $mm.Bounds
-    if ($bb.X -lt $bx0) { $bx0 = $bb.X }
-    if ($bb.Y -lt $by0) { $by0 = $bb.Y }
-    if (($bb.X + $bb.Width - 1) -gt $bx1) { $bx1 = $bb.X + $bb.Width - 1 }
-    if (($bb.Y + $bb.Height - 1) -gt $by1) { $by1 = $bb.Y + $bb.Height - 1 }
+    # All monitors merged into one rectangle.
+    # Used to keep trackpad-style (relative) moves from leaving the desktop.
+    $script:bx0 = $script:mons[0].Bounds.X
+    $script:by0 = $script:mons[0].Bounds.Y
+    $script:bx1 = $script:mons[0].Bounds.X + $script:mons[0].Bounds.Width - 1
+    $script:by1 = $script:mons[0].Bounds.Y + $script:mons[0].Bounds.Height - 1
+    foreach ($mm in $script:mons) {
+        $bb = $mm.Bounds
+        if ($bb.X -lt $script:bx0) { $script:bx0 = $bb.X }
+        if ($bb.Y -lt $script:by0) { $script:by0 = $bb.Y }
+        if (($bb.X + $bb.Width - 1) -gt $script:bx1) { $script:bx1 = $bb.X + $bb.Width - 1 }
+        if (($bb.Y + $bb.Height - 1) -gt $script:by1) { $script:by1 = $bb.Y + $bb.Height - 1 }
+    }
+    $script:monsAt = [DateTime]::UtcNow
 }
+Update-Monitors
 
 $port = 8765
 $paired = $null
+# Deferred clipboard restore (see 'txt' and the main loop).
+$clipAt = $null
+$clipVal = $null
+
+# Virtual key codes that must carry KEYEVENTF_EXTENDEDKEY (0x0001).
+# Without the flag Windows delivers them as the numeric-keypad keys, so
+# arrows, Home/End, PageUp/PageDown and Insert/Delete act like Num Lock
+# is off and land in the wrong place.
+$EXT_VK = @(33, 34, 35, 36, 37, 38, 39, 40, 45, 46)
+
+# Upper bound for one merged scroll event. Matches SCROLL_MAX in
+# helper-mac.py. Without it a merged batch can overflow the * 120 below.
+$SCROLL_MAX = 100000
 
 try {
     $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, $port)
@@ -181,9 +208,19 @@ function Send-Res($cn, $status, $origin, $resBody) {
 # A bare refusal; the caller closes the connection afterwards.
 # Half-close (shutdown Send) first, so the bytes already written are
 # delivered instead of being dropped by an immediate reset.
-function Send-Refuse($cn, $status) {
+# The CORS headers are required on refusals too: without them the browser
+# discards the response and fetch throws TypeError, so the page cannot
+# tell a 403 from "helper not running" and keeps resending the batch.
+function Send-Refuse($cn, $status, $origin) {
+    # A request with no Origin gets '*'; the browser does not check CORS on
+    # those anyway, and an empty header value is not a valid answer.
+    if (-not $origin) { $origin = '*' }
     $rb = [System.Text.Encoding]::ASCII.GetBytes(
-        "HTTP/1.1 $status`r`nContent-Length: 0`r`nConnection: close`r`n`r`n")
+        "HTTP/1.1 $status`r`n" +
+        "Access-Control-Allow-Origin: $origin`r`n" +
+        "Vary: Origin`r`n" +
+        "Access-Control-Allow-Private-Network: true`r`n" +
+        "Content-Length: 0`r`nConnection: close`r`n`r`n")
     $cn.stream.Write($rb, 0, $rb.Length)
     $cn.stream.Flush()
     try { $cn.client.Client.Shutdown([System.Net.Sockets.SocketShutdown]::Send) } catch { }
@@ -219,14 +256,19 @@ function Pump-Request($cn) {
     }
 
     $origin = $hdr['origin']
-    if (-not $origin) { $origin = '*' }
+    # Do NOT turn a missing Origin into '*': the pairing test below compares
+    # against '*' and would wave the request through. Browsers always send
+    # Origin on a cross-origin POST, so a request without one is not the page.
+    $hasOrigin = [bool]$origin
+    if (-not $origin) { $origin = '' }
 
     # Check the caller and the declared size BEFORE handling the body,
     # so an unpaired page cannot make us process a huge payload (04s).
     if ($path -eq '/input' -and $method -eq 'POST' -and
-        (($script:paired -and $origin -ne '*' -and $origin -ne $script:paired) -or
+        ((-not $hasOrigin) -or
+         ($script:paired -and $origin -ne $script:paired) -or
          ($allowOrigin -and $origin -ne $allowOrigin))) {
-        Send-Refuse $cn '403 Forbidden'
+        Send-Refuse $cn '403 Forbidden' $origin
         return 'close'
     }
 
@@ -234,7 +276,7 @@ function Pump-Request($cn) {
     if ($hdr['content-length']) { $clen = [int]$hdr['content-length'] }
     # Upper bound. A real batch is a few KB (the page caps text at 1000 chars).
     if ($clen -gt 262144) {
-        Send-Refuse $cn '413 Payload Too Large'
+        Send-Refuse $cn '413 Payload Too Large' $origin
         return 'close'
     }
 
@@ -260,7 +302,7 @@ function Pump-Request($cn) {
             }
             $resBody = '{"ok":0}'
         } else {
-            if ($null -eq $script:paired -and $origin -ne '*') {
+            if ($null -eq $script:paired -and $hasOrigin) {
                 $script:paired = $origin
                 Write-Host "   Connected   : $origin"
             }
@@ -268,11 +310,10 @@ function Pump-Request($cn) {
         }
     }
     elseif ($path -eq '/input' -and $method -eq 'POST') {
-        if (($script:paired -and $origin -ne '*' -and $origin -ne $script:paired) -or
-            ($allowOrigin -and $origin -ne $allowOrigin)) {
-            $status = '403 Forbidden'
-            $resBody = '{"ok":0}'
-        } else {
+        # The pairing test lives above, before the body is read, so a refused
+        # request never reaches this point. Do not add a second copy here:
+        # the two would answer differently (that one closes the connection).
+        if ($true) {
             # One bad event must not take the rest of the batch with it
             # (2026-08-08d). The per-event try below keeps a malformed 'mv'
             # from skipping a later 'up', which would leave a button held
@@ -323,12 +364,19 @@ function Pump-Request($cn) {
                                 else { [VRMouse]::mouse_event([VRMouse]::LEFTUP, 0, 0, 0, 0) }
                             }
                             'sc' {
+                                # Same guard as SCROLL_MAX in helper-mac.py: a
+                                # merged batch could overflow the int cast and
+                                # drop the whole scroll.
                                 # d = vertical, h = horizontal (helper v3+).
                                 # The minus on $hv2 was confirmed on a real PC
                                 # (2026-08-14): without it, pushing the stick
                                 # right scrolled left. Tuning point: this sign.
                                 $dv = 0; try { $dv = [int]$e.d } catch { }
                                 $hv2 = 0; try { $hv2 = [int]$e.h } catch { }
+                                if ($dv -gt $SCROLL_MAX) { $dv = $SCROLL_MAX }
+                                if ($dv -lt -$SCROLL_MAX) { $dv = -$SCROLL_MAX }
+                                if ($hv2 -gt $SCROLL_MAX) { $hv2 = $SCROLL_MAX }
+                                if ($hv2 -lt -$SCROLL_MAX) { $hv2 = -$SCROLL_MAX }
                                 if ($dv -ne 0) { [VRMouse]::mouse_event([VRMouse]::WHEEL, 0, 0, $dv * 120, 0) }
                                 if ($hv2 -ne 0) { [VRMouse]::mouse_event([VRMouse]::HWHEEL, 0, 0, -$hv2 * 120, 0) }
                             }
@@ -337,8 +385,10 @@ function Pump-Request($cn) {
                                 $VK = @{ enter = 13; esc = 27; tab = 9; left = 37; up = 38; right = 39; down = 40; backspace = 8; delete = 46; space = 32 }
                                 $CB = @{ copy = 67; paste = 86; cut = 88; undo = 90; selectall = 65 }
                                 if ($VK.ContainsKey($k)) {
-                                    [VRMouse]::keybd_event([byte]$VK[$k], 0, 0, 0)
-                                    [VRMouse]::keybd_event([byte]$VK[$k], 0, 2, 0)
+                                    $ex = 0
+                                    if ($EXT_VK -contains [int]$VK[$k]) { $ex = 1 }
+                                    [VRMouse]::keybd_event([byte]$VK[$k], 0, $ex, 0)
+                                    [VRMouse]::keybd_event([byte]$VK[$k], 0, ($ex -bor 2), 0)
                                 } elseif ($CB.ContainsKey($k)) {
                                     [VRMouse]::keybd_event(17, 0, 0, 0)
                                     [VRMouse]::keybd_event([byte]$CB[$k], 0, 0, 0)
@@ -365,8 +415,16 @@ function Pump-Request($cn) {
                                 if ($s.Length -gt 0) {
                                     # Save the old text so it can be restored
                                     # (images etc. cannot be saved as text).
-                                    $prev = ''
-                                    try { $prev = Get-Clipboard -Raw } catch { }
+                                    # If a restore is still pending, the clipboard
+                                    # currently holds the PREVIOUS pasted text, not
+                                    # the user's own. Keep the pending value instead
+                                    # of reading it back, or the original is lost.
+                                    if ($script:clipAt) {
+                                        $prev = $script:clipVal
+                                    } else {
+                                        $prev = ''
+                                        try { $prev = Get-Clipboard -Raw } catch { }
+                                    }
                                     if ($null -eq $prev) { $prev = '' }
                                     try { Set-Clipboard -Value $s } catch { }
                                     Start-Sleep -Milliseconds 80
@@ -376,12 +434,13 @@ function Pump-Request($cn) {
                                     [VRMouse]::keybd_event(17, 0, 2, 0)
                                     # Restoring too early would paste the OLD text:
                                     # the app reads the clipboard slightly after
-                                    # Ctrl+V. Wait, then put the old text back.
-                                    Start-Sleep -Milliseconds 250
-                                    try {
-                                        if ($prev -eq '') { Set-Clipboard -Value $null }
-                                        else { Set-Clipboard -Value $prev }
-                                    } catch { }
+                                    # Ctrl+V. Hand the restore to the main loop
+                                    # instead of sleeping here: this loop is
+                                    # single threaded, so a 250ms sleep also
+                                    # stops /ping and the page can decide the
+                                    # helper died (it gives up after 1500ms).
+                                    $script:clipAt = [DateTime]::UtcNow.AddMilliseconds(250)
+                                    $script:clipVal = $prev
                                 }
                             }
                             'kb' {
@@ -389,12 +448,14 @@ function Pump-Request($cn) {
                                 $m = [int]$e.m
                                 $KB = @{ KeyA=65;KeyB=66;KeyC=67;KeyD=68;KeyE=69;KeyF=70;KeyG=71;KeyH=72;KeyI=73;KeyJ=74;KeyK=75;KeyL=76;KeyM=77;KeyN=78;KeyO=79;KeyP=80;KeyQ=81;KeyR=82;KeyS=83;KeyT=84;KeyU=85;KeyV=86;KeyW=87;KeyX=88;KeyY=89;KeyZ=90;Digit0=48;Digit1=49;Digit2=50;Digit3=51;Digit4=52;Digit5=53;Digit6=54;Digit7=55;Digit8=56;Digit9=57;Minus=189;Equal=187;BracketLeft=219;BracketRight=221;Backslash=220;Semicolon=186;Quote=222;Backquote=192;Comma=188;Period=190;Slash=191;Enter=13;Escape=27;Backspace=8;Tab=9;Space=32;Delete=46;ArrowLeft=37;ArrowUp=38;ArrowRight=39;ArrowDown=40;Home=36;End=35;PageUp=33;PageDown=34;F1=112;F2=113;F3=114;F4=115;F5=116;F6=117;F7=118;F8=119;F9=120;F10=121;F11=122;F12=123 }
                                 if ($KB.ContainsKey($c)) {
+                                    $ex = 0
+                                    if ($EXT_VK -contains [int]$KB[$c]) { $ex = 1 }
                                     if ($m -band 1) { [VRMouse]::keybd_event(17, 0, 0, 0) }
                                     if ($m -band 2) { [VRMouse]::keybd_event(16, 0, 0, 0) }
                                     if ($m -band 4) { [VRMouse]::keybd_event(18, 0, 0, 0) }
                                     if ($m -band 8) { [VRMouse]::keybd_event(91, 0, 0, 0) }
-                                    [VRMouse]::keybd_event([byte]$KB[$c], 0, 0, 0)
-                                    [VRMouse]::keybd_event([byte]$KB[$c], 0, 2, 0)
+                                    [VRMouse]::keybd_event([byte]$KB[$c], 0, $ex, 0)
+                                    [VRMouse]::keybd_event([byte]$KB[$c], 0, ($ex -bor 2), 0)
                                     if ($m -band 8) { [VRMouse]::keybd_event(91, 0, 2, 0) }
                                     if ($m -band 4) { [VRMouse]::keybd_event(18, 0, 2, 0) }
                                     if ($m -band 2) { [VRMouse]::keybd_event(16, 0, 2, 0) }
@@ -442,6 +503,20 @@ function Pump-Request($cn) {
 }
 
 while ($true) {
+    # Deferred clipboard restore (see 'txt'). Doing it here keeps the request
+    # loop free while the target app finishes reading the pasted text.
+    if ($script:clipAt -and [DateTime]::UtcNow -ge $script:clipAt) {
+        $script:clipAt = $null
+        try {
+            if ($script:clipVal -eq '') { Set-Clipboard -Value $null }
+            else { Set-Clipboard -Value $script:clipVal }
+        } catch { }
+        $script:clipVal = $null
+    }
+    # Do not call this on every pass: the loop is single threaded, so the
+    # enumeration time is added to the /ping latency.
+    if (([DateTime]::UtcNow - $script:monsAt).TotalMilliseconds -ge 3000) { Update-Monitors }
+
     # Sleep until any socket (the listener included) has something,
     # 250ms at most so deadlines are still swept. Zero CPU while idle.
     $checkList.Clear()

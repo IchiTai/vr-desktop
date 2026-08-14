@@ -42,6 +42,31 @@ body{
   opacity:.85;
 }
 .wrap{max-width:680px;margin:0 auto;padding:28px 20px 64px}
+/* viewport-fit=cover で端まで描くので、ノッチ/ホームバーのぶんだけ内側へ寄せる。
+   env() 非対応のブラウザでは上の padding がそのまま残る必要があるため、
+   必ず @supports で囲うこと(囲わないと宣言ごと無効になり padding が0になる)。
+   **.modal-bg には html を付けたままにすること**: .modal-bg の一括指定
+   (padding:24px 14px)はこの位置より後ろにあり、同じ優先度なら後ろが勝つため、
+   優先度を1つ上げないとこの指定は無効になる */
+@supports (padding:env(safe-area-inset-left)){
+  .wrap{
+    padding-left:calc(20px + env(safe-area-inset-left));
+    padding-right:calc(20px + env(safe-area-inset-right));
+    padding-bottom:calc(64px + env(safe-area-inset-bottom));
+  }
+  .tview{
+    padding-top:env(safe-area-inset-top);
+    padding-right:env(safe-area-inset-right);
+    padding-bottom:env(safe-area-inset-bottom);
+    padding-left:env(safe-area-inset-left);
+  }
+  html .modal-bg{
+    padding-top:calc(24px + env(safe-area-inset-top));
+    padding-right:calc(14px + env(safe-area-inset-right));
+    padding-bottom:calc(24px + env(safe-area-inset-bottom));
+    padding-left:calc(14px + env(safe-area-inset-left));
+  }
+}
 header.site{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:30px}
 .brand{font-family:var(--font-disp);font-weight:700;font-size:20px;letter-spacing:.04em}
 .brand .goggle{margin-right:8px}
@@ -263,8 +288,10 @@ video.preview{
 footer.site{margin-top:36px;text-align:center;font-size:12px;color:var(--muted)}
 footer.site a{color:var(--muted);text-decoration:underline}
 
+/* 装飾ではなく状態を伝える動きは止めないこと。#tvRipple.go はドラッグ開始の
+   唯一の合図(04h)、.dot-wait は接続待ちの表示で、消すと状態が読めなくなる */
 @media(prefers-reduced-motion:reduce){
-  *{animation:none !important;transition:none !important}
+  *:not(#tvRipple):not(.dot-wait){animation:none !important;transition:none !important}
 }
 #tvRipple{position:fixed;width:44px;height:44px;margin:-22px 0 0 -22px;border:3px solid var(--accent);border-radius:50%;pointer-events:none;opacity:0;z-index:60}
 #tvRipple.go{animation:tvRip .4s ease-out}
@@ -400,7 +427,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
       <p class="msg-info hidden" id="qMuteNote" style="margin-top:10px">音はミュートで開始しました。映像を一度タップすると音が出ます。</p>
       <div id="qVideos"></div>
     </div>
-    <div class="panel">
+    <div class="panel" id="vrCtlPanel">
       <h2>VRの中での操作(標準設定)</h2>
       <table class="ctl-table">
         <tr><td>レーザー(両手)</td><td>当てた画面のカーソルを動かす(操作モードON時)</td></tr>
@@ -636,14 +663,37 @@ footer.site a{color:var(--muted);text-decoration:underline}
 <script>
 /* 外部ライブラリの読み込み(予備の読み込み先つき) */
 window.__libsReady = (function(){
-  function load(list){
+  /* 時間切れが無いと、応答が止まった回線で onload も onerror も来ず、
+     __libsReady が永久に未解決になってページが無反応のまま何も出ない。
+     ok() の検証も外さないこと(200が返っても中身が別物なら window.THREE /
+     window.Peer は現れず、次の候補へ移らないと同じ無反応になる)。
+     **この値を大きくしないこと**: 2つの読み込み先×2つのライブラリで
+     最悪 4 倍待つので、全滅したときに案内が出るまでの時間になる */
+  var LIB_TIMEOUT_MS = 8000;
+  function load(list, ok){
     return new Promise(function(resolve, reject){
       (function next(i){
         if(i >= list.length){ reject(new Error('load failed')); return; }
         var s = document.createElement('script');
+        var done = false;
+        var t = setTimeout(fail, LIB_TIMEOUT_MS);
+        function fail(){
+          if(done) return;
+          done = true; clearTimeout(t);
+          /* **見限った script は必ず外すこと**。残すと、遅れて届いた分が
+             あとから window.THREE を二度目に評価して上書きする */
+          s.onload = s.onerror = null;
+          try { if (s.parentNode) s.parentNode.removeChild(s); } catch(_e){}
+          next(i + 1);
+        }
         s.src = list[i];
-        s.onload = function(){ resolve(); };
-        s.onerror = function(){ next(i + 1); };
+        s.onload = function(){
+          if(done) return;
+          if(!ok()){ fail(); return; }
+          done = true; clearTimeout(t);
+          resolve();
+        };
+        s.onerror = fail;
         document.head.appendChild(s);
       })(0);
     });
@@ -651,11 +701,11 @@ window.__libsReady = (function(){
   return load([
     'https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js',
     'https://unpkg.com/three@0.149.0/build/three.min.js'
-  ]).then(function(){
+  ], function(){ return !!window.THREE; }).then(function(){
     return load([
       'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js',
       'https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js'
-    ]);
+    ], function(){ return !!window.Peer; });
   });
 })();
 </script>
@@ -670,7 +720,7 @@ window.__libsReady = (function(){
 var HELPER_URL = 'http://127.0.0.1:8765';
 /* 要求するヘルパーの版。ヘルパー側の HELPER_VER($helperVer)を上げたら
    ここも同じ値に上げること。応答に hv がない=この仕組みより古いヘルパー */
-var HELPER_VER_REQUIRED = 3;
+var HELPER_VER_REQUIRED = 4;
 var PEER_PREFIX = 'vrdd-';
 
 /* 接続の共通設定。STUN(住所確認)だけを明示し、PeerJS既定に含まれる
@@ -714,8 +764,7 @@ var pc = {
   inputQueue: [],
   diag: [], offAt: 0,  /* 誤OFFの採取(13c)。診断行と違い、ONに戻っても消えない */
   inputOk: true, inputFailN: 0, /* 操作の送信が通っているか(14a)。33ms間隔なので状態の変わり目だけ記録する */
-  sendWorker: null, sendUrl: null, sendTimer: null, /* 操作送信の合図(05n。Worker/退避用interval) */
-  ctlBlock: false     /* 「操作しない」画面を見ている間は、操作を通さない */
+  sendWorker: null, sendUrl: null, sendTimer: null /* 操作送信の合図(05n。Worker/退避用interval) */
 };
 
 async function pcCapture(errId){
@@ -761,7 +810,14 @@ async function pcAddScreenClick(){
 
 function pcAddScreen(stream){
   var slot = pc.nextSlot++;
-  var item = { slot: slot, stream: stream, call: null, mon: pc.screens.length };
+  /* 操作先は「既存の画面が使っていない一番小さい番号」にすること。
+     pc.screens.length で決めると、画面を外して足したときに番号が重複する */
+  var used = {};
+  pc.screens.forEach(function(s){ if (s.mon >= 0) used[s.mon] = true; });
+  var lim = pc.monitors.length || (pc.screens.length + 1);
+  var mon = 0;
+  while (mon < lim - 1 && used[mon]) mon++;
+  var item = { slot: slot, stream: stream, call: null, mon: mon };
   var vt = stream.getVideoTracks()[0];
   if (vt) {
     var qh = QUALITY[pc.quality || S.q];
@@ -795,7 +851,11 @@ function pcCallScreenTo(item, conn){
     });
     item.calls[conn.peer] = call;
     pcApplyQualityToCall(call, 0);
-  } catch (_e) {}
+  } catch (e) {
+    /* 握りつぶすと「映像だけ出ない」の原因がどこにも残らない。PC側に診断欄は
+       ないので開発者コンソールへ(すぐ上の call.on('error') と同じ扱い) */
+    try { console.warn('映像の発信を作れませんでした(見る側 ' + conn.peer + ' 画面' + item.slot + ')', e); } catch (_e3) {}
+  }
 }
 
 function pcBroadcast(m){
@@ -846,7 +906,7 @@ function pcRenderScreens(){
     name.textContent = '画面' + (i + 1);
     head.appendChild(name);
 
-    if (pc.helperOn && pc.monitors.length > 1) {
+    if (pc.helperOn && pc.monitors.length > 0) {
       var sel = document.createElement('select');
       sel.className = 'monsel';
       var opNone = document.createElement('option');
@@ -862,7 +922,10 @@ function pcRenderScreens(){
       if (item.mon !== -1 && item.mon > pc.monitors.length - 1) item.mon = 0;
       sel.value = String(item.mon);
       sel.addEventListener('change', function(){
-        item.mon = parseInt(sel.value, 10) || 0;
+        /* 0(メインモニター)は正当な値。`|| 既定値` で倒さないこと(13a) */
+        var mv = parseInt(sel.value, 10);
+        item.mon = isNaN(mv) ? 0 : mv;
+        pcSendHelperState();
       });
       head.appendChild(sel);
     }
@@ -875,14 +938,25 @@ function pcRenderScreens(){
 
     row.appendChild(head);
 
-    var v = document.createElement('video');
-    v.className = 'preview';
-    v.muted = true;
-    v.autoplay = true;
-    v.playsInline = true;
-    v.setAttribute('playsinline', '');
-    v.srcObject = item.stream;
+    /* video は画面ごとに1つを使い回すこと。毎回作り直すと、操作モードの
+       ON/OFFのたびに全プレビューが黒く点滅し、外れた古い video が映像を
+       つかんだまま残る(box.innerHTML='' と同じ処理の中で付け直すので、
+       いったん外れても再生は止まらない) */
+    var v = item.prev;
+    if (!v) {
+      v = document.createElement('video');
+      v.className = 'preview';
+      v.muted = true;
+      v.autoplay = true;
+      v.playsInline = true;
+      v.setAttribute('playsinline', '');
+      item.prev = v;
+    }
+    if (v.srcObject !== item.stream) v.srcObject = item.stream;
     row.appendChild(v);
+    /* 付け直したあとに止まっていたら鳴らし直す。autoplay は要素を作った
+       ときの1回しか効かないので、これが無いと黒いまま戻らない */
+    if (v.paused) v.play().catch(function(){});
 
     box.appendChild(row);
   });
@@ -938,7 +1012,7 @@ function pcCreatePeer(attempt){
     conn.on('open', function(){
       if (pc.conns.indexOf(conn) < 0) return;
       pcUpdateViewerLabel();
-      try { conn.send({ t: 'helper', on: pc.helperOn, os: pc.helperOs || '' }); } catch (_e) {}
+      try { conn.send({ t: 'helper', on: pc.helperOn, os: pc.helperOs || '', noctl: pcNoCtlList() }); } catch (_e) {}
       pc.screens.forEach(function(item){ pcCallScreenTo(item, conn); });
     });
     conn.on('data', function(m){ if (pc.conns.indexOf(conn) >= 0) pcOnData(m, conn); });
@@ -975,31 +1049,37 @@ function pcCreatePeer(attempt){
 var PING_MS = 3000;      /* 正常時の間隔 */
 var PING_MS_MAX = 12000; /* 失敗が続いたときの上限。相手が立ち直る余地を作る */
 var PING_TIMEOUT_MS = 1500; /* 打ち切り。正常時の応答は数ミリ秒 */
-function pcSchedulePing(){
-  if (pc.stopped) return;
+function pcSchedulePing(gen){
+  if (pc.stopped || gen !== pc.pingGen) return;
   var n = pc.pingFails || 0;
   var wait = (n < 2) ? PING_MS : Math.min(PING_MS_MAX, PING_MS * Math.pow(2, n - 1));
-  pc.pingTimer = setTimeout(pcPingLoop, wait); /* 積まずに最新の1件だけ持つ(停止時は pc.pingTimer を解除) */
+  pc.pingTimer = setTimeout(function(){ pcPingLoop(gen); }, wait); /* 積まずに最新の1件だけ持つ(停止時は pc.pingTimer を解除) */
 }
-async function pcPingLoop(){
-  if (pc.stopped) return;
+async function pcPingLoop(gen){
+  if (pc.stopped || gen !== pc.pingGen) return;
   try { await pcPingHelper(); } catch (_e) {}
-  pcSchedulePing();
+  pcSchedulePing(gen);
 }
 function pcStartHelperLoop(){
   pc.stopped = false;
   /* 前回の共有の残りを持ち越さない(05s)。停止のあとに飛行中だった便が
      失敗して着地すると、差し戻しで dn やキーがキューに戻ることがある。
      そのまま次の共有を始めると、押した覚えのない dn が送られて
-     ボタンが押しっぱなしになりうる */
+     ボタンが押しっぱなしになりうる。**世代を上げてから初期化すること**:
+     打ち切っても差し戻しは後回しで走るため、世代が変わっていないと
+     初期化のあとに古い dn が戻る */
+  pc.inputGen = (pc.inputGen || 0) + 1;
+  if (pc.inputAbort) { try { pc.inputAbort.abort(); } catch (_e) {} pc.inputAbort = null; }
   pc.inputQueue = [];
   pc.inputBusy = false;
+  pc.pingFails = 0; /* 持ち越すと次の生存確認まで最大12秒空く(間隔の広げ方は変えないこと) */
   /* 採取の区切り(13c)。記録はページを読み込み直すまで残すので、共有をやり直したときに
      どこからが今回かが分かるようにする。まだ1件も無いときは区切りだけ書かない */
   pc.offAt = 0;
   pc.inputOk = true; pc.inputFailN = 0; /* 送信の成否も持ち越さない(14a) */
   if (pc.diag.length) pcDiagLog('— 共有をはじめから開始 —');
-  pcPingLoop();
+  pc.pingGen = (pc.pingGen || 0) + 1; /* 世代の違う連鎖は次を予約しない(停止→再開で生存確認が2本になるのを防ぐ) */
+  pcPingLoop(pc.pingGen);
   pcStartSendLoop();
 }
 
@@ -1126,7 +1206,6 @@ async function pcPingHelper(){
     var ctl = new AbortController();
     var t = setTimeout(function(){ ctl.abort(); }, PING_TIMEOUT_MS);
     var r = await fetch(HELPER_URL + '/ping', { method: 'GET', signal: ctl.signal });
-    clearTimeout(t);
     if (r.ok) {
       var j = null;
       try {
@@ -1156,12 +1235,19 @@ async function pcPingHelper(){
       } else {
         on = true;
         pc.everHelperOn = true; /* このセッションでONになった実績(11b。診断行の表示条件に使う) */
-        if (j && j.monitors && j.monitors.length) monitors = j.monitors;
-        hv = (j && typeof j.hv === 'number') ? j.hv : 0;
-        if (j && j.os) pc.helperOs = j.os; /* 'mac' | 'win'。リモートズームの修飾キー選びに使う */
-        /* 最後に応答したときの内容を控える(13c)。失敗すると版もモニターも 0/空 に戻るため、
-           記録をコピーしたときの前提情報として、そのままでは役に立たない */
-        pc.lastOkInfo = '版' + hv + ' / ' + (pc.helperOs || 'OS不明') + ' / モニター' + monitors.length + '枚';
+        if (j) {
+          if (j.monitors && j.monitors.length) monitors = j.monitors;
+          hv = (typeof j.hv === 'number') ? j.hv : 0;
+          if (j.os) pc.helperOs = j.os; /* 'mac' | 'win'。リモートズームの修飾キー選びに使う */
+          /* 最後に応答したときの内容を控える(13c)。失敗すると版もモニターも 0/空 に戻るため、
+             記録をコピーしたときの前提情報として、そのままでは役に立たない */
+          pc.lastOkInfo = '版' + hv + ' / ' + (pc.helperOs || 'OS不明') + ' / モニター' + monitors.length + '枚';
+        } else {
+          /* 読めなかった回で控えを潰さないこと。空で上書きするとモニター選択が消え、
+             版が0に戻って中ボタン(b:1)が捨てられる */
+          monitors = pc.monitors || [];
+          hv = pc.helperVer || 0;
+        }
       }
     } else {
       /* HTTPは届いたが失敗(多重起動の別プロセス等) */
@@ -1178,6 +1264,10 @@ async function pcPingHelper(){
                         msg: String((e && e.message) || e || ''),
                         ms: Math.round(performance.now() - t0),
                         at: new Date().toLocaleTimeString() };
+  } finally {
+    /* 打ち切りの解除は本文を読み終えたあとに置くこと。前に置くと、
+       ヘッダだけ返って本文が止まる応答で await r.json() が永久に返らない */
+    clearTimeout(t);
   }
 
   /* ドラッグ中の混雑による一時的な無応答では、操作モードを落とさない(2回連続で確定) */
@@ -1276,15 +1366,26 @@ function pcUpdateViewerLabel(){
   }
 }
 
+/* noctl は「操作しない」(mon<0)の画面番号の一覧。旧版の見る側は知らない項目を
+   静かに無視するので、版が混ざっても壊れない。項目を消すと見る側が「操作ON」の
+   ままになり、操作が黙って捨てられる */
+function pcNoCtlList(){
+  var a = [];
+  pc.screens.forEach(function(s){ if (s.mon < 0) a.push(s.slot); });
+  return a;
+}
+
 function pcSendHelperState(){
-  pcBroadcast({ t: 'helper', on: pc.helperOn, os: pc.helperOs || '' });
+  pcBroadcast({ t: 'helper', on: pc.helperOn, os: pc.helperOs || '', noctl: pcNoCtlList() });
 }
 
 /* 「操作しない」(mon<0)に設定された画面かどうかで、操作の関門を開け閉めする。
    閉じたときは true を返す。移動の種類が増えても、判定はここ1箇所だけを直せばよい */
-function pcCtlGate(item){
-  pc.ctlBlock = !!(item && item.mon < 0);
-  return pc.ctlBlock;
+function pcCtlGate(item, conn){
+  /* 関門は接続ごとに持つこと。PC全体で1つだと、別の見る側の移動が関門を開ける */
+  var block = !!(item && item.mon < 0);
+  if (conn) conn._ctlBlock = block;
+  return block;
 }
 
 /* キー入力(key/txt/kb/ch)はPC単位で判定する。キーは画面ではなく前面の
@@ -1346,8 +1447,12 @@ function pcReleaseAllNow(){
     Object.keys(c._held).forEach(function(k){ ups.push({ t: 'up', b: k | 0 }); });
     c._held = {};
   });
-  if (!ups.length) return; /* OFF中でも送る(13b)。誤OFFのまま共有を止めると押しっぱなしが残るため。
-                              pcSendNow は失敗を握って捨てるので、本当に居ないときも無害 */
+  /* **待ち行列が空でないときも先へ進むこと(14d)**。up は待ち行列へ積む前に
+     _held から外れるので、「押していた記録は無いが行列に up が残っている」状態が
+     正規の経路で起きる(誤OFF中に離した直後など)。ここで抜けると、すぐ下の
+     pcStop が行列を捨てて離す合図が永久に失われる。
+     OFF中でも送る(13b)。pcSendNow は失敗を握って捨てるので、本当に居ないときも無害 */
+  if (!ups.length && !pc.inputQueue.length) return;
   /* 待ち行列に残っているぶんも一緒に運んで取りこぼさない */
   var batch = pc.inputQueue.concat(ups);
   pc.inputQueue = [];
@@ -1401,7 +1506,7 @@ function pcOnDataInner(msg, conn){
       && !pcKeysAllowed()) return;
   if (msg.t === 'mv') {
     var item = pcFindScreen(msg.s);
-    if (pcCtlGate(item)) return;
+    if (pcCtlGate(item, conn)) return;
     /* 値は0〜1の数として検証してから積む(05t)。以前は素通しで、
        文字列や NaN がそのままヘルパーへ渡り、向こうの型変換で
        例外になると同じ便の残り(離す信号を含む)まで巻き添えに
@@ -1424,10 +1529,10 @@ function pcOnDataInner(msg, conn){
        下の conn._held の判定が落とすので、通しても誤クリックにはならない */
     if (msg.t === 'dn' && msg.b === 1 && (pc.helperVer || 0) < 2) return;
     if (msg.t === 'dn') {
-      /* 画面番号つき(タッチ)なら毎回その画面で判定。なし(XR)は直前の移動で
-         更新済みの関門に従う。離す信号は絶対に落とさない */
-      if (msg.s !== undefined) { if (pcCtlGate(pcFindScreen(msg.s))) return; }
-      else if (pc.ctlBlock) return;
+      /* 画面番号つき(タッチ)なら毎回その画面で判定。なし(XR)はその接続の直前の
+         移動で更新済みの関門に従う。離す信号は絶対に落とさない */
+      if (msg.s !== undefined) { if (pcCtlGate(pcFindScreen(msg.s), conn)) return; }
+      else if (conn && conn._ctlBlock) return;
     }
     /* ボタン番号も0(左)/1(中)/2(右)へ正規化してから積む(05t。mvと同じ理由) */
     var bn = msg.b | 0;
@@ -1438,8 +1543,8 @@ function pcOnDataInner(msg, conn){
     pcNoteButton(conn, msg.t === 'dn', bn); /* 誰が何を押しているかを控える(05v) */
     pc.inputQueue.push({ t: msg.t, b: bn });
   } else if (msg.t === 'sc') {
-    if (msg.s !== undefined) { if (pcCtlGate(pcFindScreen(msg.s))) return; }
-    else if (pc.ctlBlock) return;
+    if (msg.s !== undefined) { if (pcCtlGate(pcFindScreen(msg.s), conn)) return; }
+    else if (conn && conn._ctlBlock) return;
     /* 連続するスクロールは1件に合算する(05q)。詰まっている間に溜まった
        数十件が待ち行列を膨らませ、復帰の瞬間に連射されるのを防ぐ
        (総スクロール量は意図どおり届ける。減らすのは件数と処理負荷)。
@@ -1466,7 +1571,7 @@ function pcOnDataInner(msg, conn){
     var s3 = String(msg.s || '').slice(0, 8);
     if (s3) pc.inputQueue.push({ t: 'ch', s: s3 });
   } else if (msg.t === 'mvr') {
-    if (pcCtlGate(pcFindScreen(msg.s))) return;
+    if (pcCtlGate(pcFindScreen(msg.s), conn)) return;
     /* 相対移動: 連続するぶんは1つにまとめてヘルパーの負荷を抑える */
     var rdx = clamp(msg.x | 0, -3000, 3000);
     var rdy = clamp(msg.y | 0, -3000, 3000);
@@ -1536,10 +1641,12 @@ async function pcFlushInput(){
   if (pc.stopped) return;                /* 停止後は出さない(05s。生存確認と同じ流儀) */
   if (pc.inputBusy) return;              /* 前の便が飛んでいる間は出さない */
   if (!pc.helperOn || pc.inputQueue.length === 0) return;
+  var gen = pc.inputGen || 0; /* 世代が変わった便は差し戻しも inputBusy の解除もしないこと */
   var batch = pc.inputQueue;
   pc.inputQueue = [];
   pc.inputBusy = true;
   var ctl = new AbortController();
+  pc.inputAbort = ctl;
   var t = setTimeout(function(){ ctl.abort(); }, INPUT_TIMEOUT_MS);
   try {
     var r = await fetch(HELPER_URL + '/input', {
@@ -1548,6 +1655,7 @@ async function pcFlushInput(){
       body: JSON.stringify(batch),
       signal: ctl.signal
     });
+    if (gen !== (pc.inputGen || 0)) return;
     pcNoteInputResult(!!(r && r.ok),
       'HTTP ' + ((r && r.status) || '?') + '(ヘルパーに断られています。「操作を許可するページ」の設定を確認)');
     /* **2xx以外でも「離す」だけは差し戻すこと(14c)**。便は既に待ち行列から
@@ -1561,6 +1669,7 @@ async function pcFlushInput(){
       if (keepUp.length) { pc.inputQueue = keepUp.concat(pc.inputQueue); pcTrimQueue(); }
     }
   } catch (_e) {
+    if (gen !== (pc.inputGen || 0)) return;
     /* 送れなかった便は先頭へ戻す。捨てるとボタンを離す合図が失われ、
        押しっぱなしになることがある。順序も保たれる。
        ただし古い移動(mv/mvr)は差し戻さず捨てる(05q): 打ち切りは2秒前の
@@ -1586,7 +1695,8 @@ async function pcFlushInput(){
       + '(' + (((_e && _e.name) === 'AbortError') ? INPUT_TIMEOUT_MS + 'msで打ち切り' : String((_e && _e.message) || '')) + ')');
   } finally {
     clearTimeout(t);
-    pc.inputBusy = false;
+    if (pc.inputAbort === ctl) pc.inputAbort = null;
+    if (gen === (pc.inputGen || 0)) pc.inputBusy = false;
   }
 }
 
@@ -1609,7 +1719,6 @@ function pcStop(){
   if (pc.pingTimer) { clearTimeout(pc.pingTimer); pc.pingTimer = null; }
   pc.inputQueue = [];
   pc.helperOn = false;
-  pc.ctlBlock = false;
   pc.monSig = '';
   var box = $('pcScreens');
   if (box) box.innerHTML = '';
@@ -1866,24 +1975,9 @@ function questLogRouteType(host, conn, attempt){
   } catch (_e) {}
 }
 
-/* 受信の溜め(ジッタバッファ)を最小に希望する(既知の問題(e)の遅延対策・04w)。
-   新API jitterBufferTarget(ミリ秒・Chrome 124以降)→旧API playoutDelayHint(秒)の
-   二段構え。どちらも値は「希望」で、実際の溜めは回線状況に応じてブラウザが決める。
-   映像の乱れが増えたら設定「操作の機敏さ優先」をOFF(次の接続から) */
-function questTuneLatency(call){
-  if (S.lowLat === false) return;
-  try {
-    var pcn = call.peerConnection;
-    if (!pcn || !pcn.getReceivers) return;
-    pcn.getReceivers().forEach(function(r){
-      try {
-        if ('jitterBufferTarget' in r) r.jitterBufferTarget = 0;
-        else if ('playoutDelayHint' in r) r.playoutDelayHint = 0;
-      } catch (_e) {}
-    });
-  } catch (_e2) {}
-}
-
+/* 受信の溜め(ジッタバッファ)の最小化は qApplyLatencyToCall に一本化してある
+   (既知の問題(e)の遅延対策・04w。新API jitterBufferTarget → 旧API playoutDelayHint)。
+   ここに2つめを作らないこと(同じ通話に二重に走る) */
 function questWatchIce(host, conn){
   var tries = 0;
   var t = setInterval(function(){
@@ -1931,6 +2025,24 @@ function questArmVideoWatch(host, conn){
 function questNoteScreenGone(host, slot, why){
   questLog('画面' + slot + 'が消えました(' + why + ')');
   if (!host.gone && host.state === 'open' && host.conn && host.screens.length === 0) {
+    /* 開通→即切断が続くと張り直しの依頼が際限なく出る。連発のときは間隔を1分へ
+       広げるだけにして、**止めてしまわないこと**。12aで入れた「画面がゼロに
+       戻ったら見張りを張り直す」を打ち切ると、何度目かで映る経路(第7節(n))を失う */
+    var now = Date.now();
+    if (now - (host.regoneAt || 0) > 60000) host.regoneN = 0;
+    host.regoneAt = now;
+    host.regoneN = (host.regoneN || 0) + 1;
+    if (host.regoneN > 5) {
+      questLog('画面の消滅が続くため、張り直しの依頼を1分あけます(PC ' + host.code + ')');
+      var conn = host.conn;
+      clearTimeout(host.videoWatch);
+      host.videoWatch = setTimeout(function(){
+        if (host.gone || host.conn !== conn || host.screens.length) return;
+        host.regoneN = 0;
+        questArmVideoWatch(host, conn);
+      }, 60000);
+      return;
+    }
     questArmVideoWatch(host, host.conn);
   }
 }
@@ -2128,11 +2240,22 @@ function questWireConn(host){
     if (m.t === 'helper') {
       host.helperOn = !!m.on;
       host.helperOs = m.os || host.helperOs || '';
+      /* noctl を送らない旧版のPCでは null のまま=全画面が操作できる扱い(従来動作)。
+         Object.create(null) で作ること(番号での引き当てに継承キーを混ぜない) */
+      host.noCtl = null;
+      if (m.noctl && m.noctl.forEach) {
+        host.noCtl = Object.create(null);
+        m.noctl.forEach(function(s){ host.noCtl[s] = true; });
+      }
       questUiSync();
+      if (APP.tvStats) APP.tvStats();
       if (APP.xrHud) APP.xrHud();
     } else if (m.t === 'del') {
+      var had = false;
+      host.screens.forEach(function(x){ if (x.slot === m.s) had = true; });
       questRemoveScreen(host, m.s);
-      questNoteScreenGone(host, m.s, 'PC側が共有を終了');
+      /* 持っていない画面の del では記録も張り直しもしない(偽の記録と recall の元) */
+      if (had) questNoteScreenGone(host, m.s, 'PC側が共有を終了');
     }
   });
   conn.on('close', function(){
@@ -2193,28 +2316,30 @@ function questConnLost(host){
 
 /* 応答文(SDP)の映像形式の並びを、H.264(Quest 3でハードウェア復号される)が
    先頭に来るよう入れ替える。送る側は応答の並び順に従うので、これだけで
-   PC側もヘルパーも無改造のまま形式が切り替わる。VP8は2番手に残すので、
-   H.264で交渉できない相手でも従来どおりつながる。
+   PC側もヘルパーも無改造のまま形式が切り替わる。**設定が「従来(VP8)」のときは、
+   上と同じ手順で VP8 を先頭にする**(この関数は設定した形式を先頭へ寄せる係)。
+   **並べ替えるだけで、どの形式も消さないこと**(消すと、その形式しか使えない相手とつながらなくなる)。
    解析に失敗したときは、元のSDPをそのまま返す(安全側) */
 function preferH264(sdp){
   try {
-    if (S.codec !== 'h264') {
-      questLog('変換: 設定が従来(VP8)のため何もしない');
-      return sdp;
-    }
-    var lines = sdp.split('\r\n');
-    var h264 = {}, rtxOf = {};
+    var wantVp8 = (S.codec === 'vp8');
+    var cname = wantVp8 ? 'VP8' : 'H.264';
+    /* 行末はCRLFとは限らない(LFだけで届く実装がある)。'\r\n' 固定に戻さないこと */
+    var eol = (sdp.indexOf('\r\n') >= 0) ? '\r\n' : '\n';
+    var lines = sdp.split(/\r\n|\n/);
+    var want = {}, rtxOf = {};
+    var reWant = wantVp8 ? /^a=rtpmap:(\d+)\s+VP8\//i : /^a=rtpmap:(\d+)\s+H264\//i;
     lines.forEach(function(l){
-      var m = l.match(/^a=rtpmap:(\d+)\s+H264\//i);
-      if (m) h264[m[1]] = true;
+      var m = l.match(reWant);
+      if (m) want[m[1]] = true;
       var r = l.match(/^a=fmtp:(\d+)\s+apt=(\d+)/);
       if (r) rtxOf[r[1]] = r[2]; /* 再送用の番号 → 本体の番号 */
     });
-    var n = Object.keys(h264).length;
+    var n = Object.keys(want).length;
     if (!n) {
-      /* 「H.264優先の設定なのに実際はVP8」の一方の筋(12h)。応答書類に
-         そもそもH.264が載っていなければ、この変換は仕事のしようがない */
-      questLog('変換(H.264優先): 応答にH.264の項目なし → 素通り(VP8等で受信することになる)');
+      /* 「設定した形式なのに実際は別の形式」の一方の筋(12h)。応答書類に
+         そもそも載っていなければ、この変換は仕事のしようがない */
+      questLog('変換(' + cname + '優先): 応答に' + cname + 'の項目なし → 素通り');
       return sdp;
     }
     var found = false;
@@ -2225,23 +2350,23 @@ function preferH264(sdp){
       var pts = mm[2].split(' ');
       var first = [], rest = [];
       pts.forEach(function(pt){
-        if (h264[pt] || h264[rtxOf[pt]]) first.push(pt); else rest.push(pt);
+        if (want[pt] || want[rtxOf[pt]]) first.push(pt); else rest.push(pt);
       });
       lines[i] = mm[1] + ' ' + first.concat(rest).join(' ');
     }
     if (!found) {
-      questLog('変換(H.264優先): 映像のm行が見つからない → 素通り');
+      questLog('変換(' + cname + '優先): 映像のm行が見つからない → 素通り');
       return sdp;
     }
-    var out = lines.join('\r\n');
-    /* もう一方の筋(12h): 並べ替えた(または既に先頭だった)のに実際はVP8なら、
+    var out = lines.join(eol);
+    /* もう一方の筋(12h): 並べ替えた(または既に先頭だった)のに実際が別の形式なら、
        並び順が交渉で尊重されていないことになる。どちらだったかを記録する */
     questLog(out === sdp
-      ? ('変換(H.264優先): 応答にH.264×' + n + '(既に先頭) → 変更なし')
-      : ('変換(H.264優先): 応答にH.264×' + n + ' → 先頭へ並べ替えた'));
+      ? ('変換(' + cname + '優先): 応答に' + cname + '×' + n + '(既に先頭) → 変更なし')
+      : ('変換(' + cname + '優先): 応答に' + cname + '×' + n + ' → 先頭へ並べ替えた'));
     return out;
   } catch (_e) {
-    try { questLog('変換(H.264優先): 読み取りに失敗 → 素通り'); } catch (_e2) {}
+    try { questLog('変換: 読み取りに失敗 → 素通り'); } catch (_e2) {}
     return sdp;
   }
 }
@@ -2263,7 +2388,8 @@ function questOnCall(call){
   call.on('stream', function(stream){
     questLog('画面' + slot + ': 映像の通話が開通(' + ((Date.now() - callT0) / 1000).toFixed(1) + '秒)');
     questLogCallRoute(host, call, slot); /* 映像側の通り道を記録(12b) */
-    questTuneLatency(call);
+    /* 受信の溜めの最小化は questAddScreen の中の qApplyLatencyToCall が行う。
+       ここに2つめを置かないこと */
     questAddScreen(host, slot, stream, call);
   });
   call.on('close', function(){
@@ -2296,12 +2422,15 @@ function questAddScreen(host, slot, stream, call){
   });
   v.addEventListener('click', function(){
     v.muted = false;
+    /* 自分で鳴らし直したので、消した印を外す(entry はこの下で作られる) */
+    if (v._entry) v._entry.userMuted = false;
     v.play().catch(function(){});
     show($('qMuteNote'), false);
   });
   v.volume = S.vol;
   $('qVideos').appendChild(v);
   var entry = { slot: slot, stream: stream, video: v, call: call || null, pv: null };
+  v._entry = entry; /* 上の click から消した印を外すため */
   host.screens.push(entry);
   questProbeScreenFrames(host, entry); /* 4秒後にフレーム数を1回記録(12a) */
   qApplyLatencyToCall(call);
@@ -2422,6 +2551,7 @@ function questConnectedUi(){
   show($('qStepA'), false);
   show($('qStepB'), true);
   show($('btnEnterVR'), qs.xrOk);
+  show($('vrCtlPanel'), qs.xrOk); /* 「VRで見る」を出さない機器には操作一覧も出さない */
   $('btnConnect').disabled = false;
   $('btnConnect').textContent = '接続する';
 }
@@ -2470,7 +2600,10 @@ function questUiSync(){
     if (h.state === 'connecting') st = '接続中…';
     else if (h.screens.length === 0) st = '映像待ち';
     else st = '画面 ' + h.screens.length + '枚';
-    label.textContent = 'パソコン' + (i + 1) + ' [' + h.code + '] ' + st + ' / 操作 ' + (h.helperOn ? 'ON' : 'OFF');
+    var nNo = 0;
+    if (h.noCtl) h.screens.forEach(function(sc){ if (h.noCtl[sc.slot]) nNo++; });
+    label.textContent = 'パソコン' + (i + 1) + ' [' + h.code + '] ' + st + ' / 操作 ' + (h.helperOn ? 'ON' : 'OFF')
+      + ((h.helperOn && nNo) ? '(見るだけ ' + nNo + '枚)' : '');
     row.appendChild(label);
     var btn = document.createElement('button');
     btn.className = 'btn-ghost btn-sm';
@@ -2514,7 +2647,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-14c';
+var APP_VER = '2026-08-14d';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2617,7 +2750,7 @@ function loadS(){
   });
   s.maxDist = (typeof s.maxDist === 'number') ? clamp(Math.round(s.maxDist), 3, 30) : 12;
   s.maxW = (typeof s.maxW === 'number') ? clamp(Math.round(s.maxW), 3, 40) : 16;
-  if (!s.layout || typeof s.layout.dist !== 'number') s.layout = null;
+  if (!s.layout || typeof s.layout.dist !== 'number' || typeof s.layout.width !== 'number') s.layout = null;
   return s;
 }
 function saveS(){
@@ -2698,8 +2831,13 @@ function pcApplyQualityToCall(call, attempt){
   if (q.deg) params.degradationPreference = q.deg;
   else delete params.degradationPreference;
   sender.setParameters(params).catch(function(){
-    delete params.degradationPreference; /* 未対応ブラウザではビットレートだけ適用 */
-    sender.setParameters(params).catch(function(){});
+    /* params は1回の setParameters で使い切られる。取り直さずに再利用すると
+       仕様上 InvalidStateError で必ず失敗する */
+    var p2 = sender.getParameters();
+    if (!p2.encodings || !p2.encodings.length) return;
+    if (q.br > 0) p2.encodings[0].maxBitrate = q.br; /* 未対応ブラウザではビットレートだけ適用 */
+    else delete p2.encodings[0].maxBitrate;
+    sender.setParameters(p2).catch(function(){});
   });
 }
 
@@ -2775,7 +2913,17 @@ function questResumeVideos(why){
 }
 
 /* ---------- 接続品質の計測(見る側。端末内での計測のみ) ---------- */
+/* 再入防止。2秒ごとに呼ばれるが getStats がそれより遅い機器があり、重なると
+   同じ sc.pv を二重に読み書きして受信Mbpsが跳ね上がる。**表示を消すだけの
+   経路(S.stats が false)は錠に触れないこと**: 錠を取ると、計測中にOFFへ
+   したときに走っている計測の錠を横から外してしまい、重なりを許してしまう */
 async function questStatsTick(){
+  if (!S.stats) { await questStatsTickBody(); return; }
+  if (qs.statsBusy) return;
+  qs.statsBusy = true;
+  try { await questStatsTickBody(); } finally { qs.statsBusy = false; }
+}
+async function questStatsTickBody(){
   if (!S.stats) {
     var cleared = false;
     qs.hosts.forEach(function(h){ if (h.statText) { h.statText = ''; cleared = true; } });
@@ -2830,14 +2978,16 @@ async function questStatsTick(){
           }
           if (cRep && cRep.mimeType) codec = String(cRep.mimeType).replace('video/', '');
         }
-        if (rtt === null) {
+        /* 経路の算出を rtt の中に入れないこと。1枚目で往復時間だけ取れると
+           2枚目以降を調べ直さず、経路が永久に出なくなる */
+        if (rtt === null || route === null) {
           var pr = selId ? pairs[selId] : null;
           if (!pr) {
             Object.keys(pairs).forEach(function(id){
               if (!pr && pairs[id].nominated && pairs[id].state === 'succeeded') pr = pairs[id];
             });
           }
-          if (pr && typeof pr.currentRoundTripTime === 'number') {
+          if (rtt === null && pr && typeof pr.currentRoundTripTime === 'number') {
             rtt = Math.round(pr.currentRoundTripTime * 1000);
           }
           /* 映像の通り道: 直接(同一ネット) / 直接 / 中継サーバー経由 */
@@ -2855,6 +3005,9 @@ async function questStatsTick(){
     var routeJp = route === 'relay' ? ' / 経路: 中継サーバー(遅)'
       : route === 'lan' ? ' / 経路: 直接(同一ネット)'
       : route === 'net' ? ' / 経路: 直接' : '';
+    /* 表示のOFFは getStats の待ちの最中にも起きる。書く直前にもう一度見ること
+       (在庫の1回が書き戻すと、消したはずの表示が残る) */
+    if (!S.stats) { h.statText = ''; continue; }
     h.statText = got
       ? ('受信 ' + (Math.max(0, bps) / 1e6).toFixed(1) + ' Mbps / ' + fps + 'fps / ' + w + '×' + hh
          + (rtt !== null ? ' / 往復' + rtt + 'ms' : '') + routeJp
@@ -2980,8 +3133,10 @@ function renderKm(){
     row.className = 'set-row';
     var lb = document.createElement('label');
     lb.textContent = KM_BTN_LABEL[b];
+    lb.htmlFor = 'kmSel_' + b; /* 文字も当たり判定にする。for の相手は下の select の id */
     row.appendChild(lb);
     var sel = document.createElement('select');
+    sel.id = 'kmSel_' + b;
     sel.className = 'monsel';
     KM_ACTS.forEach(function(a){
       var op = document.createElement('option');
@@ -3001,6 +3156,10 @@ function renderKm(){
 }
 
 function renderQGrid(){
+  /* 「いま反映する」の知らせは、この画面を組み直すたびに引っ込める。
+     出しっぱなしにすると、次に開いたときも古い知らせが残る(13aの写真・映像の警告と同じ型) */
+  var note = $('codecApplyNote');
+  if (note) { note.textContent = ''; show(note, false); }
   var box = $('qGrid');
   box.innerHTML = '';
   ['sharp', 'balance', 'smooth', 'auto'].forEach(function(p){
@@ -3077,6 +3236,13 @@ function initSettingsUi(){
   $('setVer').textContent = 'v' + APP_VER;
   var vh = $('verHome');
   if (vh) vh.textContent = '版 ' + APP_VER;
+  /* label に for が無いと、文字は当たり判定にならずチェックが18×18pxだけになる。
+     HTMLへ22個書くかわりに、行ごとに機械的に結ぶ(id を持つ操作部だけ) */
+  Array.prototype.forEach.call($('setModal').querySelectorAll('.set-row'), function(row){
+    var lb = row.querySelector('label');
+    var ct = row.querySelector('input, select');
+    if (lb && ct && ct.id && !lb.getAttribute('for')) lb.setAttribute('for', ct.id);
+  });
   $('setClose').addEventListener('click', closeSettings);
   $('setModal').addEventListener('click', function(e){
     if (e.target === $('setModal')) closeSettings();
@@ -3242,8 +3408,12 @@ function kbForwardHost(){
 
 window.addEventListener('keydown', function(e){
   if (!S.kbfwd) return;
+  /* 手元の操作に使うキーを横取りしないこと(R14)。設定画面が開いている間は
+     どこに当たった打鍵も転送しない(Tab移動で選択欄やボタンへ移るため) */
+  if (!$('setModal').classList.contains('hidden')) return;
   var t = e.target;
-  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' ||
+            t.isContentEditable)) return;
   var host = kbForwardHost();
   if (!host || !host.helperOn) return;
   var mods = (e.ctrlKey ? 1 : 0) | (e.shiftKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
@@ -3345,6 +3515,10 @@ function tvSync(){
   var sel = found || list[0];
 
   var changed = tv.key !== sel.key;
+  /* **相手を替える前に必ず離すこと(14d)**。押したまま差し替えると、あとから来る
+     tvEndDrag / tvMouseUp の up が「押していない方のPC」へ飛び、元のPCが
+     押しっぱなしで残る(接続は生きているので pcReleaseHeld も働かない) */
+  if (changed && tv.host && (tv.mode === 'drag' || tv.m)) tvEndDrag();
   tv.key = sel.key;
   tv.host = sel.host;
   tv.slot = sel.slot;
@@ -3369,7 +3543,7 @@ function tvSync(){
     tabs.appendChild(b);
   });
 
-  show($('tvNote'), !(tv.host && tv.host.helperOn));
+  tvNoteSync();
   tvStatsUpdate();
 }
 
@@ -3385,7 +3559,7 @@ function tvStatsUpdate(){
 APP.tvStats = function(){
   if (tv.open) {
     tvStatsUpdate();
-    show($('tvNote'), !(tv.host && tv.host.helperOn));
+    tvNoteSync();
   }
 };
 
@@ -3411,7 +3585,22 @@ function tvUv(clientX, clientY){
   };
 }
 
-function tvCanControl(){ return tv.host && tv.host.helperOn; }
+/* 見るだけになる理由は2つ(ヘルパーOFF / この画面が「操作しない」)。文言を取り違えないこと。
+   `.tv-note` は white-space:nowrap の中央寄せバッジなので、文言を長くしないこと(14b③) */
+function tvNoteSync(){
+  var el = $('tvNote');
+  if (!el) return;
+  var noCtl = !!(tv.host && tv.host.helperOn && tv.host.noCtl && tv.host.noCtl[tv.slot]);
+  el.textContent = noCtl
+    ? 'この画面は「操作しない」に設定されています'
+    : '操作モード OFF(見るだけ)';
+  show(el, !tvCanControl());
+}
+
+function tvCanControl(){
+  if (!tv.host || !tv.host.helperOn) return false;
+  return !(tv.host.noCtl && tv.host.noCtl[tv.slot]);
+}
 
 function tvSendMv(uv){
   if (!tvCanControl()) return;
@@ -3430,7 +3619,9 @@ var PINCH_STEP = 1.15;
 
 function tvIsRel(){ return S.ptrMode === 'rel'; }
 
-/* トラックパッド式: 動かした量をそのままPCカーソルの移動量として送る */
+/* トラックパッド式: 動かした量をそのままPCカーソルの移動量として送る。
+   **ここに送信の間引きを入れないこと**: 遅さが第7節(h)の主題で、
+   まとめるのは受け側(pcOnDataInner の mvr 合算)の仕事 */
 function tvSendRel(dx, dy, mult){
   if (!tvCanControl()) return;
   tv.relX += dx * mult;
@@ -3492,11 +3683,18 @@ function tvEndDrag(){
 }
 
 function tvTryUnmute(){
-  if (tv.unmuteTried) return;
-  tv.unmuteTried = true;
+  /* 一度きり(tv.unmuteTried)にしないこと: 後から増えた画面や再接続で作り直した
+     画面はミュートのまま残り、二度と音を出せなくなる。
+     **ただし画面ごとに1回までにとどめること**: 触れるたびに muted を外すと、
+     VRのボタンバー(xrBarActivate)で利用者が消した画面の音を勝手に鳴らし直す
+     (同じ video 要素を両方が見ている)。video は画面を作り直すたび
+     questAddScreen で作り直されるので、この印は自然に外れる */
   qs.hosts.forEach(function(h){
     h.screens.forEach(function(sc){
-      if (sc.video) {
+      /* **利用者が自分で消した音を鳴らし直さないこと(14d)**。VRのボタンバーは
+         同じ video の muted を触るので、印だけでは区別できない */
+      if (sc.video && sc.video.muted && !sc.video._unmuteTried && !sc.userMuted) {
+        sc.video._unmuteTried = true;
         sc.video.muted = false;
         sc.video.play().catch(function(){});
       }
@@ -3750,7 +3948,9 @@ function tvMove(e){
          仕組みは13bで撤去した。**手元ズームを戻さないこと**: 戻すと
          「拡大中は2本指ドラッグが相手へスクロールを送らない」が再発する。
          指の間隔の比を掛け合わせ、PINCH_STEP 倍ごとに1目盛り送る */
-      tv.two.zacc *= (d / tv.two.d);
+      /* 間隔が0だと比が Infinity か 0 になり、下の while が終わらない(R6)。
+         0のときは比を掛けずに基準だけ入れ替える */
+      if (d > 0 && tv.two.d > 0) tv.two.zacc *= (d / tv.two.d);
       tv.two.d = d;
       while (tv.two.zacc >= PINCH_STEP || tv.two.zacc <= 1 / PINCH_STEP) {
         var zin = tv.two.zacc > 1; /* 指を広げる=拡大 */
@@ -3792,6 +3992,22 @@ function tvUp(e){
   var n = tvPtrCount();
 
   if (tv.mode === 'two') {
+    /* 3本目以降が離れて2本に戻ったら、残った2本で基準を取り直すこと(R5)。
+       取り直さないと次の tvMove が別の指の組と古い間隔・中点を引き算し、
+       スクロールやズームが一気に暴発する */
+    if (n === 2 && tv.two) {
+      var idsR = Object.keys(tv.ptrs);
+      var ra = tv.ptrs[idsR[0]], rb = tv.ptrs[idsR[1]];
+      tv.two.d = Math.hypot(ra.x - rb.x, ra.y - rb.y);
+      tv.two.mx = (ra.x + rb.x) / 2;
+      tv.two.my = (ra.y + rb.y) / 2;
+      /* 開始中点と開始時刻も取り直すこと。残すとピンチ判定の dMid が
+         3本指のときの中点からの差になり、二度とピンチに入れない */
+      tv.two.smx = tv.two.mx;
+      tv.two.smy = tv.two.my;
+      tv.two.t = performance.now();
+      tv.twoKind = '';
+    }
     if (n === 1) {
       /* 2本指タップ = 右クリック */
       var dur = performance.now() - tv.two.t;
@@ -3824,6 +4040,12 @@ function tvUp(e){
     tvTriConfirm();
     if (!tv.ignoreSingle) {
       if (tv.mode === 'drag') {
+        /* 25msの間引きで捨てられた最後の指位置を送ってから離すこと。
+           送らないと、捨てられた分だけ手前でドロップされる */
+        if (!tvIsRel()) {
+          var uvD = tvUv(was.x, was.y);
+          if (uvD.inside && tvCanControl()) tvSendMv(uvD);
+        }
         tvEndDrag();
       } else if (tv.mode === '' ) {
         var dur1 = performance.now() - was.t;
@@ -3866,7 +4088,9 @@ function initTouchUi(){
        ブラウザや多くのアプリの標準ズームと同じ。効き量の調整点はしきい値70 */
     if (e.ctrlKey) {
       if (!tvCanControl()) return;
-      tv.zoomAcc = (tv.zoomAcc || 0) + e.deltaY;
+      /* deltaMode=1(行単位で報告するブラウザ)は約33px/行に換算すること。
+         換算しないと1回あたり数行ぶんしか溜まらず、しきい値70に届かない */
+      tv.zoomAcc = (tv.zoomAcc || 0) + e.deltaY * (e.deltaMode === 1 ? 33 : 1);
       while (Math.abs(tv.zoomAcc) >= 70) {
         var zin = tv.zoomAcc < 0; /* 指を広げる=deltaY負=拡大 */
         var mod = (tv.host && tv.host.helperOs === 'mac') ? 8 : 1; /* 8=Cmd, 1=Ctrl(不明時はCtrl) */
@@ -3917,6 +4141,9 @@ function initTouchUi(){
     }
   });
   $('tvText').addEventListener('keydown', function(e){
+    /* 日本語変換の確定用 Enter を横取りしないこと(R13)。IMEが処理中の打鍵は
+       isComposing、確定の瞬間だけ isComposing が落ちる環境では keyCode 229 で分かる */
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Enter') { e.preventDefault(); $('tvSend').click(); }
   });
   $('tvClose').addEventListener('click', tvClose);
@@ -4063,8 +4290,9 @@ function xrBuildScene(){
     scene.add(line);
     var dot = new THREE.Mesh(
       new THREE.SphereGeometry(0.008, 12, 12),
-      new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false })
+      new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false, transparent: true, depthTest: false })
     );
+    dot.renderOrder = 11; /* パネル(10)より後。透明扱いにしないと不透明の組で先に描かれ、パネルの上で光点が消える */
     dot.visible = false;
     scene.add(dot);
     xr.lasers[hand] = { line: line, dot: dot };
@@ -4331,6 +4559,9 @@ function xrSetPanoVideo(file){
   if (el) { el.textContent = ''; show(el, false); }
   if (!file) return;
   xrClearPanoVideo();
+  /* 世代札。読み込み中に別のファイルへ差し替えられると、古い方の loadeddata が
+     後から届いて新しい映像を上書きし、新しい方の objectURL が解放されずに残る */
+  var gen = xr.bg.panoGen = (xr.bg.panoGen || 0) + 1;
   var url = URL.createObjectURL(file);
   var v = document.createElement('video');
   v.src = url;
@@ -4339,6 +4570,11 @@ function xrSetPanoVideo(file){
   v.playsInline = true;
   v.setAttribute('playsinline', '');
   v.addEventListener('loadeddata', function(){
+    if (gen !== xr.bg.panoGen) {
+      try { v.pause(); } catch (_e0) {}
+      try { URL.revokeObjectURL(url); } catch (_e1) {}
+      return;
+    }
     xr.bg.panoVid = v;
     xr.bg.panoVidUrl = url;
     S.bg = 'video';
@@ -4348,6 +4584,7 @@ function xrSetPanoVideo(file){
   });
   v.addEventListener('error', function(){
     try { URL.revokeObjectURL(url); } catch (_e) {}
+    if (gen !== xr.bg.panoGen) return;
     if (el) { el.textContent = 'この映像を読み込めませんでした。別のファイルで試してください。'; show(el, true); }
   });
   v.play().catch(function(){ v.play().catch(function(){}); });
@@ -4769,6 +5006,8 @@ function xrBarActivate(s, idx){
     if (old) old.dispose();
   } else if (idx === 1) {
     s.video.muted = !s.video.muted;
+    /* 利用者が自分で消したことを控える。tvTryUnmute がこれを見て鳴らし直さない */
+    s.userMuted = s.video.muted;
     if (!s.video.muted) s.video.play().catch(function(){});
   } else if (idx === 2) {
     s.locked = !s.locked;
@@ -4776,6 +5015,7 @@ function xrBarActivate(s, idx){
       ['right', 'left'].forEach(function(hand){
         if (xr.grab[hand] && xr.grab[hand].scr === s) xr.grab[hand] = null;
       });
+      s.follow = false;
       s.custom = true; /* いまの位置のまま留める */
     }
   } else if (idx === 3) {
@@ -4785,9 +5025,11 @@ function xrBarActivate(s, idx){
       s.custom = true;
       s.prevScale = s.wScale;
       if (s.wScale > 0.5) { s.wScale = 0.45; xr.geoDirty = true; }
+      s.followScale = s.wScale;
     } else {
       s.follow = false;
-      if (s.prevScale) { s.wScale = s.prevScale; xr.geoDirty = true; }
+      /* 追従中に変えた大きさを捨てないため、書き戻すのは自分で縮めた値のままのときだけ */
+      if (s.prevScale && s.wScale === s.followScale) { s.wScale = s.prevScale; xr.geoDirty = true; }
     }
   } else if (idx === 4) {
     s.dim = (s.dim > 0.85) ? 0.7 : (s.dim > 0.55 ? 0.4 : 1);
@@ -5318,18 +5560,28 @@ function xrActDown(action, hand){
     var hov = xrPickHover(hand);
     if (hov) {
       if (xr.mouseEnabled && hov.scr.host.helperOn) {
+        /* 対象は反対の手のホバーでも決まるので、押した手ではなく実際にホバーを出した手を控えること
+           (xrPressTick は控えた手のホバーだけを見る) */
+        var hovHand = (xrHoverOf(hand) === hov) ? hand : ((hand === 'right') ? 'left' : 'right');
+        var hx = clamp(hov.uv.x, 0, 1), hy = clamp(1 - hov.uv.y, 0, 1);
         if (S.trig === 'plain') {
+          if (xr.pressed.click && xr.pressed.click !== hov.scr.host) hostSend(xr.pressed.click, { t: 'up', b: 0 });
+          hostSend(hov.scr.host, { t: 'mv', x: xrR4(hx), y: xrR4(hy), s: hov.scr.slot });
           hostSend(hov.scr.host, { t: 'dn', b: 0, s: hov.scr.slot });
           xr.pressed.click = hov.scr.host;
         } else if (xr.press) {
           xr.press.count++;
+          /* own を持たない press に当たっても投げないこと(xrActUp と対にする) */
+          if (!xr.press.own) xr.press.own = { right: 0, left: 0 };
+          xr.press.own[hand] = (xr.press.own[hand] || 0) + 1;
         } else {
           xr.press = {
             hostObj: hov.scr.host, slot: hov.scr.slot,
-            x0: clamp(hov.uv.x, 0, 1), y0: clamp(1 - hov.uv.y, 0, 1),
-            py: clamp(1 - hov.uv.y, 0, 1),
-            t: performance.now(), mode: '', count: 1, acc: 0, hand: hand
+            x0: hx, y0: hy, py: hy,
+            t: performance.now(), mode: '', count: 1, acc: 0, hand: hovHand,
+            own: { right: 0, left: 0 }
           };
+          xr.press.own[hand] = 1;
         }
       }
     } else {
@@ -5339,7 +5591,7 @@ function xrActDown(action, hand){
       if (xr.hudPinned) xr.hudCustom = false; /* 出し直しは定位置に */
     }
   } else if (action === 'rclick') {
-    if (p.onMenu || p.onHud || p.bar) return;
+    if (p.onMenu || p.onHud || p.onKeys || p.onPad || p.bar) return;
     var hov2 = xrPickHover(hand);
     if (hov2 && xr.mouseEnabled && hov2.scr.host.helperOn) {
       hostSend(hov2.scr.host, { t: 'dn', b: 2, s: hov2.scr.slot });
@@ -5365,6 +5617,12 @@ function xrActDown(action, hand){
 function xrActUp(action, hand){
   if (action === 'click') {
     if (xr.press) {
+      /* その手で押した分がないときは終わらせないこと(メニュー等で早期returnした押下の離し)。
+         own を持たない press に当たったときは、クリックを丸ごと失うより従来どおり数える */
+      if (xr.press.own) {
+        if (!xr.press.own[hand]) return;
+        xr.press.own[hand]--;
+      }
       xr.press.count--;
       if (xr.press.count > 0) return;
       xrPressFinish(true);
@@ -5567,16 +5825,25 @@ function xrUpdatePointerFor(hand){
   xr.raycaster.set(origin, dir);
 
   var busyDrag = !!(xr.press || xr.pressed.click || xr.pressed.rclick);
+  /* パネルを先に当てるのは、**自動で手前へ寄せている(=必ず見えている)もの**だけ。
+     つかんで動かしたパネルまで先に当てると、画面の裏に置いたときにその重なりが
+     見えないままカーソルとクリックを奪う */
+  var panels = [];
+  if (!busyDrag && xr.menu.open && xr.menu.mesh && !xr.menuCustom) panels.push(xr.menu.mesh);
+  if (!busyDrag && xr.keys.open && xr.keys.mesh && !xr.keysCustom) panels.push(xr.keys.mesh);
+  if (!busyDrag && xr.pad.open && xr.pad.mesh && !xr.padCustom) panels.push(xr.pad.mesh);
   var meshes = [];
-  if (!busyDrag && xr.menu.open && xr.menu.mesh) meshes.push(xr.menu.mesh);
-  if (!busyDrag && xr.keys.open && xr.keys.mesh) meshes.push(xr.keys.mesh);
-  if (!busyDrag && xr.pad.open && xr.pad.mesh) meshes.push(xr.pad.mesh);
+  if (!busyDrag && xr.menu.open && xr.menu.mesh && xr.menuCustom) meshes.push(xr.menu.mesh);
+  if (!busyDrag && xr.keys.open && xr.keys.mesh && xr.keysCustom) meshes.push(xr.keys.mesh);
+  if (!busyDrag && xr.pad.open && xr.pad.mesh && xr.padCustom) meshes.push(xr.pad.mesh);
   if (!busyDrag && xr.hud && xr.hud.visible) meshes.push(xr.hud);
   xr.screens.forEach(function(s){
     if (s.bar && !busyDrag) meshes.push(s.bar.mesh); /* 透明でも当たり判定は生きている */
     meshes.push(s.mesh);
   });
-  var hits = xr.raycaster.intersectObjects(meshes, false); /* r133で既定が再帰=子まで当たるに変わったため明示(three r149更新) */
+  /* パネルは画面より奥にあっても先に当てる。手前に画面が来るとボタンが押せなくなるため */
+  var hits = panels.length ? xr.raycaster.intersectObjects(panels, false) : []; /* r133で既定が再帰=子まで当たるに変わったため明示(three r149更新) */
+  if (!hits.length) hits = xr.raycaster.intersectObjects(meshes, false);
 
   var len = 4;
   if (hits.length) {
@@ -5626,13 +5893,15 @@ function xrUpdatePointerFor(hand){
 function xrUpdatePointers(){
   xrUpdatePointerFor('right');
   xrUpdatePointerFor('left');
-  var hl = xr.ph.right.menuBtn || xr.ph.left.menuBtn;
+  var actH = (xr.activeHand === 'left') ? 'left' : 'right';
+  var othH = (actH === 'right') ? 'left' : 'right';
+  var hl = xr.ph[actH].menuBtn || xr.ph[othH].menuBtn;
   if (hl !== xr.menuHL) {
     xr.menuHL = hl;
     xrMenuDraw();
   }
   if (xr.keys.open) {
-    var kl = xr.ph.right.keysBtn || xr.ph.left.keysBtn;
+    var kl = xr.ph[actH].keysBtn || xr.ph[othH].keysBtn;
     var hi = 0;
     for (var qi = 0; qi < qs.hosts.length; qi++) { if (qs.hosts[qi] === xr.lastHost) hi = qi; }
     var ksig = String(kl) + '|' + hi + '|' + (xr.lastHost && xr.lastHost.helperOn ? 1 : 0);
@@ -5643,7 +5912,7 @@ function xrUpdatePointers(){
     }
   }
   if (xr.pad.open) {
-    var pl = xr.ph.right.padBtn || xr.ph.left.padBtn;
+    var pl = xr.ph[actH].padBtn || xr.ph[othH].padBtn;
     if (pl !== xr.padHL) {
       xr.padHL = pl;
       xrPadDraw();
@@ -5675,12 +5944,27 @@ function xrMaybeSendMove(){
 
 /* ---------- 追従画面: 視界の隅に付いてくる ---------- */
 function xrUpdateFollows(){
+  var aside = (xr.menu.open || xr.keys.open || xr.pad.open) ? 0.65 : 0;
+  /* 列の間隔は、いちばん幅の広い追従画面の実寸から決めること。
+     固定値にすると設定「最大の幅」を上げたときに、また同じ1点に重なる */
+  var step = 0, cnt = 0;
   for (var i = 0; i < xr.screens.length; i++) {
-    var s = xr.screens[i];
+    if (!xr.screens[i].follow) continue;
+    var w = xrScreenW(xr.screens[i]) + 0.06;
+    if (w > step) step = w;
+    cnt++;
+  }
+  var base = (cnt > 1) ? Math.max(0.55, step / 2) : 0.55;
+  var n = 0;
+  for (var k = 0; k < xr.screens.length; k++) {
+    var s = xr.screens[k];
     if (!s.follow) continue;
-    var off = xr.tmpV1.set(0.55, -0.32, -1.15).applyQuaternion(xr.camera.quaternion).add(xr.camPos);
+    var side = (n % 2) ? -1 : 1;
+    var lane = base + aside + Math.floor(n / 2) * step;
+    var off = xr.tmpV1.set(side * lane, -0.32, -1.15).applyQuaternion(xr.camera.quaternion).add(xr.camPos);
     s.mesh.position.lerp(off, 0.18);
     s.mesh.lookAt(xr.camPos);
+    n++;
   }
 }
 
@@ -5705,6 +5989,7 @@ function xrKeysEnsure(){
   xr.keys.tex = new THREE.CanvasTexture(c);
   var mat = new THREE.MeshBasicMaterial({ map: xr.keys.tex, transparent: true, side: THREE.DoubleSide, fog: false });
   xr.keys.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 1.35 * KEYS_H / KEYS_W), mat);
+  xr.keys.mesh.renderOrder = 10; /* 穴あけ材質(renderOrder 0)より後に描く */
   xr.keys.mesh.visible = false;
   xr.scene.add(xr.keys.mesh);
 }
@@ -5714,6 +5999,7 @@ function xrKeysToggle(){
   xr.keys.open = !xr.keys.open;
   xr.keys.mesh.visible = xr.keys.open;
   if (xr.keys.open) {
+    xrPanelsCloseOthers('keys');
     xrKeysPlace();
     xrKeysDraw();
   } else {
@@ -5822,6 +6108,7 @@ function xrPadEnsure(){
   xr.pad.tex = new THREE.CanvasTexture(c);
   var mat = new THREE.MeshBasicMaterial({ map: xr.pad.tex, transparent: true, side: THREE.DoubleSide, fog: false });
   xr.pad.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.3 * PAD_H / PAD_W), mat);
+  xr.pad.mesh.renderOrder = 10; /* 穴あけ材質(renderOrder 0)より後に描く */
   xr.pad.mesh.visible = false;
   xr.scene.add(xr.pad.mesh);
 }
@@ -5832,6 +6119,7 @@ function xrPadToggle(){
   xr.pad.mesh.visible = xr.pad.open;
   if (xr.pad.open) {
     xr.pad.status = '';
+    xrPanelsCloseOthers('pad');
     xrPadPlace();
     xrPadDraw();
   } else {
@@ -5926,8 +6214,11 @@ function xrPadDraw(){
   }
   for (var hi = 0; hi < qs.hosts.length && hi < 3; hi++) {
     var h = qs.hosts[hi];
+    var nNo = 0;
+    if (h.noCtl) h.screens.forEach(function(sc){ if (h.noCtl[sc.slot]) nNo++; });
+    var onTxt = '接続中(操作ON' + (nNo ? '・見るだけ' + nNo + '枚' : '') + ')';
     var stt = h.state === 'retry' ? '⟳ 再接続中' :
-      (h.state === 'open' ? (h.helperOn ? '接続中(操作ON)' : '接続中(見るだけ)') : '接続待ち…');
+      (h.state === 'open' ? (h.helperOn ? onTxt : '接続中(見るだけ)') : '接続待ち…');
     ctx.fillStyle = '#d8d5ea';
     ctx.fillText('PC' + (hi + 1) + ' [' + h.code + '] ' + stt, 420, hy);
     hy += 34;
@@ -6002,8 +6293,65 @@ function xrMenuEnsure(){
   xr.menu.tex = new THREE.CanvasTexture(c);
   var mat = new THREE.MeshBasicMaterial({ map: xr.menu.tex, transparent: true, side: THREE.DoubleSide, fog: false });
   xr.menu.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5 * MENU_H / 1024), mat);
+  xr.menu.mesh.renderOrder = 10; /* 穴あけ材質(renderOrder 0)より後に描く */
   xr.menu.mesh.visible = false;
   xr.scene.add(xr.menu.mesh);
+}
+
+/* 開いているパネルを、いちばん近い画面より手前へ引き寄せる。
+   **深度を無視して最前面に描く手は採らないこと**: VRでは距離感が壊れて見える。
+   遠ざける方向へは動かさない(既定の置き場所より奥へは行かない)。
+   つかんで動かしたパネル(*Custom)は利用者の意思なので触らない */
+var PANEL_GAP = 0.2;   /* 画面との間に空ける距離 */
+/* これより近づけない。パネルの実寸は幅1.3〜1.5mあるので、寄りすぎると
+   視野からはみ出して端のボタンが狙えなくなる(調整点) */
+var PANEL_MIN = 0.9;
+function xrPanelKeepFront(){
+  if (!xr.camera) return;
+  /* **いまの視線を使うこと**。xr.forward は再センタリングのときにしか
+     更新されないので、頭を振ったあとの判定に使うと外れる */
+  var fw = xr.camera.getWorldDirection(xr.tmpV2);
+  var near = Infinity;
+  for (var i = 0; i < xr.screens.length; i++) {
+    var m = xr.screens[i].mesh;
+    if (!m || !m.visible) continue;
+    /* **前にある画面だけを見ること**。背後や真横の画面まで数えると、
+       見えていない画面のせいでパネルが目の前まで寄ってくる */
+    var v0 = xr.tmpV1.copy(m.position).sub(xr.camPos);
+    var d = v0.length();
+    if (d < 1e-4) continue;
+    if (v0.divideScalar(d).dot(fw) < 0.5) continue;
+    if (d < near) near = d;
+  }
+  if (!isFinite(near)) return;
+  var lim = Math.max(PANEL_MIN, near - PANEL_GAP);
+  [[xr.menu, xr.menuCustom], [xr.keys, xr.keysCustom], [xr.pad, xr.padCustom]].forEach(function(e){
+    var pn = e[0];
+    if (!pn.open || !pn.mesh || e[1]) return;
+    var v = xr.tmpV1.copy(pn.mesh.position).sub(xr.camPos);
+    var cur = v.length();
+    if (cur <= lim || cur < 1e-4) return;
+    pn.mesh.position.copy(xr.camPos).addScaledVector(v.divideScalar(cur), lim);
+  });
+}
+
+/* 一度に開くパネルは1つ。重ねると下のパネルのボタンにレーザーが届かない */
+function xrPanelsCloseOthers(keep){
+  if (keep !== 'menu' && xr.menu.open) {
+    xr.menu.open = false;
+    xr.menu.mesh.visible = false;
+    xr.menuHL = null;
+  }
+  if (keep !== 'keys' && xr.keys.open) {
+    xr.keys.open = false;
+    xr.keys.mesh.visible = false;
+    xr.keysHL = null;
+  }
+  if (keep !== 'pad' && xr.pad.open) {
+    xr.pad.open = false;
+    xr.pad.mesh.visible = false;
+    xr.padHL = null;
+  }
 }
 
 function xrMenuToggle(){
@@ -6011,6 +6359,7 @@ function xrMenuToggle(){
   xr.menu.open = !xr.menu.open;
   xr.menu.mesh.visible = xr.menu.open;
   if (xr.menu.open) {
+    xrPanelsCloseOthers('menu');
     xrMenuPlace();
     xrMenuDraw();
   } else {
@@ -6549,6 +6898,9 @@ function xrRenderInner(){
   xrPressTick();
   xrUpdateGrabs();
   xrUpdateFollows();
+  /* 画面はいつでも引き寄せられるので、毎コマ見ること。
+     xrUpdateGrabs のあとに置く(つかんで動かした直後の位置で判断する) */
+  xrPanelKeepFront();
   xrMaybeSendMove();
 
   var now = performance.now();
@@ -6562,7 +6914,10 @@ function xrRenderInner(){
     xrSaveLayout();
   }
   if (xr.hud) {
-    var wantHud = xr.hudPinned || now < xr.hudUntil;
+    /* キー送信パネルは操作ガイドの上端と同じ高さに出るため、開いている間は隠す。
+       ただし休憩の知らせは操作ガイドにしか出ず、見逃すと二度と出ないので、その間だけは隠さない */
+    var wantHud = (xr.hudPinned || now < xr.hudUntil)
+      && (!xr.keys.open || Date.now() < xr.remindShownUntil);
     /* 隠れている間に時刻などが変わっていたら、出す瞬間に描き直す(05x) */
     if (wantHud && !xr.hud.visible && xr.hudStale) { xr.hudStale = false; xrDrawHud(); }
     xr.hud.visible = wantHud;

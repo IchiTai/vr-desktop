@@ -18,8 +18,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = 8765
 # ヘルパーの版(通し番号)。ヘルパーの仕様を変えたら +1 し、
-# index.html の HELPER_VER_REQUIRED も同じ値に上げること
-HELPER_VER = 3  # 版2: 中ボタン(b:1) / 版3: 横スクロール(sc の h)
+# index.html の HELPER_VER_REQUIRED と helper-windows.bat の $helperVer も
+# 同じ値に上げること
+HELPER_VER = 4  # 版2: 中ボタン / 版3: 横スクロール / 版4: 横スクロールの向きをWindowsと統一
+HELPER_BUILD = "2026-08-14b"
 
 # ---- このパソコンを操作してよいページ (2026-08-08) ----
 # ヘルパーはマウスもキーボードも動かせるので、対にした相手は
@@ -133,10 +135,46 @@ def get_bound():
 
 
 BOUND = get_bound()
+MON_T = 0.0
+
+
+MON_LOCK = threading.Lock()
+
+
+def refresh_monitors():
+    """モニター一覧を読み直す(抜き差し・解像度変更に追随)。2秒に1回まで。
+    差し替えは錠の中でまとめて行うこと: 別スレッドの mv が読んでいる最中に
+    MONITORS だけ短くなると、画面番号の引き当てが IndexError で落ちる"""
+    global MONITORS, BOUND, PING_BODY, MON_T
+    with MON_LOCK:
+        now = time.time()
+        if now - MON_T < 2.0:
+            return
+        MON_T = now
+        try:
+            mons = get_monitors()
+        except Exception:
+            return
+        if mons and mons != MONITORS:
+            MONITORS = mons
+            BOUND = get_bound()
+            PING_BODY = json.dumps({"ok": 1, "os": "mac", "hv": HELPER_VER,
+                                    "monitors": MONITORS}).encode("utf-8")
 
 # いまのボタン状態と位置(ドラッグとダブルクリックの判定に使う)
-STATE = {"l": False, "r": False, "x": 0.0, "y": 0.0}
-CLICK = {"t": 0.0, "n": 0}
+STATE = {"l": False, "m": False, "r": False, "x": 0.0, "y": 0.0, "t": 0.0}
+CLICK = {"t": 0.0, "n": 0, "x": 0.0, "y": 0.0}
+# STATE と CLICK は接続ごとのスレッドから触るので、必ずこの錠を通すこと
+STATE_LOCK = threading.RLock()
+DBL_SEC = 0.4    # ダブルクリックとみなす間隔
+# ダブルクリックとみなす距離。index.html の tvDown は「タップから320ms・40px
+# 以内の再タップは2回目のクリックとして成立させる」約束を持つ。その40pxは
+# 見る側の画面上の値なので、PC側の画素では画面の幅の比(iPadで約2.5倍)だけ
+# 大きくなる。ここを小さくすると、その約束がMacでだけ成立しなくなる(調整点)
+DBL_PX = 100.0
+# 自分で動かした直後は OS への反映待ちで古い位置が返りうる。便の末尾の mv と
+# 次の便の dn の間隔(33msの便待ち + localhost 往復11〜26ms)より長くすること
+FRESH_SEC = 0.15
 try:
     _p = pyautogui.position()
     STATE["x"], STATE["y"] = float(_p[0]), float(_p[1])
@@ -149,23 +187,28 @@ def qz_post(ev):
 
 
 def do_move(x, y):
-    STATE["x"], STATE["y"] = x, y
-    if QZ is not None:
-        try:
-            if STATE["l"]:
-                t, b = QZ.kCGEventLeftMouseDragged, QZ.kCGMouseButtonLeft
-            elif STATE["r"]:
-                t, b = QZ.kCGEventRightMouseDragged, QZ.kCGMouseButtonRight
-            else:
-                t, b = QZ.kCGEventMouseMoved, QZ.kCGMouseButtonLeft
-            qz_post(QZ.CGEventCreateMouseEvent(None, t, (x, y), b))
-            return
-        except Exception:
-            pass
-    pyautogui.moveTo(x, y, _pause=False)
+    with STATE_LOCK:
+        STATE["x"], STATE["y"], STATE["t"] = x, y, time.time()
+        if QZ is not None:
+            try:
+                if STATE["l"]:
+                    t, b = QZ.kCGEventLeftMouseDragged, QZ.kCGMouseButtonLeft
+                elif STATE["r"]:
+                    t, b = QZ.kCGEventRightMouseDragged, QZ.kCGMouseButtonRight
+                elif STATE["m"]:
+                    t, b = QZ.kCGEventOtherMouseDragged, QZ.kCGMouseButtonCenter
+                else:
+                    t, b = QZ.kCGEventMouseMoved, QZ.kCGMouseButtonLeft
+                qz_post(QZ.CGEventCreateMouseEvent(None, t, (x, y), b))
+                return
+            except Exception:
+                pass
+        pyautogui.moveTo(x, y, _pause=False)
 
 
 def cursor_pos():
+    # 最終手段で STATE を読む。呼び出し元が STATE_LOCK を持っていることがあるので
+    # RLock でも取り直さず、読むだけにとどめる(値がひとつ古くても位置がずれるだけ)
     """いまカーソルがある場所を、そのつど OS に聞く。
     自分で覚えた位置ではなく OS に聞くので、途中で実物のマウスを
     動かされても、次の相対移動でカーソルが飛ばない"""
@@ -193,37 +236,48 @@ def do_move_rel(dx, dy):
 
 def do_button(down, btn):
     # btn: 0=左, 1=中(版2から), 2=右
-    if QZ is not None:
-        try:
-            if btn == 2:
-                t = QZ.kCGEventRightMouseDown if down else QZ.kCGEventRightMouseUp
-                b = QZ.kCGMouseButtonRight
-                clicks = 1
-            elif btn == 1:
-                t = QZ.kCGEventOtherMouseDown if down else QZ.kCGEventOtherMouseUp
-                b = QZ.kCGMouseButtonCenter
-                clicks = 1
-            else:
-                t = QZ.kCGEventLeftMouseDown if down else QZ.kCGEventLeftMouseUp
-                b = QZ.kCGMouseButtonLeft
-                if down:
-                    now = time.time()
-                    if now - CLICK["t"] < 0.4:
-                        CLICK["n"] += 1
-                    else:
-                        CLICK["n"] = 1
-                    CLICK["t"] = now
-                clicks = max(1, CLICK["n"])
-            ev = QZ.CGEventCreateMouseEvent(None, t, (STATE["x"], STATE["y"]), b)
-            QZ.CGEventSetIntegerValueField(ev, QZ.kCGMouseEventClickState, clicks)
-            qz_post(ev)
-            STATE["r" if btn == 2 else "l"] = down
-            return
-        except Exception:
-            pass
-    fn = pyautogui.mouseDown if down else pyautogui.mouseUp
-    fn(button=("right" if btn == 2 else "middle" if btn == 1 else "left"), _pause=False)
-    STATE["r" if btn == 2 else "l"] = down
+    # 押す場所は覚えた座標ではなく、そのつど OS に聞いた実カーソル位置。
+    # ただし自分で動かした直後(FRESH_SEC)は OS への反映待ちで古い位置が
+    # 返りうるので、その間だけは直前に命じた位置を使う
+    px, py = cursor_pos()
+    key = "r" if btn == 2 else ("m" if btn == 1 else "l")
+    with STATE_LOCK:
+        if time.time() - STATE["t"] < FRESH_SEC:
+            px, py = STATE["x"], STATE["y"]
+        STATE["x"], STATE["y"] = px, py
+        clicks = 1
+        if key == "l":
+            if down:
+                now = time.time()
+                near = (abs(px - CLICK["x"]) <= DBL_PX
+                        and abs(py - CLICK["y"]) <= DBL_PX)
+                if near and now - CLICK["t"] < DBL_SEC:
+                    CLICK["n"] += 1
+                else:
+                    CLICK["n"] = 1
+                CLICK["t"], CLICK["x"], CLICK["y"] = now, px, py
+            clicks = max(1, CLICK["n"])
+        if QZ is not None:
+            try:
+                if btn == 2:
+                    t = QZ.kCGEventRightMouseDown if down else QZ.kCGEventRightMouseUp
+                    b = QZ.kCGMouseButtonRight
+                elif btn == 1:
+                    t = QZ.kCGEventOtherMouseDown if down else QZ.kCGEventOtherMouseUp
+                    b = QZ.kCGMouseButtonCenter
+                else:
+                    t = QZ.kCGEventLeftMouseDown if down else QZ.kCGEventLeftMouseUp
+                    b = QZ.kCGMouseButtonLeft
+                ev = QZ.CGEventCreateMouseEvent(None, t, (px, py), b)
+                QZ.CGEventSetIntegerValueField(ev, QZ.kCGMouseEventClickState, clicks)
+                qz_post(ev)
+                STATE[key] = down
+                return
+            except Exception:
+                pass
+        fn = pyautogui.mouseDown if down else pyautogui.mouseUp
+        fn(button=("right" if btn == 2 else "middle" if btn == 1 else "left"), _pause=False)
+        STATE[key] = down
 
 
 # ---- キーボード送信 ----
@@ -360,26 +414,48 @@ def do_txt(s):
         pass
 
 
+# 1便に合算された値で桁あふれさせないための上限(通常は数十で、届くことはない)
+SCROLL_MAX = 100000
+
+
 def do_scroll(d, h=0):
-    # d=縦, h=横(版3から)。横の正方向はOSごとに解釈が割れるため、
-    # 実機で逆だったら下の「int(h)」の符号を反転する(調整点)
+    # d=縦, h=横(版3から)。横の -3 は helper-windows.bat の HWHEEL(-$hv2 * 120)と
+    # 対になっている。**片方だけ符号を変えないこと**(左右がOSごとに食い違う)。
+    # Windows 側は実機で確認済み(2026-08-14)。Mac は未確認なので、Mac で逆だった
+    # ときは「両方の符号を反転する」か「index.html の送信側(3経路すべて)を反転する」
+    # のどちらかにすること
+    try:
+        dv = int(d)
+    except Exception:
+        dv = 0
+    try:
+        hh = int(h)
+    except Exception:
+        hh = 0
+    dv = max(-SCROLL_MAX, min(SCROLL_MAX, dv)) * 3
+    hh = max(-SCROLL_MAX, min(SCROLL_MAX, hh)) * -3
     if QZ is not None:
         try:
             ev = QZ.CGEventCreateScrollWheelEvent(
-                None, QZ.kCGScrollEventUnitLine, 2, int(d) * 3, int(h) * 3
+                None, QZ.kCGScrollEventUnitLine, 2, dv, hh
             )
             qz_post(ev)
             return
         except Exception:
             pass
-    if int(d):
-        pyautogui.scroll(int(d) * 3)
-    if int(h):
-        pyautogui.hscroll(int(h) * 3)
+    if dv:
+        pyautogui.scroll(dv)
+    if hh:
+        pyautogui.hscroll(hh)
 
 
 paired = None
 warned_origin = False  # 拒否の知らせは1回だけ(画面を埋めないため)
+
+
+def same_origin(a, b):
+    # 大文字小文字は区別しない(helper-windows.bat の -ne 比較と揃えるため)
+    return bool(a) and bool(b) and a.strip().lower() == b.strip().lower()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -418,14 +494,30 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
-    def _reply(self, code=200, body=b'{"ok":1}'):
+    def _reply(self, code=200, body=b'{"ok":1}', close=False):
         self.send_response(code)
         self._cors()
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if close:
+            # 本文を読み捨てられなかった接続は使い回させない
+            self.send_header("Connection", "close")
         self.end_headers()
         if body:
             self.wfile.write(body)
+
+    def _drain(self, n):
+        # 断る要求でも本文は読み捨てる。残すと使い回しの接続で次の要求が壊れる
+        left = n
+        try:
+            while left > 0:
+                chunk = self.rfile.read(min(left, 65536))
+                if not chunk:
+                    return False
+                left -= len(chunk)
+        except Exception:
+            return False
+        return True
 
     def do_OPTIONS(self):
         self._reply(204, b"")
@@ -436,7 +528,7 @@ class Handler(BaseHTTPRequestHandler):
             origin = self.headers.get("Origin")
             # ALLOW_ORIGIN を設定してあるときは、そのページ以外には
             # 版番号もモニター構成も返さない(返す必要のない情報のため)
-            if ALLOW_ORIGIN and origin != ALLOW_ORIGIN:
+            if ALLOW_ORIGIN and not same_origin(origin, ALLOW_ORIGIN):
                 if not warned_origin:
                     warned_origin = True
                     print("   拒否しました:", origin, "(許可したページではありません)")
@@ -445,26 +537,32 @@ class Handler(BaseHTTPRequestHandler):
             if paired is None and origin:
                 paired = origin
                 print("   接続されました:", origin)
+            refresh_monitors()
             self._reply(200, PING_BODY)
         else:
             self._reply(404, b'{"ok":0}')
 
     def do_POST(self):
         global paired
-        if self.path != "/input":
-            self._reply(404, b'{"ok":0}')
-            return
-        origin = self.headers.get("Origin")
-        if (paired and origin and origin != paired) or \
-           (ALLOW_ORIGIN and origin != ALLOW_ORIGIN):
-            self._reply(403, b'{"ok":0}')
-            return
         try:
             n = int(self.headers.get("Content-Length", 0) or 0)
         except ValueError:
             n = 0
-        if n > 262144:
-            self._reply(413, b'{"ok":0}')
+        origin = self.headers.get("Origin")
+        # Origin の無い要求は対の確認をすり抜けるので受け付けない
+        refuse = 0
+        if self.path != "/input":
+            refuse = 404
+        elif (not origin) or (paired and not same_origin(origin, paired)) or \
+             (ALLOW_ORIGIN and not same_origin(origin, ALLOW_ORIGIN)):
+            refuse = 403
+        elif n > 262144:
+            refuse = 413
+        if refuse:
+            # 断る相手に大きな本文を読まされないこと(04s)。256KBを超える申告は
+            # 中身を読まずに閉じる。読み捨てられたときだけ接続を使い回す
+            shut = True if n > 262144 else not self._drain(n)
+            self._reply(refuse, b'{"ok":0}', shut)
             return
         raw = self.rfile.read(n) if n > 0 else b"[]"
         try:
@@ -479,10 +577,13 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 t = e.get("t")
                 if t == "mv":
+                    # 一度だけ読んで使い回すこと。len() と添字で別の一覧を読むと、
+                    # 読み直しと重なったとき IndexError で1件だけ落ちる
+                    mons = MONITORS
                     si = int(e.get("s", 0) or 0)
-                    if si < 0 or si >= len(MONITORS):
+                    if si < 0 or si >= len(mons):
                         si = 0
-                    m = MONITORS[si]
+                    m = mons[si]
                     nx = max(0.0, min(1.0, float(e.get("x", 0))))
                     ny = max(0.0, min(1.0, float(e.get("y", 0))))
                     do_move(m["x"] + nx * (m["w"] - 1), m["y"] + ny * (m["h"] - 1))
@@ -526,12 +627,11 @@ class CappedServer(ThreadingHTTPServer):
         self._warned = False
 
     def process_request(self, request, client_address):
+        # 数を先に増やす。断る側も shutdown_request 経由で close_request が
+        # 呼ばれて減るため、増やさずに断つと数が合わず上限が効かなくなる
         with self._lock:
-            if self._live >= self.MAX_CONN:
-                over = True
-            else:
-                over = False
-                self._live += 1
+            self._live += 1
+            over = self._live > self.MAX_CONN
         if over:
             # 上限に達している間は、新しい接続をその場で閉じる。
             # 使用中の接続は時間切れ(30秒)で自然に空くので、
@@ -562,7 +662,7 @@ def main():
     print()
     print("  ================================================")
     print("   VR Desktop 操作ヘルパー (Mac)")
-    print(f"   ヘルパーの版: {HELPER_VER}")
+    print(f"   ヘルパーの版: {HELPER_VER}   (updated {HELPER_BUILD})")
     print("  ================================================")
     print("   操作を許可するページ: "
           + (ALLOW_ORIGIN if ALLOW_ORIGIN else "未設定(最初に話しかけたページ)"))
