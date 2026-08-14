@@ -160,15 +160,10 @@ video.preview{
 
 .ctl-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
 .ctl-table td{padding:6px 8px;border-top:1px solid var(--line);vertical-align:top}
-/* 左列は nowrap にしないこと(14b)。以前は nowrap で約212pxを占め、
-   iPhone幅(375px)では右列が77pxまで潰れて1行4文字ほどになっていた */
-.ctl-table td:first-child{color:var(--accent);font-weight:500;width:44%}
-@media (max-width:520px){
-  /* 狭い画面では2列を上下に積む(横に並べると両方潰れるため) */
-  .ctl-table td{display:block;width:auto;border-top:none;padding:2px 0}
-  .ctl-table tr{display:block;border-top:1px solid var(--line);padding:6px 0}
-  .ctl-table td:first-child{width:auto;padding-top:6px}
-}
+/* **左列を nowrap にしないこと(14b)**。以前は nowrap で約212pxを占め、
+   iPhone幅(375px)では右列が77pxまで潰れて1行4文字ほどになっていた。
+   列の割り振りはブラウザの自動計算に任せる */
+.ctl-table td:first-child{color:var(--accent);font-weight:500}
 .ctl-table td:last-child{color:var(--muted)}
 
 .screenrow{margin-top:16px;border-top:1px solid var(--line);padding-top:14px}
@@ -241,9 +236,12 @@ video.preview{
 .tv-tab.on{color:var(--ink);border-color:var(--accent);background:var(--accent-soft)}
 /* nowrap にしないこと(14b)。flexの自動最小幅が「全文の幅」(約457px)になって縮まず、
    スマホ幅では右端の「形式: H264」が画面外へ出て切れていた。
-   そこは黒画面(b)やカクつき(h)の切り分けで読めと案内している値 */
+   そこは黒画面(b)やカクつき(h)の切り分けで読めと案内している値。
+   **単独行へ落とすのは狭い画面だけにすること(14c)**。幅に関係なく
+   flex-basis:100% を当てると、広い画面でも上部バーが1段増えて映像が縦に潰れる */
 .tv-stats{font-size:11px;color:var(--muted);font-family:var(--font-disp);
-  line-height:1.5;min-width:0;flex:1 1 100%;word-break:break-word}
+  line-height:1.5;min-width:0;flex:0 1 auto;word-break:break-word}
+@media (max-width:640px){ .tv-stats{flex:1 1 100%} }
 .tv-stage{position:relative;flex:1;overflow:hidden;touch-action:none;background:#000}
 #tvVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
 .tv-touch{position:absolute;inset:0;touch-action:none}
@@ -1051,21 +1049,25 @@ function pcStopSendLoop(){
    「見立てで直さず、まず測る」(第7節(h)④)にならい、測る側だけを作ってある。
    表示・非表示は利用者の手動スイッチだけで決まる(12eと同じ設計)。アプリが触るのは
    「記録が1件でもあるか」だけ(記録ゼロのうちは欄もボタンも出さない=11bの教訓) */
+/* dull に文字列を渡すと「同じ種類が続いたら行を増やさず回数だけ数える」。
+   **まとめの合図には、毎回変わる値(経過ミリ秒など)を混ぜないこと(14c)**。
+   14b は msg 全文で照合していたため、文中の `1500ms / 1502ms` の違いだけで
+   毎回別物と判定され、まとめがまったく働いていなかった。
+   生存確認の失敗は最大12秒ごとに出るので、まとまらないと上限40行が
+   数分で一周し、いちばん採りたい「▼OFFになった」「✗操作が届いていません」が
+   押し出される(13cで実機の記録を1回取り逃している) */
 function pcDiagLog(msg, dull){
   var t = new Date();
   var hh = ('0' + t.getHours()).slice(-2), mm = ('0' + t.getMinutes()).slice(-2), ss = ('0' + t.getSeconds()).slice(-2);
   var line = hh + ':' + mm + ':' + ss + ' ' + msg;
-  /* **同じ内容が続くときは行を増やさず、回数だけ数えること(14b)**。
-     生存確認の失敗は最大12秒ごとに1行出るので、30行の上限だと約6分で一周し、
-     いちばん採りたい「▼OFFになった」「✗操作が届いていません」が真っ先に
-     押し出されていた(実機で1回取り逃している) */
-  if (dull && pc.diagLastDull === msg && pc.diag.length) {
+  var key = (typeof dull === 'string') ? dull : (dull ? msg : null);
+  if (key && pc.diagLastDull === key && pc.diag.length) {
     pc.diagDullN = (pc.diagDullN || 1) + 1;
     pc.diag[pc.diag.length - 1] = line + '  ×' + pc.diagDullN + '回';
     pcDiagRender();
     return;
   }
-  pc.diagLastDull = dull ? msg : null;
+  pc.diagLastDull = key;
   pc.diagDullN = 1;
   pc.diag.push(line);
   if (pc.diag.length > 40) pc.diag.shift();
@@ -1187,11 +1189,13 @@ async function pcPingHelper(){
        画面が見えていたかも控える(いまは ms の大きさから推測するしかなかった) */
     if (pc.everHelperOn) {
       var ff = pc.lastPingFail || {};
-      /* 第2引数の true は「同じ内容が続いたら1行にまとめる」印(14b) */
+      var seen = (typeof document.visibilityState === 'string' && document.visibilityState !== 'visible')
+        ? '見えていない' : '見えている';
+      /* まとめの合図は ms を外した「種類」だけで作ること(14c。理由は pcDiagLog のコメント) */
       pcDiagLog('生存確認が失敗: ' + (ff.name || '不明') + (ff.msg ? ': ' + ff.msg : '')
-        + '(' + (ff.ms != null ? ff.ms + 'ms' : 'ms不明') + '・画面は'
-        + (typeof document.visibilityState === 'string' && document.visibilityState !== 'visible'
-            ? '見えていない' : '見えている') + ')', true);
+        + '(' + (ff.ms != null ? ff.ms + 'ms' : 'ms不明') + '・' + pc.pingFails + '回連続・画面は'
+        + seen + ')',
+        'ping:' + (ff.name || '不明') + '/' + (ff.msg || '') + '/' + seen);
     }
     if (pc.pingFails < 2 && pc.helperOn) return;
   } else {
@@ -1413,8 +1417,12 @@ function pcOnDataInner(msg, conn){
     }
   } else if (msg.t === 'dn' || msg.t === 'up') {
     /* 中ボタン(b:1)は版2のヘルパーから。旧ヘルパーは b:1 を左と解釈して
-       誤クリックするため、版が足りなければここで黙って捨てる(安全側) */
-    if (msg.b === 1 && (pc.helperVer || 0) < 2) return;
+       誤クリックするため、版が足りなければ捨てる(安全側)。
+       **ただし「離す」には掛けないこと(14c)**。誤OFF中は pc.helperVer が0に戻るので、
+       ここで up まで捨てると相手PCの中ボタンが押されたまま残る
+       (実物のマウスを押すまで戻らない)。押していない相手の up は
+       下の conn._held の判定が落とすので、通しても誤クリックにはならない */
+    if (msg.t === 'dn' && msg.b === 1 && (pc.helperVer || 0) < 2) return;
     if (msg.t === 'dn') {
       /* 画面番号つき(タッチ)なら毎回その画面で判定。なし(XR)は直前の移動で
          更新済みの関門に従う。離す信号は絶対に落とさない */
@@ -1540,10 +1548,18 @@ async function pcFlushInput(){
       body: JSON.stringify(batch),
       signal: ctl.signal
     });
-    /* 記録するだけで、送信の作りは変えない(14a)。403は何度送っても403なので
-       差し戻すと永久ループになる。「見立てで直さず、まず測る」(第7節(h)④) */
     pcNoteInputResult(!!(r && r.ok),
       'HTTP ' + ((r && r.status) || '?') + '(ヘルパーに断られています。「操作を許可するページ」の設定を確認)');
+    /* **2xx以外でも「離す」だけは差し戻すこと(14c)**。便は既に待ち行列から
+       抜き取ってあるので、ここで捨てると相手PCのボタンが押されたまま残る
+       (実物のマウスを押すまで戻らない)。dn/mv/sc は差し戻さない: 403は
+       何度送っても403なので、全部戻すと永久ループになる。up だけなら
+       中身はごく小さく、ヘルパーが受け付けた瞬間に必ず解放が届く */
+    if (!(r && r.ok)) {
+      var keepUp = [];
+      for (var ui = 0; ui < batch.length; ui++) if (batch[ui].t === 'up') keepUp.push(batch[ui]);
+      if (keepUp.length) { pc.inputQueue = keepUp.concat(pc.inputQueue); pcTrimQueue(); }
+    }
   } catch (_e) {
     /* 送れなかった便は先頭へ戻す。捨てるとボタンを離す合図が失われ、
        押しっぱなしになることがある。順序も保たれる。
@@ -2498,7 +2514,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-14b';
+var APP_VER = '2026-08-14c';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2729,7 +2745,11 @@ function applyVolume(){
 function questResumeVideos(why){
   var n = 0;
   function wake(v, what){
-    if (!v || !v.paused) return;
+    /* **映像源の無い <video> を数えないこと(14c)**。#tvVideo はタッチで見るを
+       閉じている間 srcObject が null で常に paused なので、これを「止まっていた」と
+       数えると、異常が無くても2秒ごとに偽の行と NotSupportedError が
+       診断の記録(40行)に積まれ、本物の記録が押し出される */
+    if (!v || !v.srcObject || !v.paused) return;
     n++;
     v.play().catch(function(err){
       /* 握りつぶさないこと: 再開できない理由は切り分けに要る */
@@ -2739,11 +2759,17 @@ function questResumeVideos(why){
   qs.hosts.forEach(function(h){
     h.screens.forEach(function(sc){ wake(sc.video, '画面' + sc.slot); });
   });
-  /* **タッチで見るの映像と、全天球の背景の映像も見ること(14b)**。
-     タッチ表示は同じ流れを別の <video>(#tvVideo)で映しているので、
+  /* タッチ表示は同じ流れを別の <video>(#tvVideo)で映しているので、
      上のループだけでは「音の出る隠れた方だけ再開し、見えている方は固まったまま」になる */
   wake($('tvVideo'), 'タッチで見る');
-  if (xr.bg && xr.bg.panoVid) wake(xr.bg.panoVid, '全天球の背景');
+  /* 全天球の背景は srcObject ではなく src(objectURL)なので別に見る */
+  var pv = xr.bg && xr.bg.panoVid;
+  if (pv && pv.src && pv.paused) {
+    n++;
+    pv.play().catch(function(err){
+      questLog('映像を再開できません(全天球の背景): ' + ((err && err.name) || 'Error'));
+    });
+  }
   if (n) questLog('映像が止まっていたので再生し直しました(' + n + '枚・' + why + ')');
   return n;
 }
@@ -3292,6 +3318,9 @@ function tvClose(){
   }
   $('tvVideo').srcObject = null;
   tv.key = null; tv.host = null; tv.video = null;
+  /* 指の登録も畳むこと(14c)。指を置いたまま閉じられると tv.ptrs が残り、
+     次に開いたとき tvPtrCount() が2以上を返して1本指の操作が一切効かなくなる */
+  tv.ptrs = {}; tv.two = null; tv.twoKind = ''; tv.ignoreSingle = false; tv.tri = null;
 }
 
 APP.tvClose = tvClose;
@@ -3447,8 +3476,17 @@ function tvTriConfirm(){
 }
 
 function tvEndDrag(){
-  /* 離す合図は関門で止めないこと(14b。理由は tvMouseUp のコメント) */
+  /* 離す合図は関門で止めないこと(14b。理由は tvMouseUp のコメント)。
+     **タッチのドラッグ(tv.mode)だけでなく、マウスの押下(tv.m)も見ること(14c)**。
+     マウス経路は tv.m にしか状態を持たないので、tv.mode だけを見ていると
+     ボタンを押したまま閉じられたときに離す合図が送られず、押しっぱなしで残る */
   if (tv.mode === 'drag' && tv.host) hostSend(tv.host, { t: 'up', b: 0 });
+  if (tv.m && tv.host) {
+    var mb = tv.m.btn | 0;
+    if (mb !== 1 && mb !== 2) mb = 0;
+    hostSend(tv.host, { t: 'up', b: mb });
+  }
+  tv.m = null;
   if (tv.holdTimer) { clearTimeout(tv.holdTimer); tv.holdTimer = null; }
   tv.mode = '';
 }
@@ -3694,9 +3732,14 @@ function tvMove(e){
          動かない。以前は間隔の変化だけを先に見ていたため、2本指でなぞるときの
          自然な指の揺れ(9%/24pxはすぐ超える)がピンチと判定されていた。
          調整点: 18% / 40px / 12px(緩めるとピンチが出やすく、締めると出にくい) */
-      var dGap = Math.abs(d - tv.two.d);                          /* 指の間隔の変化 */
-      var dMid = Math.hypot(mx - tv.two.smx, my - tv.two.smy);    /* 2本の中点の移動 */
-      if (Math.abs(d / tv.two.d - 1) > 0.18 && dGap > 40 && dGap > dMid) tv.twoKind = 'pinch';
+      var dGap = Math.abs(d - tv.two.d);
+      var dMid = Math.hypot(mx - tv.two.smx, my - tv.two.smy);
+      /* **中点の移動と間隔の変化は、片方の指を止めたピンチでは dMid = dGap/2 に
+         なることに注意(14c)**。14b は `dGap > dMid` としていたため、親指を置いたまま
+         人差し指だけ動かす一般的なピンチが必ずスクロールへ倒れ、相手PCの
+         拡大縮小に一度も入れなかった。判定は「中点の移動が間隔の変化の
+         半分より明らかに小さいか」で見る。調整点: 18% / 40px / 0.75 / 12px */
+      if (Math.abs(d / tv.two.d - 1) > 0.18 && dGap > 40 && dMid < dGap * 0.75) tv.twoKind = 'pinch';
       else if (dMid > 12) tv.twoKind = 'scroll';
       if (tv.twoKind) tv.tri = null; /* ジェスチャ確定後の3本目は中クリックにしない */
     }
@@ -6043,9 +6086,9 @@ function xrMenuDraw(){
   btn('pad', W - 320, 20, 140, 48, 'PC追加', false, false, true);
   btn('rc', W - 474, 20, 140, 48, '整列', false, false, true);
 
-  /* ページ切り替え(14b)。1ページに詰め込んでいた頃は、背景が8種=3行になった時点で
-     下のラベル(画面の最大距離/幅)に文字が9pxめり込んでいた。**項目を足すときは
-     必ず下の要素との縦の間隔を確かめること**(検証 test_14b.js が機械的に見張っている) */
+  /* **項目を足すときは、下の要素との縦の間隔を必ず数えること**。
+     1ページに詰め込んでいた頃は、背景が8種=3行になった時点で
+     下のラベル(画面の最大距離/幅)に文字が9pxめり込んでいた(14bで発覚) */
   var page = (xr.menu.page === 'ctl') ? 'ctl' : 'basic';
   btn('pg:basic', 36, 78, 150, 46, '基本', page === 'basic');
   btn('pg:ctl', 194, 78, 150, 46, '操作', page === 'ctl');
@@ -6443,24 +6486,35 @@ function xrSyncMediaLayers(){
    包んで先へ進め、原因は診断欄へ出す(握りつぶさない=規約)。
    同じ内容は1回だけ書くこと(毎コマ出ると記録が溢れる) */
 function xrRender(){
+  /* **この関数の中身は全部 try で包むこと(14c)**。three の WebGLAnimation は
+     コールバックが戻ってから次のコマを予約するので、ここから例外が抜けると
+     VRの描画が二度と再開しない。14b は映像の点検を try の外に置いており、
+     その保険が守るはずのものを自分で外していた */
   try {
     xrRenderInner();
   } catch (e) {
     var msg = ((e && e.name) || 'Error') + ': ' + ((e && e.message) || '');
     if (xr.lastRenderErr !== msg) {
       xr.lastRenderErr = msg;
-      /* 「描画は続けます」とは書かないこと(14b)。render() は xrRenderInner の最後に
+      /* 「描画は続けます」とは書かないこと。render() は xrRenderInner の最後に
          あるので、その手前で例外が出たコマは1枚も描かれていない。
          この印は xrEnter で毎回消すこと(消さないと2回目以降のVRで沈黙する) */
       questLog('VRの描画で例外が出ました(このコマは描けていません。次のコマから復帰を試みます): ' + msg);
     }
   }
-  /* VR中はページの可視イベントが来ないことがあるので、ここでも様子を見る。
-     描画が例外で止まっていても映像の点検は続けたいので、try の外に置く */
-  var rnow = performance.now();
-  if (rnow - (xr.resumeAt || 0) >= 2000) {
-    xr.resumeAt = rnow;
-    questResumeVideos('VR中の点検');
+  /* VR中はページの可視イベントが来ないことがあるので、ここでも様子を見る */
+  try {
+    var rnow = performance.now();
+    if (rnow - (xr.resumeAt || 0) >= 2000) {
+      xr.resumeAt = rnow;
+      questResumeVideos('VR中の点検');
+    }
+  } catch (e2) {
+    var m2 = ((e2 && e2.name) || 'Error') + ': ' + ((e2 && e2.message) || '');
+    if (xr.lastResumeErr !== m2) {
+      xr.lastResumeErr = m2;
+      questLog('映像の点検で例外が出ました: ' + m2);
+    }
   }
 }
 
@@ -6604,6 +6658,11 @@ function bootApp(){
 
   window.addEventListener('beforeunload', function(){
     if (pc.screens.length) pcStop();
+    /* **見る側も畳むこと(14c)**。ドラッグ中にタブを閉じると、押している合図だけが
+       相手PCに残って常時ドラッグ状態になる(実物のマウスを押すまで戻らない)。
+       DataChannel は同期送信なので、この時点なら間に合うことが多い */
+    try { xrReleaseAllButtons(); } catch (_e) {}
+    try { tvEndDrag(); } catch (_e2) {}
   });
 
   setView('viewHome'); /* 右上の⚙の初期状態(ホームでは非表示)も揃える */
