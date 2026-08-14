@@ -26,7 +26,7 @@ $helperVer = 3
 # Build date. Shown at startup so you can confirm the file was replaced.
 # Bump this whenever this file changes (the version number above only
 # changes when the agreement with the page changes).
-$helperBuild = '2026-08-08f'
+$helperBuild = '2026-08-14'
 
 # ---- Which page may control this PC (2026-08-08e) ----
 # The helper can move the mouse and type, so whoever it pairs with
@@ -324,12 +324,13 @@ function Pump-Request($cn) {
                             }
                             'sc' {
                                 # d = vertical, h = horizontal (helper v3+).
-                                # If horizontal feels reversed on a real PC,
-                                # flip the sign of $h below (tuning point).
+                                # The minus on $hv2 was confirmed on a real PC
+                                # (2026-08-14): without it, pushing the stick
+                                # right scrolled left. Tuning point: this sign.
                                 $dv = 0; try { $dv = [int]$e.d } catch { }
                                 $hv2 = 0; try { $hv2 = [int]$e.h } catch { }
                                 if ($dv -ne 0) { [VRMouse]::mouse_event([VRMouse]::WHEEL, 0, 0, $dv * 120, 0) }
-                                if ($hv2 -ne 0) { [VRMouse]::mouse_event([VRMouse]::HWHEEL, 0, 0, $hv2 * 120, 0) }
+                                if ($hv2 -ne 0) { [VRMouse]::mouse_event([VRMouse]::HWHEEL, 0, 0, -$hv2 * 120, 0) }
                             }
                             'key' {
                                 $k = [string]$e.k
