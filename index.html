@@ -2645,7 +2645,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-15f';
+var APP_VER = '2026-08-15g';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2729,6 +2729,7 @@ function loadS(){
   /* 湾曲のくっきり合成(15b)。**既定はOFF**: 実機で描かれるかがまだ未確認で、
      描かれないと窓だけが残って真っ黒に見えるため(第10節) */
   s.cylLayer = (s.cylLayer === true);
+  delete s.fovea; /* 15aで撤去。古い保存値を持ち越さない */
   s.aa = (s.aa === false) ? false : true; /* ふちのギザギザ取り(4サンプルのMSAA)。切ると描画が軽くなる */
   s.lowLat = (s.lowLat !== false); /* 低遅延モード(操作の機敏さ優先): 受信の溜めを最小に希望。初期ON */
   s.stick = (s.stick === 'right') ? 'right'
@@ -3082,7 +3083,8 @@ function renderSettings(){
   /* 画質タブは共有する側にも出る唯一のタブ。**効くのは画質プリセットだけ**なので、
      残りは箱ごと隠す(2026-08-15e。以前は4項目が効かないまま並んでいた) */
   show($('picCodecBox'), setRole === 'q');
-  show($('picVrOnly'), setRole === 'q');
+  /* VRの描画にしか効かない項目は、**VRに入れない見る側(iPad・スマホ)でも隠すこと**(15g) */
+  show($('picVrOnly'), setRole === 'q' && !!qs.xrOk);
   show($('picPcNote'), setRole !== 'q');
 
   syncSetControls();
@@ -4811,15 +4813,12 @@ APP.xrAnisoChanged = function(){
    いま出ている湾曲のレイヤーを一度外すだけでよい(次の同期が判定し直す) */
 APP.xrCylChanged = function(){
   if (!xr.built || !xr.mediaLayers) return;
-  var n = 0;
+  /* 組み直しは xrDropScreenLayer の中で行う(15g) */
   for (var i = xr.mediaLayers.length - 1; i >= 0; i--) {
-    if (xr.mediaLayers[i].cyl) { xrDropScreenLayer(xr.mediaLayers[i].s); n++; }
+    if (xr.mediaLayers[i].cyl) xrDropScreenLayer(xr.mediaLayers[i].s);
   }
   xr.cylErrLogged = false;
   xr.screens.forEach(function(sc){ sc.cylGaveUp = false; }); /* 設定を入れ直したら諦めも取り消す */
-  /* **外したら必ず組み直すこと(15c)**: 組み直さないと、まだ合成に使われている
-     レイヤーを2コマ後に壊してVRごと落ちる */
-  if (n) xrPanoLayerSync();
 };
 
 APP.xrSync = function(){ if (xr.built) xrSyncScreens(); };
@@ -5297,7 +5296,7 @@ async function xrEnter(){
     /* 湾曲の状態は必ず持ち越さないこと(15c)。three はセッションの終わりに
        XRWebGLBinding を捨てるので、glOk を残すと死んだ binding を指したままになる */
     xr.glOk = false; xr.glBinding = null; xr.cylErrLogged = false;
-    xr.cylFboSrc = null; xr.cylFboDst = null;
+    xr.cylFboSrc = null; xr.cylFboDst = null; /* GL文脈ごと作り直されるので、ここは捨てるだけでよい */
     xr.screens.forEach(function(sc){ sc.cylGaveUp = false; });
     xr.lastRenderErr = null; /* 前のセッションの記録を持ち越さない(14b。持ち越すと同じ例外が二度と記録されない) */
     xr.fps = 0; xr.frameCount = 0; xr.fpsAt = 0; xr.hudFps = undefined; xr.hudLayN = -1; xr.hudLayOk = -1; /* 計測を初期化 */
@@ -5334,12 +5333,22 @@ function xrOnSessionEnd(){
   if (xr.mediaLayers) {
     xr.mediaLayers.forEach(function(e){
       try { e.layer.destroy(); } catch (_e) {}
+      /* 円柱に持たせた自前のテクスチャも返す(15g)。GL文脈が残る機器では、
+         返さないとVRの出入りのたびにGPUの持ち物が増える */
+      if (e.srcTex && xr.renderer) {
+        try { xr.renderer.getContext().deleteTexture(e.srcTex); } catch (_e2) {}
+        e.srcTex = null;
+      }
       if (e.s.mesh && xrIsHole(e.s.mesh.material) && xr.screens.indexOf(e.s) >= 0) {
         e.s.mesh.material = e.s.mat; /* 既に消えた画面は材質もテクスチャも破棄済みなので触らない */
       }
     });
     xr.mediaLayers = [];
   }
+  /* 湾曲の状態はセッションをまたいで持ち越さない(15c/15g) */
+  xr.glOk = false; xr.glBinding = null; xr.cylErrLogged = false;
+  xr.cylFboSrc = null; xr.cylFboDst = null;
+  if (xr.screens) xr.screens.forEach(function(sc){ sc.cylGaveUp = false; });
   if (xr.mediaTrash) {
     xr.mediaTrash.forEach(function(tr){ try { tr.layer.destroy(); } catch (_e) {} });
     xr.mediaTrash = [];
@@ -6726,7 +6735,7 @@ APP.xrLimitsChanged = function(){
 /* ---------- 毎フレーム ---------- */
 /* ---- Media Layers の同期(毎フレーム1回) ----
    平面の画面を合成器のQuadレイヤーで直接描く。三段構え:
-   1) 望まれる集合の計算(設定・対応・平面・映像準備済み・明るさ未調整・上限内)
+   1) 望まれる集合の計算(設定・対応・映像準備済み・上限内。湾曲は15b、明るさは15fで条件から外れた)
    2) 集合の出入りがあったときだけ layers 配列を組み直す(奥→手前、projectionが最前面)
    3) 位置・寸法は変化したレイヤーだけ更新(署名比較)
    調整点: 実機で寸法が半分/2倍に見えたら width/height を2倍/半分に。
@@ -6768,7 +6777,6 @@ function xrApplyDim(s){
 }
 
 function xrScreenLayerWanted(s){
-  /* 明るさを下げた画面は従来描画(レイヤーに明るさ調整が無い) */
   if (S.renderMode === 'classic' || !s.mesh || !s.video) return false;
   /* **明るさを下げた画面も対象にすること(15f)**。暗くするのは穴あけ材質の
      不透明度で行うので、合成レイヤーのままで従来描画と同じ見え方になる */
@@ -6789,13 +6797,26 @@ function xrIsCyl(s){ return !!s.curved; }
    破棄は即座にせず捨て待ち箱へ((d)③。その瞬間の合成にまだ使われている) */
 function xrDropScreenLayer(s){
   if (!xr.mediaLayers) return;
+  var n = 0;
   for (var i = xr.mediaLayers.length - 1; i >= 0; i--) {
     if (xr.mediaLayers[i].s !== s) continue;
     xr.mediaTrash = xr.mediaTrash || [];
     xr.mediaTrash.push({ layer: xr.mediaLayers[i].layer, frames: 0 });
     if (s.mesh && xrIsHole(s.mesh.material)) s.mesh.material = s.mat;
+    /* 円柱に持たせた自前のテクスチャは、ここで返すこと(15g)。
+       返さないと画面の付け外しのたびにGPUの持ち物が増える */
+    if (xr.mediaLayers[i].srcTex && xr.renderer) {
+      try { xr.renderer.getContext().deleteTexture(xr.mediaLayers[i].srcTex); } catch (_e) {}
+      xr.mediaLayers[i].srcTex = null;
+    }
     xr.mediaLayers.splice(i, 1);
+    n++;
   }
+  /* **外したら必ずレイヤー一覧を組み直すこと(15g)**。組み直さないと、合成器の一覧に
+     載ったままのレイヤーを捨て待ち箱が2コマ後に壊し、VRごと落ちる。
+     呼び出し元が6箇所あるので、**係の中で行う**(呼ぶ側に任せると必ず抜ける。
+     15cで実際に2箇所抜けていた) */
+  if (n) xrPanoLayerSync();
 }
 /* 描画層を three 自身の入口から取る。`session.renderState` を直接読むと、
    WebXRの決まりで「次のフレームまで反映されない」ため、VR開始直後は空で、
@@ -6886,10 +6907,14 @@ function xrSyncMediaLayers(){
          先に開けると、流し込みに失敗したときに真っ黒の窓だけが残る
          (第10節で起きたのがこれ) */
       if (!cyl) s.mesh.material = xrHoleMat(s.dim);
+      /* **数える欄は必ずここで0にすること(15g)**。`++e.subFails` は undefined から
+         始めると NaN になり、`NaN > 120` が永久に偽=「諦めて従来描画へ戻す」が
+         一度も働かない。作った直後の数コマは必ず失敗する作りなので、
+         どの機器でもこの経路を通る */
       xr.mediaLayers.push({
         s: s, layer: layer, sig: '', cyl: cyl,
         px: cyl ? (s.video.videoWidth + 'x' + s.video.videoHeight) : '',
-        drew: false, fails: 0
+        drew: false, subFails: 0, blitFails: 0
       });
       changed = true;
     } catch (e) {
@@ -7069,9 +7094,8 @@ function xrCylDraw(){
     try { xr.renderer.setRenderTarget(prevRT); } catch (_e6) {}
   }
   /* 外すのは最後にまとめて(途中で外すと上の走査がずれる) */
+  /* 組み直しは xrDropScreenLayer の中で行う(15g。呼び出し元が6箇所あり、任せると必ず抜ける) */
   for (var d = 0; d < drops.length; d++) xrDropScreenLayer(drops[d]);
-  if (drops.length) xrPanoLayerSync(); /* **外したら必ず組み直すこと**: 組み直さないまま
-                                          捨てると、まだ合成に使われているレイヤーを壊してVRごと落ちる */
 }
 
 /* 描画ループの保険(14a)。three の WebGLAnimation は**次のコマの予約を
