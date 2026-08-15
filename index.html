@@ -2645,7 +2645,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-15e';
+var APP_VER = '2026-08-15f';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -5051,7 +5051,8 @@ function xrBarActivate(s, idx){
     }
   } else if (idx === 4) {
     s.dim = (s.dim > 0.85) ? 0.7 : (s.dim > 0.55 ? 0.4 : 1);
-    s.mat.color.setScalar(s.dim);
+    s.mat.color.setScalar(s.dim);          /* 従来描画のとき */
+    xrApplyDim(s);                         /* 合成レイヤーのとき(15f) */
   }
   s.barSig = '';
 }
@@ -5333,7 +5334,7 @@ function xrOnSessionEnd(){
   if (xr.mediaLayers) {
     xr.mediaLayers.forEach(function(e){
       try { e.layer.destroy(); } catch (_e) {}
-      if (e.s.mesh && e.s.mesh.material === xr.holeMat && xr.screens.indexOf(e.s) >= 0) {
+      if (e.s.mesh && xrIsHole(e.s.mesh.material) && xr.screens.indexOf(e.s) >= 0) {
         e.s.mesh.material = e.s.mat; /* 既に消えた画面は材質もテクスチャも破棄済みなので触らない */
       }
     });
@@ -6696,6 +6697,7 @@ function xrApplyLayoutSlot(sl){
     s.wScale = clamp(+e.w || 1, 0.35, 6);
     s.dim = clamp(+e.dm || 1, 0.2, 1);
     s.mat.color.setScalar(s.dim);
+    xrApplyDim(s);
     s.custom = !!e.c;
     if (s.custom && e.p) {
       s.mesh.position.copy(xr.anchorPos)
@@ -6734,10 +6736,43 @@ var MEDIA_MAX = 14; /* Questのレイヤー上限(16)からprojection分を引�
    Quest上で一度も描かれなかった(渡し方の3通りをすべて潰したうえでの結論。
    詳細は引き継ぎ書)。**再挑戦するなら XRMediaBinding ではなく
    XRWebGLBinding.createCylinderLayer に自前で描き込む方式**しか残っていない */
+/* 穴あけ材質: 背景に「窓」を開けて、奥にある合成レイヤーを見せる。
+   メッシュ自体は残すので、当たり判定・つかみ・バーは無改修で動く。
+   **明るさごとに1枚ずつ持つこと(15f)**。合成器は projection を最後に
+   source-over で重ねる = 出力 = proj.rgb + 下 ×(1 − proj.a)。
+   rgb を0のままにして a を「1 − 明るさ」にすると 出力 = 下 × 明るさ となり、
+   従来描画の色掛け(mat.color.setScalar)とまったく同じ見え方になる。
+   a=0(=明るさ1.0)が、従来からある素通しの窓。
+   **`opacity` 属性(XRCompositionLayer)は使わないこと**: あれは背景と混ざるので、
+   明るい背景やパススルーでは「暗くなる」ではなく「透ける」になる */
+function xrHoleMat(dim){
+  var d = Math.max(0, Math.min(1, (typeof dim === 'number') ? dim : 1));
+  var key = String(Math.round(d * 100));
+  xr.holeMats = xr.holeMats || {};
+  if (!xr.holeMats[key]) {
+    var m = new THREE.MeshBasicMaterial({
+      color: 0x000000, opacity: 1 - d, transparent: true,
+      blending: THREE.NoBlending, side: THREE.DoubleSide, fog: false
+    });
+    m.userData.hole = true;
+    xr.holeMats[key] = m;
+  }
+  return xr.holeMats[key];
+}
+function xrIsHole(m){ return !!(m && m.userData && m.userData.hole); }
+
+/* 明るさを変えたとき、合成レイヤーで出している画面の窓も付け替える(15f)。
+   従来描画のときは s.mat の色掛けが効くので、ここでは何もしない */
+function xrApplyDim(s){
+  if (s && s.mesh && xrIsHole(s.mesh.material)) s.mesh.material = xrHoleMat(s.dim);
+}
+
 function xrScreenLayerWanted(s){
   /* 明るさを下げた画面は従来描画(レイヤーに明るさ調整が無い) */
   if (S.renderMode === 'classic' || !s.mesh || !s.video) return false;
-  if (s.video.readyState < 2 || s.dim < 0.999) return false;
+  /* **明るさを下げた画面も対象にすること(15f)**。暗くするのは穴あけ材質の
+     不透明度で行うので、合成レイヤーのままで従来描画と同じ見え方になる */
+  if (s.video.readyState < 2) return false;
   if (!s.curved) return true;
   /* 湾曲は XRWebGLBinding の円柱レイヤーで出す(15b)。
      **XRMediaBinding の円柱は使わないこと**: 生成はできるが Quest では描画されない
@@ -6758,7 +6793,7 @@ function xrDropScreenLayer(s){
     if (xr.mediaLayers[i].s !== s) continue;
     xr.mediaTrash = xr.mediaTrash || [];
     xr.mediaTrash.push({ layer: xr.mediaLayers[i].layer, frames: 0 });
-    if (s.mesh && s.mesh.material === xr.holeMat) s.mesh.material = s.mat;
+    if (s.mesh && xrIsHole(s.mesh.material)) s.mesh.material = s.mat;
     xr.mediaLayers.splice(i, 1);
   }
 }
@@ -6816,7 +6851,7 @@ function xrSyncMediaLayers(){
     if (want.indexOf(e.s) < 0) {
       xr.mediaTrash = xr.mediaTrash || [];
       xr.mediaTrash.push({ layer: e.layer, frames: 0 });
-      if (e.s.mesh && e.s.mesh.material === xr.holeMat && xr.screens.indexOf(e.s) >= 0) {
+      if (e.s.mesh && xrIsHole(e.s.mesh.material) && xr.screens.indexOf(e.s) >= 0) {
         e.s.mesh.material = e.s.mat; /* 既に消えた画面は材質もテクスチャも破棄済みなので触らない */
       }
       xr.mediaLayers.splice(j, 1);
@@ -6847,18 +6882,10 @@ function xrSyncMediaLayers(){
           space: xr.renderer.xr.getReferenceSpace(), width: 1, height: 1
         });
       }
-      if (!xr.holeMat) {
-        /* 穴あけ材質: RGBA(0,0,0,0)を直書きして、背景に「窓」を開ける。
-           メッシュ自体は残すので、当たり判定・つかみ・バーは無改修で動く */
-        xr.holeMat = new THREE.MeshBasicMaterial({
-          color: 0x000000, opacity: 0, transparent: true,
-          blending: THREE.NoBlending, side: THREE.DoubleSide, fog: false
-        });
-      }
       /* **円柱は、映像を1コマでも流し込めるまで穴を開けないこと(15b)**。
          先に開けると、流し込みに失敗したときに真っ黒の窓だけが残る
          (第10節で起きたのがこれ) */
-      if (!cyl) s.mesh.material = xr.holeMat;
+      if (!cyl) s.mesh.material = xrHoleMat(s.dim);
       xr.mediaLayers.push({
         s: s, layer: layer, sig: '', cyl: cyl,
         px: cyl ? (s.video.videoWidth + 'x' + s.video.videoHeight) : '',
@@ -7015,7 +7042,7 @@ function xrCylDraw(){
       if (!e.drew) {
         /* ここで初めて窓を開ける。**先に開けないこと**(開けてから失敗すると真っ黒が残る) */
         e.drew = true;
-        if (e.s.mesh && xr.holeMat) e.s.mesh.material = xr.holeMat;
+        if (e.s.mesh) e.s.mesh.material = xrHoleMat(e.s.dim);
         xr.hudStale = true; /* 操作ガイドの「湾曲◯/◯枚」を描き直させる */
         questLog('湾曲のくっきり合成が働いています(画面' + e.s.slot + '・' + px + ')');
       }
