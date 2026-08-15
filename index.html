@@ -518,7 +518,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
           <option value="off">使わない(コントローラーだけ)</option>
         </select>
       </div>
-      <p class="set-note">コントローラーを置いて手をかざすと、指さしの向きにレーザーが出て、親指と人差し指で<b>つまむとクリック</b>になります。意図せず反応して邪魔なときは「使わない」にしてください。<b>その場で反映されます</b>(VRに入り直す必要はありません)。「使わない」にしても<b>コントローラーは今までどおり</b>使えます。</p>
+      <p class="set-note">コントローラーを置いて手をかざすと、指さしの向きにレーザーが出て、親指と人差し指で<b>つまむとクリック</b>になります。意図せず反応して邪魔なときは「使わない」にしてください。<b>その場で反映されます</b>(VRに入り直す必要はありません)。「使わない」にしても<b>コントローラーは今までどおり</b>使えます。<br>⚠️ <b>切るのは、コントローラーが手元にあるときだけにしてください。</b>素手だけでVRに入っている状態で切ると、レーザーもつまむ操作も止まるため、<b>VRの中から元に戻せなくなります</b>(開いたままの設定メニューも閉じられません)。そうなったときは、<b>コントローラーを持ち上げる</b>か、<b>いったんVRを終わってこの画面から「使う」に戻して</b>ください。</p>
       <div class="set-row">
         <label>ポインターの安定化(手ぶれ補正)</label>
         <input type="checkbox" id="chkPtrStab" style="width:18px;height:18px;accent-color:var(--accent)">
@@ -2782,7 +2782,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-15p';
+var APP_VER = '2026-08-15q';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2923,10 +2923,12 @@ var QUALITY = {
              name: 'くっきり', desc: '文字を最優先。等倍のまま、動いてもぼかさない' },
   balance: { hint: 'detail', br: 15000000, deg: 'balanced', fps: 60, scale: 1,
              name: 'バランス(標準)', desc: '等倍のまま。混んだら少しずつ譲る。まずはこれ' },
-  /* 送る解像度を 1/1.333 = 1920×1200 にする。画素数が44%減るので、
+  /* **固定の解像度ではなく倍率(15q)**。縦横それぞれ 1/1.3333 = 0.75倍に縮めるので、
+     仕上がりは共有元の画面しだい(2560×1600なら約1920×1200、1920×1080なら約1440×810)。
+     **説明に決め打ちの解像度を書かないこと**。画素数が44%減るので、
      圧縮の遅れ(実測24ms)と符号化の負荷が下がり、動きに使えるビットが増える */
   smooth:  { hint: 'motion', br: 15000000, deg: 'maintain-framerate', fps: 60, scale: 1.3333,
-             name: 'なめらか', desc: '動きを最優先。1920×1200へ落として動画やゲーム向き' },
+             name: 'なめらか', desc: '動きを最優先。送る大きさを縦横3/4に縮めて動画やゲーム向き' },
   /* 「おまかせ」と名乗る以上、degradationPreference も明示して balanced にする(N19)。
      以前は空にしていたが、W3C仕様では contentHint が detail だと
      暗黙に maintain-resolution になり、名前と実態が食い違っていた */
@@ -5011,6 +5013,14 @@ APP.xrHandChanged = function(){
   ['right', 'left'].forEach(function(hand){
     if (xr.grab[hand] && xrIsBareHand(hand)) xr.grab[hand] = null;
   });
+  /* **「いまの手」が素手のままだと、OFFの間ずっと何もできなくなる(15q)**。
+     xr.activeHand が動くのはコントローラーのボタンを押したときだけ(xrPollInput)で、
+     素手側を指したまま切ると xrActiveHover が永久にnullを返してスティック調整が死に、
+     xrUpdatePointerFor の isActive も偽になってコントローラー側のレーザーまで消える。
+     コントローラーのある側へ移すこと */
+  var ah = (xr.activeHand === 'left') ? 'left' : 'right';
+  var oth = (ah === 'right') ? 'left' : 'right';
+  if (xrIsBareHand(ah) && xrControllerFor(oth) && !xrIsBareHand(oth)) xr.activeHand = oth;
   if (xr.menu.open) xrMenuDraw();
 };
 
