@@ -367,17 +367,17 @@ footer.site a{color:var(--muted);text-decoration:underline}
     <div class="panel">
       <div class="statusrow"><span class="dot dot-off" id="dotShare"></span><span class="lbl">画面の共有</span></div>
       <div class="statusrow"><span class="dot dot-off" id="dotQuest"></span><span class="lbl" id="lblQuest">見る側の接続待ち</span></div>
-      <div class="statusrow"><span class="dot dot-off" id="dotHelper"></span><span class="lbl" id="helperLabel">操作モード OFF(見るだけ)</span></div>
+      <div class="statusrow"><span class="dot dot-off" id="dotHelper"></span><span class="lbl" id="helperLabel">操作 OFF(見るだけ)</span></div>
       <div class="notice-warn hidden" id="helperDiag"></div>
-      <p class="hidden" style="margin:6px 0 0" id="pcDiagBar"><button class="btn-ghost btn-sm" id="pcDiagToggle">操作モードの記録を隠す</button></p>
+      <p class="hidden" style="margin:6px 0 0" id="pcDiagBar"><button class="btn-ghost btn-sm" id="pcDiagToggle">操作の記録を隠す</button></p>
       <div class="diag hidden" id="pcDiag"><pre id="pcDiagText" style="margin:0;white-space:pre-wrap;font:inherit"></pre><button class="btn-ghost btn-sm" id="pcDiagCopy" style="margin-top:6px">記録をコピー</button></div>
       <div class="hint" id="helperHint">
-        VRやスマホからパソコンを操作したいときは、<b>操作ヘルパー</b>をこのパソコンで起動しておきます。<br>
+        VRやスマホからパソコンを操作したいときは、<b>操作用アプリ</b>をこのパソコンで起動しておきます。<br>
         Windows: <a href="helper-windows.bat" download>helper-windows.bat</a> / Mac: <a href="helper-mac.py" download>helper-mac.py</a><br>
         はじめての起動手順は<a href="guide.html#helper" target="_blank" rel="noopener">使い方ガイド</a>にあります。起動すると、この欄が自動でONに変わります。
       </div>
       <div id="pcScreens" style="margin-top:16px"></div>
-      <p style="margin-top:14px"><button class="btn-ghost" id="btnAddScreen">画面を追加(別のモニターを共有)</button></p>
+      <p style="margin-top:14px"><button class="btn-ghost" id="btnAddScreen">別の画面を共有する</button></p>
       <p class="msg-err" id="addErr"></p>
       <p style="display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn-ghost" id="btnStop">共有をすべてやめる</button>
@@ -422,27 +422,27 @@ footer.site a{color:var(--muted);text-decoration:underline}
       <div id="qAddBox" class="addbox hidden">
         <input class="code-input" id="codeInput2" inputmode="numeric" maxlength="6" placeholder="000000">
         <p class="msg-err" id="qAddErr"></p>
-        <button class="btn btn-wide" id="btnConnect2">このコードに接続する</button>
+        <button class="btn btn-wide" id="btnConnect2">接続する</button>
       </div>
       <button class="btn btn-wide" id="btnEnterVR" style="margin-top:14px">VRで見る</button>
-      <button class="btn btn-ghost btn-wide" id="btnTouch" style="margin-top:10px">タッチで見る(スマホ/タブレット)</button>
+      <button class="btn btn-ghost btn-wide" id="btnTouch" style="margin-top:10px">この画面で見る</button>
       <p class="msg-info hidden" id="qMuteNote" style="margin-top:10px">音はミュートで開始しました。映像を一度タップすると音が出ます。</p>
       <div id="qVideos"></div>
     </div>
     <div class="panel" id="vrCtlPanel">
       <h2>VRの中での操作(標準設定)</h2>
       <table class="ctl-table">
-        <tr><td>レーザー(両手)</td><td>当てた画面のカーソルを動かす(操作モードON時)</td></tr>
+        <tr><td>レーザー(両手)</td><td>当てた画面のカーソルを動かす(操作ON時)</td></tr>
         <tr><td>トリガー(左右) / 右Aボタン(下)</td><td>クリック。すぐ動かす=ドラッグ、長押しして動かす=スクロール</td></tr>
         <tr><td>右手 Bボタン(上)</td><td>右クリック</td></tr>
         <tr><td>グリップ(両手)</td><td>指した画面をつかんで移動(高さ変更もこれで。設定・ガイドのパネルもつかめます)</td></tr>
         <tr><td>右手 スティック上下</td><td>スクロール</td></tr>
         <tr><td>左手 スティック</td><td>上下で指した画面の遠近、左右で大きさ</td></tr>
-        <tr><td>左スティック押し込み</td><td>ポインター(レーザー)の表示/非表示</td></tr>
-        <tr><td>右スティック押し込み</td><td>キー送信パレット(Enter・コピー・貼り付けなど)</td></tr>
-        <tr><td>手(ハンドトラッキング)</td><td>指さしでレーザー、つまむ(ピンチ)=クリック。押し方の使い分けも同じ</td></tr>
-        <tr><td>Bluetoothキーボード</td><td>Questにペアリングしたキーボードで、そのままPCに入力</td></tr>
-        <tr><td>左手 X(下) / Y(上)</td><td>設定メニュー / 画面を整列して正面に呼び直す</td></tr>
+        <tr><td>左スティック押し込み</td><td>レーザーの表示/非表示</td></tr>
+        <tr><td>右スティック押し込み</td><td>よく使うキー(Enter・コピー・貼り付けなど)</td></tr>
+        <tr><td>手をかざす操作</td><td>指さしでレーザー、つまむ(ピンチ)=クリック。押し方の使い分けも同じ</td></tr>
+        <tr><td>Bluetoothキーボード</td><td>Questにペアリングしたキーボードで、そのままパソコンに入力</td></tr>
+        <tr><td>左手 X(下) / Y(上)</td><td>設定メニュー / 画面を正面に戻す</td></tr>
         <tr><td>何もない所をクリック</td><td>操作ガイドの表示/非表示</td></tr>
         <tr><td>画面のすぐ上にレーザー</td><td>「平面/湾曲・ミュート・固定・追従・明るさ」のボタンが現れる</td></tr>
       </table>
@@ -465,7 +465,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
     <button class="btn-ghost btn-sm" id="tvClose">閉じる</button>
   </div>
   <div class="tv-keybar hidden" id="tvKeybar">
-    <input id="tvText" placeholder="文字を入力してPCへ送る(日本語OK)">
+    <input id="tvText" placeholder="文字を入力してパソコンへ送る(日本語OK)">
     <button class="btn-ghost btn-sm" id="tvSend">送信</button>
     <button class="btn-ghost btn-sm" data-k="enter">Enter</button>
     <button class="btn-ghost btn-sm" data-k="backspace">⌫</button>
@@ -473,13 +473,13 @@ footer.site a{color:var(--muted);text-decoration:underline}
     <button class="btn-ghost btn-sm" data-k="tab">Tab</button>
     <button class="btn-ghost btn-sm" data-k="copy">コピー</button>
     <button class="btn-ghost btn-sm" data-k="paste">貼り付け</button>
-    <button class="btn-ghost btn-sm" data-k="apptab">切替</button>
+    <button class="btn-ghost btn-sm" data-k="apptab">ウィンドウ切替</button>
   </div>
   <div class="tv-stage" id="tvStage">
     <div id="tvRipple"></div>
     <video id="tvVideo" autoplay playsinline muted></video>
     <div class="tv-touch" id="tvTouch"></div>
-    <div class="tv-note hidden" id="tvNote">操作モード OFF(見るだけ)</div>
+    <div class="tv-note hidden" id="tvNote">操作 OFF(見るだけ)</div>
   </div>
 </div>
 
@@ -498,7 +498,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
     <div id="setPaneCtl" class="hidden">
       <div id="kmRows"></div>
       <div class="set-row">
-        <label>トリガーのドラッグ</label>
+        <label>トリガーの使い分け</label>
         <select class="monsel" id="selTrig">
           <option value="vd">スクロール対応(長押し→動かすとスクロール)</option>
           <option value="plain">標準(押した瞬間からドラッグ)</option>
@@ -512,7 +512,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
         </select>
       </div>
       <div class="set-row">
-        <label>手での操作(ハンドトラッキング)</label>
+        <label>手をかざす操作</label>
         <select class="monsel" id="selHandTrack">
           <option value="on">使う(標準)</option>
           <option value="off">使わない(コントローラーだけ)</option>
@@ -520,7 +520,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
       </div>
       <p class="set-note">コントローラーを置いて手をかざすと、指さしの向きにレーザーが出て、親指と人差し指で<b>つまむとクリック</b>になります。意図せず反応して邪魔なときは「使わない」にしてください。<b>その場で反映されます</b>(VRに入り直す必要はありません)。「使わない」にしても<b>コントローラーは今までどおり</b>使えます。<br>⚠️ <b>切るのは、コントローラーが手元にあるときだけにしてください。</b>素手だけでVRに入っている状態で切ると、レーザーもつまむ操作も止まるため、<b>VRの中から元に戻せなくなります</b>(開いたままの設定メニューも閉じられません)。そうなったときは、<b>コントローラーを持ち上げる</b>か、<b>いったんVRを終わってこの画面から「使う」に戻して</b>ください。</p>
       <div class="set-row">
-        <label>ポインターの安定化(手ぶれ補正)</label>
+        <label>手ぶれ補正</label>
         <input type="checkbox" id="chkPtrStab" style="width:18px;height:18px;accent-color:var(--accent)">
       </div>
       <div class="set-row">
@@ -536,7 +536,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
     </div>
     <div id="setPanePic" class="hidden">
       <div class="optgrid" id="qGrid"></div>
-      <p class="set-note" id="qNote">見る側で変えると、共有中のパソコンにもすぐ反映されます。文字がにじむときは「くっきり」、動画がカクつくときは「なめらか」を試してください。</p>
+      <p class="set-note" id="qNote">見る側で変えると、共有中のパソコンにもすぐ反映されます。文字がにじむときは「画質優先」、動画がカクつくときは「動き優先」を試してください。</p>
       <div id="picCodecBox">
         <div class="set-row">
           <label>映像の圧縮形式</label>
@@ -551,28 +551,28 @@ footer.site a{color:var(--muted);text-decoration:underline}
           <span id="codecApplyNote" class="hidden" style="margin-left:10px;color:var(--muted);font-size:13px"></span>
         </p>
       </div>
-      <p class="set-note hidden" id="picPcNote">ここから変えられるのは<b>画質プリセット</b>だけです。映像の圧縮形式・VRの描画方式・ふちのギザギザ取り・受信のため込みは、<b>見る側の端末</b>(Quest・スマホ・タブレット)の設定で決まります。</p>
+      <p class="set-note hidden" id="picPcNote">ここから変えられるのは<b>画質プリセット</b>だけです。映像の圧縮形式・文字をくっきり表示・ふちのギザギザ取り・操作の反応は、<b>見る側の機器</b>(Quest・スマホ・タブレット)の設定で決まります。</p>
       <!-- ここから下は**見る側の端末でしか効かない**(VRの描画と受信の設定)。
            共有する側では箱ごと隠す(renderSettings の picVrOnly)。
            **新しい項目をこの箱の外に足さないこと**: 外に置くと、効かない設定が
            共有する側の画面に並ぶ(2026-08-15eで4項目がその状態になっていた) -->
       <div id="picVrOnly">
         <div class="set-row">
-          <label>画面の描画方式(VR)</label>
+          <label>文字をくっきり表示(VR)</label>
           <select class="monsel" id="selRender">
-            <option value="layers">くっきり合成(Media Layers・標準)</option>
-            <option value="classic">従来</option>
+            <option value="layers">使う(標準)</option>
+            <option value="classic">使わない</option>
           </select>
         </div>
-        <p class="set-note">標準の方式は、画面を合成器が直接描くため文字がくっきりし、消費電力も下がります(対応機のみ)。表示に不具合が出たときは「従来」に切り替えてください(即時反映)。</p>
+        <p class="set-note">機器が画面を直接描くので、文字がくっきりし、消費電力も下がります(対応機のみ)。表示に不具合が出たときは「使わない」に切り替えてください(即時反映)。</p>
         <div class="set-row">
-          <label>湾曲でもくっきり合成(実験)</label>
+          <label>湾曲した画面にも使う(実験)</label>
           <select class="monsel" id="selCylLayer">
             <option value="off">使わない(標準)</option>
             <option value="on">使う</option>
           </select>
         </div>
-        <p class="set-note">くっきり合成は長らく<b>平面にした画面だけ</b>が対象で、湾曲の画面は従来描画でした。これを<b>湾曲でも使う</b>試みです。<b>お使いの機器で描けるかどうかが未確認</b>なので、既定は「使わない」にしてあります。<br><b>試し方</b>: 「使う」にしてVRへ入り、湾曲の画面を見てください。<b>文字がくっきりすれば成功</b>です。<b>真っ黒になったら描けない機器</b>なので、その画面のボタンバーのいちばん左(平面/湾曲の切替)を押せばすぐ戻せます(ヘッドセットを外さずに戻せます)。VRの中の操作ガイドにも結果が出ます。</p>
+        <p class="set-note">この描き方は長らく<b>平面にした画面だけ</b>が対象で、湾曲の画面は従来の描き方でした。これを<b>湾曲でも使う</b>試みです。<b>お使いの機器で描けるかどうかが未確認</b>なので、既定は「使わない」にしてあります。<br><b>試し方</b>: 「使う」にしてVRへ入り、湾曲の画面を見てください。<b>文字がくっきりすれば成功</b>です。<b>真っ黒になったら描けない機器</b>なので、その画面のボタンバーのいちばん左(平面/湾曲の切替)を押せばすぐ戻せます(ヘッドセットを外さずに戻せます)。VRの中の操作ガイドにも結果が出ます。</p>
         <div class="set-row">
           <label>ふちのギザギザ取り(VR)</label>
           <select class="monsel" id="selAA">
@@ -580,8 +580,8 @@ footer.site a{color:var(--muted);text-decoration:underline}
             <option value="off">なし(描画が軽くなる)</option>
           </select>
         </div>
-        <p class="set-note">レーザーの線・足元の格子・画面や操作ガイドの<b>ふちの階段状のギザギザ</b>をなめらかにします。<b>画面の中の文字には効きません</b>(文字は「VRの描画解像度」と「文字のちらつき低減」の担当です)。また、合成器が直接描いている画面(平面、および「湾曲でもくっきり合成」が働いている湾曲)には効きません。<b>ページを読み込み直したときから</b>反映されます。VRの中の操作ガイドに出る「描画」の数字(1秒あたりのコマ数)が低い(60を大きく下回る)ときは「なし」を試してください。</p>
-        <p class="set-note">受信のため込みを減らす<b>「低遅延モード」</b>は<b>環境</b>タブにあります(以前はここにも同じ欄がありましたが、同じ設定の欄が2つあると混乱するため1つにまとめました)。</p>
+        <p class="set-note">レーザーの線・足元の格子・画面や操作ガイドの<b>ふちの階段状のギザギザ</b>をなめらかにします。<b>画面の中の文字には効きません</b>(文字は「VRの描画解像度」と「文字のちらつきを減らす」の担当です)。また、機器が直接描いている画面(平面、および「湾曲した画面にも使う」が働いている湾曲)には効きません。<b>ページを読み込み直したときから</b>反映されます。VRの中の操作ガイドに出る「描画」の数字(1秒あたりのコマ数)が低い(60を大きく下回る)ときは「なし」を試してください。</p>
+        <p class="set-note">受信のため込みを減らす<b>「操作の反応を最優先にする」</b>は<b>環境</b>タブにあります(以前はここにも同じ欄がありましたが、同じ設定の欄が2つあると混乱するため1つにまとめました)。</p>
       </div><!-- /picVrOnly -->
     </div><!-- /setPanePic -->
     <div id="setPaneEnv" class="hidden">
@@ -592,7 +592,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
           <label>全天球の写真</label>
           <input type="file" id="filePano" accept="image/*">
         </div>
-        <p class="set-note">横と縦が2対1の全天球写真(equirectangular)を選んでください。<b>写真はこの端末から出ません</b>(どこにも送りません)。保存はしないので、ページを読み込み直すと元の背景に戻ります。</p>
+        <p class="set-note">横と縦が2対1の全天球写真を選んでください。<b>写真はこの機器から出ません</b>(どこにも送りません)。保存はしないので、ページを読み込み直すと元の背景に戻ります。</p>
         <p class="notice-warn hidden" id="bgPhotoErr"></p>
         <div class="set-row" style="margin-top:8px">
           <label>全天球の映像</label>
@@ -606,7 +606,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
             <option value="lr">左右に2つ並び(VR180)</option>
           </select>
         </div>
-        <p class="set-note">映像も<b>この端末から出ません</b>。保存はしないので、読み込み直すと元の背景に戻ります。形式は<b>選び直すと映像を貼り直します</b>。左右に2つ並んだ映像は横180度ぶん(VR180)が主流なので、そのように扱います。</p>
+        <p class="set-note">映像も<b>この機器から出ません</b>。保存はしないので、読み込み直すと元の背景に戻ります。形式は<b>選び直すと映像を貼り直します</b>。左右に2つ並んだ映像は横180度ぶん(VR180)が主流なので、そのように扱います。</p>
         <p class="set-note">2つ並びの映像が<b>立体に見えるかどうか</b>は、VRの操作ガイドの「全天球:」の後ろで分かります。<b>「合成器」</b>なら左右の目に別々の絵が出て立体に見えます。<b>「背景」</b>のときは左目のぶんだけを両目で見る形になり、立体には見えません(形と向きは正しく出ます)。どちらになるかは機器とブラウザ次第で、自動で決まります。</p>
         <p class="notice-warn hidden" id="bgVidErr"></p>
         <div class="set-row" style="margin-top:8px">
@@ -614,22 +614,22 @@ footer.site a{color:var(--muted);text-decoration:underline}
           <input type="range" id="rangeMaxD" min="3" max="30" step="1">
         </div>
         <div class="set-row">
-          <label>画面の最大の幅 <span id="valMaxW" style="color:var(--muted)"></span></label>
+          <label>画面の最大幅 <span id="valMaxW" style="color:var(--muted)"></span></label>
           <input type="range" id="rangeMaxW" min="3" max="40" step="1">
         </div>
         <div class="set-row">
           <label>VRの描画解像度</label>
           <select class="monsel" id="selRScale">
-            <option value="1">標準</option>
-            <option value="1.15">高(推奨)</option>
+            <option value="1">ふつう</option>
+            <option value="1.15">高(標準)</option>
             <option value="1.3">最高(電池消費が増えます)</option>
           </select>
         </div>
         <div class="set-row">
-          <label>文字のちらつき低減(ミップマップ)</label>
+          <label>文字のちらつきを減らす</label>
           <input type="checkbox" id="chkAniso" style="width:18px;height:18px;accent-color:var(--accent)">
         </div>
-        <p class="set-note">描画解像度は、次にVRへ入るときに反映されます(文字のちらつき低減はその場で反映)。<b>背景・画面の最大距離・画面の最大の幅</b>は、VRの中の設定メニュー(標準では左手のXボタン)からもその場で変えられます。背景も即時に切り替わりますが、パススルーとの行き来だけはVRの入り直しで反映されます(対応機のみ)。</p>
+        <p class="set-note">描画解像度は、次にVRへ入るときに反映されます(ちらつきを減らす設定はその場で反映)。<b>背景・画面の最大距離・画面の最大幅</b>は、VRの中の設定メニュー(標準では左手のXボタン)からもその場で変えられます。背景も即時に切り替わりますが、パススルーとの行き来だけはVRの入り直しで反映されます(対応機のみ)。</p>
       </div>
       <div class="set-row">
         <label>スクロールの向き</label>
@@ -639,20 +639,20 @@ footer.site a{color:var(--muted);text-decoration:underline}
         </select>
       </div>
       <div class="set-row">
-        <label>カーソルの移動方法(タッチで見る)</label>
+        <label>カーソルの移動方法(スマホ・タブレット)</label>
         <select class="monsel" id="selPtrMode">
           <option value="abs">そのまま(触れた場所・マウス位置へ)</option>
           <option value="rel">なぞって動かす(トラックパッド式)</option>
         </select>
       </div>
-      <!-- キーボード直送はVR中もタッチで見る中も働くため、VR専用の #envVrOnly の外に置く。
+      <!-- キーボード直送はVR中も「この画面で見る」中も働くため、VR専用の #envVrOnly の外に置く。
            操作タブ(VR対応機にしか出ない)へ戻すと、VR非対応の機器からOFFにできなくなる -->
       <div class="set-row">
-        <label>Bluetoothキーボードをそのまま送る</label>
+        <label>キーボードの入力をパソコンへ送る</label>
         <input type="checkbox" id="chkKbFwd" style="width:18px;height:18px;accent-color:var(--accent)">
       </div>
       <div class="set-row">
-        <label>低遅延モード(受信のため込みを最小化)</label>
+        <label>操作の反応を最優先にする</label>
         <input type="checkbox" id="chkLowLat" style="width:18px;height:18px;accent-color:var(--accent)">
       </div>
       <div class="set-row">
@@ -663,7 +663,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
         <label>音量 <span id="volVal" style="color:var(--muted)"></span></label>
         <input type="range" id="volRange" min="0" max="100" step="5">
       </div>
-      <p class="set-note">設定はこの端末のブラウザの中だけに保存されます(端末ごとに別々です)。</p>
+      <p class="set-note">設定はこの機器のブラウザの中だけに保存されます(機器ごとに別々です)。</p>
     </div>
   </div>
 </div>
@@ -912,10 +912,10 @@ function pcRemoveScreen(slot){
 /* ---------- 送信側の計器(15h・第8.5節 N16) ----------
    これまで getStats を呼ぶのは見る側だけで、**共有している側は一度も通信の統計を
    読んでいなかった**。そのため「1コマの圧縮に何ミリ秒かかっているか」「コマ数が
-   落ちたのは機械の頭(CPU)が足りないのか電波が細いのか」が誰にも分からなかった。
-   **コマ数が足りているかは framesPerSecond、頭打ちの有無は qualityLimitationReason で
-   判定すること**(第7節(h)④の判定材料)。圧縮の遅れは帰りの遅れの内訳であって、
-   コマ数の判定には使わない(理由は下の「圧縮の遅れ」を出している所のコメント)。
+   落ちたのはCPU不足なのか通信速度なのか」が誰にも分からなかった。
+   **コマ数が足りているかは framesPerSecond、制限の有無は qualityLimitationReason で
+   判定すること**(第7節(h)④の判定材料)。エンコード時間は帰りの遅れの内訳であって、
+   コマ数の判定には使わない(理由は下の「エンコード時間」を出している所のコメント)。
 
    見る側の questStatsTick と同じ作法にそろえてある: 2秒ごと・再入防止・
    要るときだけ回す・表示は文字列を持たせて描き直しは別。 */
@@ -965,23 +965,23 @@ async function pcStatsTickBody(){
           }
           if (out.frameWidth && out.frameHeight) parts.push(out.frameWidth + '×' + out.frameHeight);
           if (typeof out.framesPerSecond === 'number') parts.push(out.framesPerSecond + 'fps');
-          /* 1コマが符号化器を通り抜けるのにかかる時間。**これは「遅れ」であって
-             「次のコマを待たせる時間」ではない(15i)**。符号化器は複数のコマを
+          /* 1コマがエンコーダーを通り抜けるのにかかる時間。**これは「遅れ」であって
+             「次のコマを待たせる時間」ではない(15i)**。エンコーダーは複数のコマを
              並行して流すので、16.7msを超えていても60fpsは出る(実測: 25.5msで59fps)。
              **「16.7msを超えたら60fpsに間に合わない」と書かないこと**(15hで間違えた)。
-             コマ数が足りているかは framesPerSecond を、頭打ちの有無は
+             コマ数が足りているかは framesPerSecond を、制限の有無は
              qualityLimitationReason を見ること。この数字は帰りの遅れの内訳(第7節h) */
           if (pv && out.framesEncoded > pv.framesEncoded && typeof out.totalEncodeTime === 'number') {
             var ms = (out.totalEncodeTime - pv.totalEncodeTime) * 1000 / (out.framesEncoded - pv.framesEncoded);
-            parts.push('圧縮の遅れ ' + ms.toFixed(1) + 'ms/コマ');
+            parts.push('エンコード時間 ' + ms.toFixed(1) + 'ms/コマ');
           }
           /* **2つめの本命**: コマ数が落ちた理由。none/cpu/bandwidth/other */
-          var why = { none: '', cpu: '機械の頭が足りない', bandwidth: '電波が細い', other: 'その他' };
+          var why = { none: '', cpu: 'CPU不足', bandwidth: '通信速度', other: 'その他' };
           if (out.qualityLimitationReason && why[out.qualityLimitationReason]) {
-            parts.push('頭打ち: ' + why[out.qualityLimitationReason]);
+            parts.push('制限: ' + why[out.qualityLimitationReason]);
           }
           if (codec) parts.push('形式: ' + codec);
-          /* **どの符号化器が使われているか(15i/15j)**。
+          /* **どのエンコーダーが使われているか(15i/15j)**。
              名前が `OpenH264` / `libvpx` / `libaom` ならCPUで圧縮している。
              ⚠️ **Mac は名前だけで判断できない**: ハードでもソフトでも同じ `VideoToolbox` と出る。
              `powerEfficientEncoder` が真なら専用回路。**必ず両方を読むこと**。
@@ -992,7 +992,7 @@ async function pcStatsTickBody(){
             if (typeof out.powerEfficientEncoder === 'boolean') {
               eng += out.powerEfficientEncoder ? '(専用回路)' : '(CPU)';
             }
-            parts.push('符号化器: ' + eng);
+            parts.push('エンコーダー: ' + eng);
           }
           txt = parts.join(' / ');
           item.pv = { ts: out.timestamp, bytesSent: out.bytesSent || 0,
@@ -1055,13 +1055,13 @@ function pcRenderScreens(){
 
     var rm = document.createElement('button');
     rm.className = 'btn-ghost btn-sm';
-    rm.textContent = 'はずす';
+    rm.textContent = '共有をやめる';
     rm.addEventListener('click', function(){ pcRemoveScreen(item.slot); });
     head.appendChild(rm);
 
     row.appendChild(head);
 
-    /* video は画面ごとに1つを使い回すこと。毎回作り直すと、操作モードの
+    /* video は画面ごとに1つを使い回すこと。毎回作り直すと、操作の
        ON/OFFのたびに全プレビューが黒く点滅し、外れた古い video が映像を
        つかんだまま残る(box.innerHTML='' と同じ処理の中で付け直すので、
        いったん外れても再生は止まらない) */
@@ -1293,7 +1293,7 @@ function pcDiagRender(){
   var open = has && (S.pcDiagOpen !== false);
   show($('pcDiag'), open);
   var b = $('pcDiagToggle');
-  if (b) b.textContent = open ? '操作モードの記録を隠す' : '操作モードの記録を表示';
+  if (b) b.textContent = open ? '操作の記録を隠す' : '操作の記録を表示';
   var body = $('pcDiagText');
   if (body) body.textContent = pc.diag.join('\n');
   var box = $('pcDiag');
@@ -1316,11 +1316,11 @@ function pcCopyDiag(){
   };
   var head = [
     'アプリの版: ' + APP_VER,
-    'ヘルパー: ' + (pc.lastOkInfo
+    '操作用アプリ: ' + (pc.lastOkInfo
       ? (pc.lastOkInfo + (pc.helperOn ? '' : '(最後に応答したときの内容)'))
       : 'このセッションで一度も応答していません'),
     '共有中の画面: ' + pc.screens.length + '枚 / 見る側: ' + pc.conns.length + '台',
-    'いまの操作モード: ' + (pc.helperOn ? 'ON' : 'OFF'),
+    'いま操作できるか: ' + (pc.helperOn ? 'はい' : 'いいえ'),
     '生存確認: 間隔' + PING_MS + '〜' + PING_MS_MAX + 'ms / 打ち切り' + PING_TIMEOUT_MS + 'ms / 2回連続でOFF',
     '---'
   ];
@@ -1348,10 +1348,10 @@ async function pcPingHelper(){
         pc.pingBroken = true;
         /* ここを黙って捨てていたために、応答が壊れていても「ヘルパーが古い」
            としか出ず、原因にたどり着けなかった前例がある(第7節(i))。
-           ヘルパーは動いている(HTTPは200)ので操作モードはONのまま続け、
+           操作用アプリは動いている(HTTPは200)ので操作はONのまま続け、
            何が起きたかだけを診断行に残す(05w) */
         pc.lastPingFail = { name: '応答を読めません(' + ((pe && pe.name) || 'Error') + ')',
-                            msg: 'ヘルパーの応答が壊れています。ヘルパーを最新版に差し替えてください',
+                            msg: '操作用アプリの応答が壊れています。最新版に差し替えてください',
                             ms: Math.round(performance.now() - t0),
                             at: new Date().toLocaleTimeString() };
       }
@@ -1362,7 +1362,7 @@ async function pcPingHelper(){
            版もモニター構成も返らないので、従来は「ON(ヘルパーが古い)」に見えていた */
         pc.pingRefused = true;
         pc.lastPingFail = { name: '操作を許可されていません',
-                            msg: 'ヘルパー側の「操作を許可するページ」の設定が、このページのURLと違います',
+                            msg: '操作用アプリ側の「操作を許可するページ」の設定が、このページのURLと違います',
                             ms: Math.round(performance.now() - t0),
                             at: new Date().toLocaleTimeString() };
       } else {
@@ -1403,7 +1403,7 @@ async function pcPingHelper(){
     clearTimeout(t);
   }
 
-  /* ドラッグ中の混雑による一時的な無応答では、操作モードを落とさない(2回連続で確定) */
+  /* ドラッグ中の混雑による一時的な無応答では、操作を落とさない(2回連続で確定) */
   if (!on) {
     pc.pingFails = (pc.pingFails || 0) + 1;
     /* 採取(13c)。ONの実績があるときだけ記録する(ヘルパー未起動という日常の
@@ -1436,7 +1436,7 @@ async function pcPingHelper(){
   if (pc.everHelperOn && on !== wasOn) {
     if (!on) {
       pc.offAt = Date.now();
-      pcDiagLog('▼ 操作モードがOFFになった');
+      pcDiagLog('▼ 操作できなくなった');
     } else if (pc.offAt) {
       /* **「ONに戻った」と書かないこと(14a)**。生存確認が1回通っただけで、操作が
          実際に届くかは別問題(実機で「ONと出るのに効かない」が起きた)。
@@ -1449,17 +1449,17 @@ async function pcPingHelper(){
     setDot('dotHelper', on ? 'on' : 'off');
     var oldHelper = on && hv < HELPER_VER_REQUIRED;
     $('helperLabel').textContent = !on
-      ? '操作モード OFF(見るだけ)'
+      ? '操作 OFF(見るだけ)'
       : (oldHelper
-        ? '操作モード ON(ヘルパーが古い → 再ダウンロード推奨)'
-        : '操作モード ON(VRからマウスを動かせます)');
+        ? '操作 ON(操作用アプリが古い → 再ダウンロード推奨)'
+        : '操作 ON(VRからマウスを動かせます)');
     show($('helperHint'), !on);
     pcSendHelperState();
     pcRenderScreens();
   }
 
   /* 診断行: OFFの間、および応答が壊れている間、直近の失敗の中身と推定を出し続ける
-     (既知の問題cの採取。応答が壊れている場合は操作モードON表示のままなので、
+     (既知の問題cの採取。応答が壊れている場合は操作ON表示のままなので、
       05wでこちらも出すようにした=黙って捨てると原因にたどり着けない)。
      ただし、このセッションで一度もONになっていない間は出さない(11b)。
      ヘルパーを起動していないのは日常の正常な状態で、そこに「遮断/拒否」の
@@ -1471,13 +1471,13 @@ async function pcPingHelper(){
   if ((!on || pc.pingBroken) && pc.lastPingFail && (pc.everHelperOn || pc.pingRefused)) {
     var f = pc.lastPingFail;
     var hint = pc.pingRefused
-      ? ' → ヘルパーは動いていますが、このページからの操作を許可していません。helper-windows.bat の $allowOrigin(Macは helper-mac.py の ALLOW_ORIGIN)に、いま開いているページのURLを正確に書いてください(末尾の / は付けない)'
+      ? ' → 操作用アプリは動いていますが、このページからの操作を許可していません。helper-windows.bat の $allowOrigin(Macは helper-mac.py の ALLOW_ORIGIN)に、いま開いているページのURLを正確に書いてください(末尾の / は付けない)'
       : pc.pingBroken
       ? '' /* 中身がそのまま原因なので、時間からの推定は当てはまらない */
       : (f.ms < 50 && f.name.indexOf('HTTP') !== 0)
-      ? ' → ヘルパーが見つかりません。起動していなければ(閉じたのなら)これは正常な状態です。起動しているのにこの表示が続く場合は、ブラウザがローカル通信を止めていることがあります(ページの再読み込みで許可し直しを)'
+      ? ' → 操作用アプリが見つかりません。起動していなければ(閉じたのなら)これは正常な状態です。起動しているのにこの表示が続く場合は、ブラウザがローカル通信を止めていることがあります(ページの再読み込みで許可し直しを)'
       : (f.ms >= PING_TIMEOUT_MS - 100
-        ? ' → ヘルパーが応答していません(固まりか多重起動。ヘルパーを起動し直してください)'
+        ? ' → 操作用アプリが応答していません(固まりか多重起動。起動し直してください)'
         : '');
     dg.textContent = '直近の失敗: ' + f.name + (f.msg ? ': ' + f.msg : '')
       + '(' + f.ms + 'ms・' + (pc.pingFails || 0) + '回連続・' + f.at + ')' + hint;
@@ -1492,7 +1492,7 @@ function pcUpdateViewerLabel(){
   pc.conns.forEach(function(c){ if (c.open) n++; });
   if (n > 0) {
     setDot('dotQuest', 'on');
-    $('lblQuest').textContent = (n === 1) ? 'Questと接続中' : '見る側 ' + n + '台と接続中';
+    $('lblQuest').textContent = (n === 1) ? '見る側 1台と接続中' : '見る側 ' + n + '台と接続中';
   } else if (pc.screens.length) {
     setDot('dotQuest', 'wait');
     $('lblQuest').textContent = '見る側の接続待ち';
@@ -1766,7 +1766,7 @@ function pcNoteInputResult(okNow, detail){
     pc.inputFailN = 0;
   } else {
     pc.inputFailN = 1;
-    if (pc.everHelperOn) pcDiagLog('✗ 操作がヘルパーに届いていません: ' + detail);
+    if (pc.everHelperOn) pcDiagLog('✗ 操作が操作用アプリに届いていません: ' + detail);
   }
 }
 
@@ -1790,7 +1790,7 @@ async function pcFlushInput(){
     });
     if (gen !== (pc.inputGen || 0)) return;
     pcNoteInputResult(!!(r && r.ok),
-      'HTTP ' + ((r && r.status) || '?') + '(ヘルパーに断られています。「操作を許可するページ」の設定を確認)');
+      'HTTP ' + ((r && r.status) || '?') + '(操作用アプリに断られています。「操作を許可するページ」の設定を確認)');
     /* **2xx以外でも「離す」だけは差し戻すこと(14c)**。便は既に待ち行列から
        抜き取ってあるので、ここで捨てると相手PCのボタンが押されたまま残る
        (実物のマウスを押すまで戻らない)。dn/mv/sc は差し戻さない: 403は
@@ -1864,7 +1864,7 @@ function pcStop(){
   setDot('dotQuest', 'off');
   setDot('dotHelper', 'off');
   $('lblQuest').textContent = '見る側の接続待ち';
-  $('helperLabel').textContent = '操作モード OFF(見るだけ)';
+  $('helperLabel').textContent = '操作 OFF(見るだけ)';
 }
 
 /* ================================================================
@@ -1889,7 +1889,7 @@ async function questInit(){
   }
   $('xrNote').textContent = qs.xrOk
     ? ''
-    : 'この機器はVR表示に対応していないため、接続後は「タッチで見る」で表示と操作ができます。';
+    : 'この機器はVR表示に対応していないため、接続後はこの画面のまま表示と操作ができます。';
   refreshSettingsUi(); /* VR対応が判明したら、開いている設定の表示も合わせる */
   /* 接続ボタンを押す前に、待ち合わせサーバーへの登録(受付)を先に済ませておく。
      初回接続の待ち時間の大半はこれだったため */
@@ -2030,7 +2030,7 @@ function questDialGiveUp(host, why){
   questUiSync();
   if (APP.xrSync) APP.xrSync();
   questLog('接続をあきらめました(' + why + ')');
-  questShowErr('直接の通信路を' + Math.round(DIAL_TOTAL_MS / 1000) + '秒待ちましたが作れませんでした。①見る側の端末とPCを同じWi-Fi名(SSID)につなぐ ②ルーターの「プライバシーセパレーター(AP隔離)」をOFF ③PCのVPNを切る、を確認して、もう一度試してください。外の回線から試している場合は、回線の種類によって直結できないことがあります。');
+  questShowErr('直接の通信路を' + Math.round(DIAL_TOTAL_MS / 1000) + '秒待ちましたが作れませんでした。①見る側の機器とパソコンを同じWi-Fi名(SSID)につなぐ ②ルーターの「プライバシーセパレーター(AP隔離)」をOFF ③パソコンのVPNを切る、を確認して、もう一度試してください。外の回線から試している場合は、回線の種類によって直結できないことがあります。');
 }
 
 function questDialTick(host){
@@ -2143,11 +2143,11 @@ function questArmVideoWatch(host, conn){
   clearTimeout(host.videoWatch);
   host.videoWatch = setTimeout(function(){
     if (host.gone || host.conn !== conn || host.screens.length) return;
-    questLog('接続はできましたが、映像が8秒届いていません(PC ' + host.code + ') → 張り直しを頼みます');
+    questLog('接続はできましたが、映像が8秒届いていません(パソコン ' + host.code + ') → 張り直しを頼みます');
     hostSend(host, { t: 'recall' });
     host.videoWatch = setTimeout(function(){
       if (host.gone || host.conn !== conn || host.screens.length) return;
-      questLog('張り直し後も映像が届きません(PC ' + host.code + ')。PC側のページに画面のプレビューが出ているか、Macなら画面収録の権限とファイアウォールを確認してください');
+      questLog('張り直し後も映像が届きません(パソコン ' + host.code + ')。パソコン側のページに画面のプレビューが出ているか、Macなら画面収録の権限とファイアウォールを確認してください');
     }, 8000);
   }, 8000);
 }
@@ -2168,7 +2168,7 @@ function questNoteScreenGone(host, slot, why){
     host.regoneAt = now;
     host.regoneN = (host.regoneN || 0) + 1;
     if (host.regoneN > 5) {
-      questLog('画面の消滅が続くため、張り直しの依頼を1分あけます(PC ' + host.code + ')');
+      questLog('画面の消滅が続くため、張り直しの依頼を1分あけます(パソコン ' + host.code + ')');
       var conn = host.conn;
       clearTimeout(host.videoWatch);
       host.videoWatch = setTimeout(function(){
@@ -2230,7 +2230,7 @@ function questProbeScreenFrames(host, entry, attempt){
         }
         if (tries === 1) {
           questLog('画面' + entry.slot + ': 4秒でフレーム0(受信' + (recv < 0 ? '不明' : recv + '枚')
-            + ')。映像がこの端末まで来ていません(送信側か経路の問題)');
+            + ')。映像がこの機器まで来ていません(送信側か経路の問題)');
         }
         /* 来るまで4秒ごとに見続ける(上限8回=32秒。記録は変わり目だけ) */
         if (tries < 8) questProbeScreenFrames(host, entry, tries + 1);
@@ -2356,7 +2356,7 @@ function questWireConn(host){
   questWatchIce(host, conn);
   conn.on('open', function(){
     if (host.gone || host.conn !== conn) { try { conn.close(); } catch (_e) {} return; }
-    questLog('接続できました(PC ' + host.code + ')');
+    questLog('接続できました(パソコン ' + host.code + ')');
     questLogRouteType(host, conn);
     questArmVideoWatch(host, conn); /* 映像が来ない事態の見張り(05y) */
     if (qs.pendingHost === host) qs.pendingHost = null;
@@ -2390,14 +2390,14 @@ function questWireConn(host){
       host.screens.forEach(function(x){ if (x.slot === m.s) had = true; });
       questRemoveScreen(host, m.s);
       /* 持っていない画面の del では記録も張り直しもしない(偽の記録と recall の元) */
-      if (had) questNoteScreenGone(host, m.s, 'PC側が共有を終了');
+      if (had) questNoteScreenGone(host, m.s, 'パソコン側が共有を終了');
     }
   });
   conn.on('close', function(){
     /* 自分が現役でなければ(置き換え済みの古いダイヤル)、何もしない。
        ダイヤル中の失敗はダイヤル側のタイマーが管理する */
     if (host.conn !== conn) return;
-    questLog('接続が閉じました(PC ' + host.code + ')');
+    questLog('接続が閉じました(パソコン ' + host.code + ')');
     if (host.state === 'connecting') { questDialFailed(host, '接続が閉じられました'); return; }
     questConnLost(host);
   });
@@ -2515,7 +2515,7 @@ function questOnCall(call){
     /* 映像の通話の失敗は、これまでどこにも現れなかった(05y)。
        操作の通信路と映像の通話は別々に経路を作るため、
        「通信路は通ったのに映像だけ失敗」が構造上ありうる */
-    questLog('映像の通話が失敗(PC ' + host.code + ' 画面' + slot + '): '
+    questLog('映像の通話が失敗(パソコン ' + host.code + ' 画面' + slot + '): '
       + ((e && (e.type || e.message)) || '不明'));
   });
   var callT0 = Date.now();
@@ -2664,7 +2664,7 @@ function questOnPeerError(err){
     }
     questShowErr('このコードのパソコンが見つかりません。コードと、パソコン側で共有中かを確認してください。');
   } else if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') {
-    questShowErr('接続サービスにつながりません。この端末がインターネットにつながっているか確認して、ページを再読み込みしてください。');
+    questShowErr('接続サービスにつながりません。この機器がインターネットにつながっているか確認して、ページを再読み込みしてください。');
   } else if (t && t !== 'disconnected') {
     questShowErr('接続サービスでエラーが起きました(種類: ' + t + ')。両方のページを再読み込みして、もう一度試してください。');
   }
@@ -2782,7 +2782,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-15q';
+var APP_VER = '2026-08-15r';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2797,10 +2797,10 @@ var KM_ACTS = [
   ['click',    'クリック(押したままドラッグ)'],
   ['rclick',   '右クリック'],
   ['grab',     '画面をつかんで移動'],
-  ['ptr',      'ポインター表示の切替'],
-  ['recenter', '画面を正面に呼び直す'],
+  ['ptr',      'レーザーの表示切替'],
+  ['recenter', '画面を正面に戻す'],
   ['menu',     '設定メニューを開く/閉じる'],
-  ['keys',     'キー送信パレットを開く/閉じる'],
+  ['keys',     'よく使うキーを開く/閉じる'],
   ['hud',      '操作ガイドの表示切替'],
   ['',         '割り当てない']
 ];
@@ -2809,8 +2809,8 @@ KM_ACTS.forEach(function(a){ KM_ACT_LABEL[a[0]] = a[1]; });
 /* VR内メニュー用の短い呼び名(14b)。上の正式な呼び名は長すぎて、
    1024pxのキャンバスの中で「ボタン名: 機能」の1行に収まらない */
 var KM_ACT_SHORT = {
-  click: 'クリック', rclick: '右クリック', grab: 'つかむ', ptr: 'ポインター',
-  recenter: '呼び直す', menu: 'メニュー', keys: 'キー送信', hud: 'ガイド', '': 'なし'
+  click: 'クリック', rclick: '右クリック', grab: 'つかむ', ptr: 'レーザー',
+  recenter: '正面に戻す', menu: 'メニュー', keys: 'よく使うキー', hud: 'ガイド', '': 'なし'
 };
 
 function kmDefault(){
@@ -2863,17 +2863,17 @@ function loadS(){
   if (s.bg === 'photo' || s.bg === 'video') s.bg = 'dark'; /* 写真も映像もこの場かぎり */
   s.stats = !!s.stats;
   s.diagOpen = (s.diagOpen !== false); /* 診断欄の開閉は利用者が決める(12e)。既定は開 */
-  s.pcDiagOpen = (s.pcDiagOpen !== false); /* PC側の操作モードの記録の開閉(13c)。既定は開 */
+  s.pcDiagOpen = (s.pcDiagOpen !== false); /* PC側の操作の記録の開閉(13c)。既定は開 */
   s.vol = (typeof s.vol === 'number' && s.vol >= 0 && s.vol <= 1) ? s.vol : 1;
   s.scrollDir = (s.scrollDir === -1) ? -1 : 1;
   s.scrollSpd = ([0, 1, 2].indexOf(s.scrollSpd) >= 0) ? s.scrollSpd : 1;
-  s.ptrStab = (s.ptrStab === false) ? false : true; /* ポインターの安定化(手ぶれ補正) */
+  s.ptrStab = (s.ptrStab === false) ? false : true; /* 手ぶれ補正 */
   s.codec = (s.codec === 'vp8') ? 'vp8' : 'h264'; /* 映像の圧縮形式。h264=ハードウェア復号優先 */
   s.renderMode = (s.renderMode === 'classic') ? 'classic' : 'layers'; /* VRの画面の描画方式 */
-  /* 湾曲のくっきり合成(15b)。**既定はOFF**: 実機で描かれるかがまだ未確認で、
+  /* 湾曲のくっきり表示(15b)。**既定はOFF**: 実機で描かれるかがまだ未確認で、
      描かれないと窓だけが残って真っ黒に見えるため(第10節) */
   s.cylLayer = (s.cylLayer === true);
-  s.handTrack = (s.handTrack !== false); /* 手での操作。既定は使う(いままでの振る舞い) */
+  s.handTrack = (s.handTrack !== false); /* 手をかざす操作。既定は使う(いままでの振る舞い) */
   delete s.fovea; /* 15aで撤去。古い保存値を持ち越さない */
   s.aa = (s.aa === false) ? false : true; /* ふちのギザギザ取り(4サンプルのMSAA)。切ると描画が軽くなる */
   s.lowLat = (s.lowLat !== false); /* 低遅延モード(操作の機敏さ優先): 受信の溜めを最小に希望。初期ON */
@@ -2887,7 +2887,7 @@ function loadS(){
   delete s.km;
   s.trig = (s.trig === 'plain') ? 'plain' : 'vd';
   s.kbfwd = (s.kbfwd !== false); /* BTキーボード直送: 初期ON */
-  s.ptrMode = (s.ptrMode === 'rel') ? 'rel' : 'abs'; /* カーソルの移動方法(タッチで見る) */
+  s.ptrMode = (s.ptrMode === 'rel') ? 'rel' : 'abs'; /* カーソルの移動方法(スマホ・タブレット) */
   s.rscale = ([1, 1.15, 1.3].indexOf(+s.rscale) >= 0) ? +s.rscale : 1.15; /* VR描画解像度 */
   s.aniso = (s.aniso !== false); /* 文字のちらつき低減: 初期ON */
   if (!Array.isArray(s.slots) || s.slots.length !== 3) s.slots = [null, null, null];
@@ -2920,15 +2920,15 @@ var QUALITY = {
      ⚠️ **解像度を下げてよいのは「なめらか」だけ**(利用者の判断。文字を読む用途では
      解像度がいちばん効くため、くっきり/バランス/自動は等倍を守る) */
   sharp:   { hint: 'detail', br: 40000000, deg: 'maintain-resolution', fps: 60, scale: 1,
-             name: 'くっきり', desc: '文字を最優先。等倍のまま、動いてもぼかさない' },
+             name: '画質優先', desc: '文字を最優先。元の大きさのまま、動いてもぼかさない' },
   balance: { hint: 'detail', br: 15000000, deg: 'balanced', fps: 60, scale: 1,
-             name: 'バランス(標準)', desc: '等倍のまま。混んだら少しずつ譲る。まずはこれ' },
+             name: 'バランス(標準)', desc: '元の大きさのまま。混んだら少しずつ譲る。まずはこれ' },
   /* **固定の解像度ではなく倍率(15q)**。縦横それぞれ 1/1.3333 = 0.75倍に縮めるので、
      仕上がりは共有元の画面しだい(2560×1600なら約1920×1200、1920×1080なら約1440×810)。
      **説明に決め打ちの解像度を書かないこと**。画素数が44%減るので、
-     圧縮の遅れ(実測24ms)と符号化の負荷が下がり、動きに使えるビットが増える */
+     エンコード時間(実測24ms)と符号化の負荷が下がり、動きに使えるビットが増える */
   smooth:  { hint: 'motion', br: 15000000, deg: 'maintain-framerate', fps: 60, scale: 1.3333,
-             name: 'なめらか', desc: '動きを最優先。送る大きさを縦横3/4に縮めて動画やゲーム向き' },
+             name: '動き優先', desc: '動きを最優先。送る大きさを縦横3/4に縮める。動画やゲーム向き' },
   /* 「おまかせ」と名乗る以上、degradationPreference も明示して balanced にする(N19)。
      以前は空にしていたが、W3C仕様では contentHint が detail だと
      暗黙に maintain-resolution になり、名前と実態が食い違っていた */
@@ -3056,7 +3056,7 @@ function applyVolume(){
 function questResumeVideos(why){
   var n = 0;
   function wake(v, what){
-    /* **映像源の無い <video> を数えないこと(14c)**。#tvVideo はタッチで見るを
+    /* **映像源の無い <video> を数えないこと(14c)**。#tvVideo は「この画面で見る」を
        閉じている間 srcObject が null で常に paused なので、これを「止まっていた」と
        数えると、異常が無くても2秒ごとに偽の行と NotSupportedError が
        診断の記録(40行)に積まれ、本物の記録が押し出される */
@@ -3072,7 +3072,7 @@ function questResumeVideos(why){
   });
   /* タッチ表示は同じ流れを別の <video>(#tvVideo)で映しているので、
      上のループだけでは「音の出る隠れた方だけ再開し、見えている方は固まったまま」になる */
-  wake($('tvVideo'), 'タッチで見る');
+  wake($('tvVideo'), 'この画面で見る');
   /* 全天球の背景は srcObject ではなく src(objectURL)なので別に見る */
   var pv = xr.bg && xr.bg.panoVid;
   if (pv && pv.src && pv.paused) {
@@ -3355,18 +3355,18 @@ function renderQGrid(){
   });
   $('qNote').textContent = (setRole === 'pc')
     ? '見る側の設定からも変更でき、そちらが優先されます。'
-    : '見る側で変えると、共有中のパソコンにもすぐ反映されます。文字がにじむときは「くっきり」、動画がカクつくときは「なめらか」を試してください。';
+    : '見る側で変えると、共有中のパソコンにもすぐ反映されます。文字がにじむときは「画質優先」、動画がカクつくときは「動き優先」を試してください。';
 }
 
 var BG_LIST = [
-  ['dark',   'ダーク(標準)',        '地平線がほのかに光る夜の作業空間'],
+  ['dark',   '暗い空間(標準)',      '地平線がほのかに光る夜の作業空間'],
   ['black',  'まっ黒',              '画面だけが浮かぶ。集中と省電力に'],
   ['stars',  '星空',                '天の川のかかる満天の星'],
   ['sky',    '昼の空',              '太陽とやわらかい雲のある青空'],
   ['sunset', '夕焼け',              '沈む夕日と光る雲、宵の星'],
   ['pass',   'パススルー',          '現実の部屋に画面が浮かぶ(対応機のみ)'],
-  ['photo',  '全天球の写真',        '手元の写真を空にする(下で選ぶ。読み込み直すと消えます)'],
-  ['video',  '全天球の映像',        '手元の映像を空にする(下で選ぶ。読み込み直すと消えます)']
+  ['photo',  '全天球の写真',        '手元の写真を空にする(下で選ぶ。読み込み直すと消える)'],
+  ['video',  '全天球の映像',        '手元の映像を空にする(下で選ぶ。読み込み直すと消える)']
 ];
 
 /* 選べない背景の判定。2D設定・VR内メニューの表示・VR内メニューの実行の3箇所が
@@ -3682,7 +3682,7 @@ function tvSync(){
     var scs = h.screens.slice().sort(function(a, b){ return a.slot - b.slot; });
     scs.forEach(function(sc, si){
       var label = (qs.hosts.length > 1)
-        ? ('PC' + (hi + 1) + '-' + (si + 1))
+        ? ('パソコン' + (hi + 1) + '-' + (si + 1))
         : ('画面' + (si + 1));
       list.push({ key: h.idx + ':' + sc.slot, host: h, slot: sc.slot, sc: sc, label: label });
     });
@@ -3772,7 +3772,7 @@ function tvNoteSync(){
   var noCtl = !!(tv.host && tv.host.helperOn && tv.host.noCtl && tv.host.noCtl[tv.slot]);
   el.textContent = noCtl
     ? 'この画面は「操作しない」に設定されています'
-    : '操作モード OFF(見るだけ)';
+    : '操作 OFF(見るだけ)';
   show(el, !tvCanControl());
 }
 
@@ -3882,7 +3882,7 @@ function tvTryUnmute(){
   show($('qMuteNote'), false);
 }
 
-/* ---------- マウス(パソコンのタッチで見る) ---------- */
+/* ---------- マウス(パソコンで「この画面で見る」を開いたとき) ---------- */
 function tvMouseDown(e){
   $('tvTouch').setPointerCapture && $('tvTouch').setPointerCapture(e.pointerId);
   if (e.button === 2) {
@@ -3959,7 +3959,7 @@ function tvMouseUp(e){
   if (!tv.m) return;
   var m = tv.m;
   tv.m = null;
-  /* **離す合図を tvCanControl() で止めないこと(14b)**。操作モードのOFFは一時的な
+  /* **離す合図を tvCanControl() で止めないこと(14b)**。操作のOFFは一時的な
      無応答でも成立する(1.5秒の打ち切り×2回)ので、ドラッグの最中に誤OFFが起きると
      ここで `up` が捨てられ、PC側のボタンが押されたまま残る(実物のマウスをクリック
      するまで戻らない)。13bでPC側は誤OFF中も `up` を受けるようにしたが、
@@ -4927,7 +4927,7 @@ function xrSyncScreens(){
       s.host = d.host;
       /* 同じ番号の画面が張り直されたら、映像の器も差し替えること(13b)。
          以前は host しか更新しておらず、板が死んだ video を掴んだまま固まった
-         (くっきり合成中なら合成器のレイヤーも古い器を握るので、いったん手放す)。
+         (くっきり表示中なら合成器のレイヤーも古い器を握るので、いったん手放す)。
          既知の問題(b)「VR内でだけ真っ黒・パススルーでは板が透明」の候補でもある */
       if (s.video !== d.video) {
         xrAttachVideo(s, d.video);
@@ -4987,7 +4987,7 @@ APP.xrAnisoChanged = function(){
   });
 };
 
-/* 「湾曲でもくっきり合成」を切り替えたときの反映(15b)。
+/* 「湾曲した画面にも使う」を切り替えたときの反映(15b)。
    いま出ている湾曲のレイヤーを一度外すだけでよい(次の同期が判定し直す) */
 APP.xrCylChanged = function(){
   if (!xr.built || !xr.mediaLayers) return;
@@ -4999,7 +4999,7 @@ APP.xrCylChanged = function(){
   xr.screens.forEach(function(sc){ sc.cylGaveUp = false; }); /* 設定を入れ直したら諦めも取り消す */
 };
 
-/* 手での操作を切り替えたときの後始末(15n)。
+/* 手をかざす操作を切り替えたときの後始末(15n)。
    ⚠️ **つまんだままOFFにされたときに、必ず離すこと**。離さないと相手PCの
    ボタンが押しっぱなしで残る(実物のマウスを押すまで戻らない=第4節の不変条件) */
 APP.xrHandChanged = function(){
@@ -5170,7 +5170,7 @@ function xrDrawBar(s, hoverIdx, shown){
     return;
   }
   var labels = [
-    { t: '平面 / 湾曲', on: false },
+    { t: s.curved ? '湾曲' : '平面', on: false },
     { t: s.video.muted ? 'ミュート中' : 'ミュート', on: s.video.muted },
     { t: s.locked ? '固定中' : '固定', on: s.locked },
     { t: s.follow ? '追従中' : '追従', on: s.follow },
@@ -5337,9 +5337,9 @@ function xrHelperStatusText(){
   var n = qs.hosts.length;
   var on = 0;
   qs.hosts.forEach(function(h){ if (h.helperOn) on++; });
-  if (n === 0 || on === 0) return ['● 操作モード OFF(見るだけ)', '#ffb86b'];
-  if (on === n) return ['● 操作モード ON', '#3ddc97'];
-  return ['● 操作モード ON(' + on + '/' + n + '台)', '#3ddc97'];
+  if (n === 0 || on === 0) return ['● 操作 OFF(見るだけ)', '#ffb86b'];
+  if (on === n) return ['● 操作 ON', '#3ddc97'];
+  return ['● 操作 ON(' + on + '/' + n + '台)', '#3ddc97'];
 }
 
 function xrDrawHud(){
@@ -5373,8 +5373,8 @@ function xrDrawHud(){
      以前は一続きの文字列を無条件に描いており、全天球つきの既定状態では
      1144px になって枠(1024px)の外へ160pxはみ出し、下の操作一覧にも食い込んでいた */
   var drawParts = ['描画 ' + (xr.fps || '--') + 'fps'];
-  if (S.renderMode === 'classic') drawParts.push('従来');
-  else if (!xr.mediaOk) drawParts.push('くっきり合成: 非対応');
+  if (S.renderMode === 'classic') drawParts.push('従来の描画');
+  else if (!xr.mediaOk) drawParts.push('くっきり表示: 非対応');
   else {
     /* 平面と湾曲を分けて出す(15b)。湾曲は「作った枚数」ではなく
        「映像を流し込めた枚数」を出すこと。作れても描かれない機器があるため */
@@ -5382,7 +5382,7 @@ function xrDrawHud(){
     (xr.mediaLayers || []).forEach(function(e){
       if (e.cyl) { nC++; if (e.drew) nCok++; } else { nQ++; }
     });
-    var t = 'くっきり合成 平面' + nQ + '枚';
+    var t = 'くっきり表示 平面' + nQ + '枚';
     if (S.cylLayer) t += ' 湾曲' + nCok + '/' + nC + '枚';
     drawParts.push(t);
   }
@@ -5390,7 +5390,7 @@ function xrDrawHud(){
      「平面にすると効きます」は案内なので最後 */
   if (xr.panoWay) drawParts.push('全天球: ' + xr.panoWay);
   if (S.renderMode !== 'classic' && xr.mediaOk && (!xr.mediaLayers || !xr.mediaLayers.length)) {
-    /* 既定は湾曲。「湾曲でもくっきり合成」を使っていなければ平面にするしかない */
+    /* 既定は湾曲。「湾曲した画面にも使う」を使っていなければ平面にするしかない */
     drawParts.push(S.cylLayer ? '湾曲は作れませんでした' : '平面にすると効きます');
   }
   ctx.fillStyle = (xr.fps && xr.fps < 55) ? '#ff8f8f' : '#8f89a8';
@@ -5412,19 +5412,19 @@ function xrDrawHud(){
     ['クリック / ドラッグ', kmButtonsFor('click')],
     ['右クリック', kmButtonsFor('rclick')],
   ];
-  if (S.trig === 'vd') lines.splice(1, 0, ['トリガーの使い分け', 'すぐ動かす=選択 / 長押し→動かす=スクロール']);
+  if (S.trig === 'vd') lines.splice(1, 0, ['トリガーの使い分け', 'すぐ動かす=ドラッグ / 長押し→スクロール']);
   lines = lines.concat([
 
     ['画面やパネルをつかんで移動', kmButtonsFor('grab')],
     ['スクロール', scrJp + 'スティック 上下'],
     ['指した画面の遠近 / 大きさ', adjJp + 'スティック 上下 / 左右']
   ]);
-  if (kmHas('ptr')) lines.push(['ポインター表示切替', kmButtonsFor('ptr')]);
-  lines.push(['整列して正面に呼び直す', kmButtonsFor('recenter')]);
+  if (kmHas('ptr')) lines.push(['レーザーの表示切替', kmButtonsFor('ptr')]);
+  lines.push(['画面を正面に戻す', kmButtonsFor('recenter')]);
   lines.push(['設定メニュー', kmButtonsFor('menu')]);
-  lines.push(['キー送信パレット', kmButtonsFor('keys')]);
+  lines.push(['よく使うキー', kmButtonsFor('keys')]);
   lines.push(['このガイド', (kmHas('hud') ? kmButtonsFor('hud') + ' / ' : '') + '何もない所をクリック']);
-  lines.push(['平面/湾曲・ミュート・固定', '画面のすぐ上にレーザーを当てると表示']);
+  lines.push(['画面ごとのボタン', '画面のすぐ上にレーザーを当てると表示']);
 
   var y = 150; /* 138 だと、すぐ上の状態行(y=112・26px)と縦がぶつかっていた(14b) */
   for (var i = 0; i < lines.length; i++) {
@@ -6075,7 +6075,7 @@ function xrUpdatePointerFor(hand){
     xr.ph[hand] = p;
     return;
   }
-  /* 手での操作を切っているなら、素手のレーザーは出さない(15n)。
+  /* 手をかざす操作を切っているなら、素手のレーザーは出さない(15n)。
      コントローラーは今までどおり */
   if (!ctrl || !xr.mouseEnabled || (!S.handTrack && xrIsBareHand(hand))) {
     L.line.visible = false;
@@ -6234,7 +6234,7 @@ function xrUpdateFollows(){
   }
 }
 
-/* ---------- キー送信パレット ---------- */
+/* ---------- よく使うキー ---------- */
 var KEYPAL = [
   [['enter', 'Enter', 150], ['esc', 'Esc', 110], ['tab', 'Tab', 110], ['backspace', '⌫', 90],
    ['left', '←', 80], ['up', '↑', 80], ['down', '↓', 80], ['right', '→', 80]],
@@ -6302,14 +6302,15 @@ function xrKeysDraw(){
   var okTarget = !!(xr.lastHost && xr.lastHost.helperOn);
   ctx.fillStyle = '#eceaf6';
   ctx.font = 'bold 30px sans-serif';
-  ctx.fillText('キー送信', 32, 50);
+  ctx.fillText('よく使うキー', 32, 50);
   ctx.fillStyle = okTarget ? '#3ddc97' : '#ffb86b';
   ctx.font = '24px sans-serif';
   ctx.fillText(
     qs.hosts.length
-      ? ('送信先: PC' + (hi + 1) + (okTarget ? '' : '(操作モードOFF)'))
+      ? ('送信先: パソコン' + (hi + 1) + (okTarget ? '' : '(操作 OFF)'))
       : '送信先なし',
-    200, 50
+    /* 題名「よく使うキー」(30px太字・x=32)が212pxまで伸びるので、ここは232より左へ置かないこと(15r) */
+    232, 50
   );
 
   function kbtn(id, x, y, w, h, text){
@@ -6418,7 +6419,7 @@ function xrPadDraw(){
   ctx.strokeRect(3, 3, W - 6, H - 6);
   ctx.fillStyle = '#eceaf6';
   ctx.font = 'bold 30px sans-serif';
-  ctx.fillText('PCを追加 / 再接続', 32, 50);
+  ctx.fillText('パソコンを追加', 32, 50);
 
   function pbtn(id, x, y, w, h, text, big){
     var hover = xr.padHL === id;
@@ -6486,7 +6487,7 @@ function xrPadDraw(){
     var stt = h.state === 'retry' ? '⟳ 再接続中' :
       (h.state === 'open' ? (h.helperOn ? onTxt : '接続中(見るだけ)') : '接続待ち…');
     ctx.fillStyle = '#d8d5ea';
-    ctx.fillText('PC' + (hi + 1) + ' [' + h.code + '] ' + stt, 420, hy);
+    ctx.fillText('パソコン' + (hi + 1) + ' [' + h.code + '] ' + stt, 420, hy);
     hy += 34;
   }
 
@@ -6526,7 +6527,7 @@ function xrPadActivate(id){
     } else {
       var fake = { textContent: '' };
       var ok = questAddHost(xr.pad.code, fake);
-      xr.pad.status = fake.textContent || (ok ? '接続しています…(結果は15秒以内にここに出ます)' : '');
+      xr.pad.status = fake.textContent || (ok ? '接続しています…(結果は15秒以内に出ます)' : '');
       if (ok) xr.pad.code = '';
     }
   } else if (id.charAt(0) === 'd') {
@@ -6698,8 +6699,8 @@ function xrMenuDraw(){
   ctx.fillText('設定', 36, 58);
 
   btn('close', W - 166, 20, 130, 48, '閉じる');
-  btn('pad', W - 320, 20, 140, 48, 'PC追加', false, false, true);
-  btn('rc', W - 474, 20, 140, 48, '整列', false, false, true);
+  btn('pad', W - 320, 20, 140, 48, 'パソコン追加', false, false, true);
+  btn('rc', W - 474, 20, 140, 48, '正面に戻す', false, false, true);
 
   /* **項目を足すときは、下の要素との縦の間隔を必ず数えること**。
      1ページに詰め込んでいた頃は、背景が8種=3行になった時点で
@@ -6728,7 +6729,7 @@ function xrMenuDraw(){
     valbox(S.maxDist + ' m', 114, 490, 140, 54);
     btn('md:+', 262, 490, 70, 54, '+');
 
-    label('画面の最大の幅', 540, 476);
+    label('画面の最大幅', 540, 476);
     btn('mw:-', 540, 490, 70, 54, '−');
     valbox(S.maxW + ' m', 618, 490, 140, 54);
     btn('mw:+', 766, 490, 70, 54, '+');
@@ -6741,22 +6742,22 @@ function xrMenuDraw(){
     valbox(Math.round(S.vol * 100) + '%', 318, 608, 140, 54);
     btn('vol:+', 466, 608, 70, 54, '+');
 
-    label('休憩リマインダー', 600, 594);
+    label('休憩のお知らせ', 600, 594);
     [['rm:0', 'なし', 0], ['rm:30', '30分', 30], ['rm:60', '60分', 60], ['rm:90', '90分', 90]].forEach(function(it, i){
       btn(it[0], 600 + i * 100, 608, 95, 54, it[1], xr.remindMin === it[2], false, true);
     });
 
-    label('配置スロット(位置・大きさ・湾曲・固定・追従・明るさを記憶)', 36, 712);
+    label('画面の配置を記憶', 36, 712);
     ['A', 'B', 'C'].forEach(function(nm, i){
       var x0 = 36 + i * 330;
       btn('sv:' + i, x0, 726, 150, 52, nm + ' 保存', false, false, true);
-      btn('ld:' + i, x0 + 158, 726, 150, 52, nm + ' 呼出', !!S.slots[i], !S.slots[i], true);
+      btn('ld:' + i, x0 + 158, 726, 150, 52, nm + ' 呼び出し', !!S.slots[i], !S.slots[i], true);
     });
   } else {
     /* 「操作」ページ(14b)。ここに並ぶ設定はどれも**毎フレーム S を読む**ので、
        VRをかぶったまま変えればその場で効く。従来は2Dの設定画面にしか無く、
        VR中はDOMが出ないため到達する手段が一つも無かった */
-    label('ボタンの割り当て(押すたびに次の機能へ)', 36, 170);
+    label('ボタンの割り当て', 36, 170);
     KM_BTNS.forEach(function(b, i){
       var r = i % 5, c = (i < 5) ? 0 : 1;
       var act = S.km2[b];
@@ -6764,7 +6765,7 @@ function xrMenuDraw(){
           KM_BTN_LABEL[b] + ': ' + (KM_ACT_SHORT[act] || 'なし'), false, false, true);
     });
     btn('kmreset', 36, 528, 200, 52, '標準に戻す', false, false, true);
-    /* 手での操作(15n)。**邪魔になるのはかぶっている最中**なので、その場で切れることが要る。
+    /* 手をかざす操作(15n)。**邪魔になるのはかぶっている最中**なので、その場で切れることが要る。
        置き場所は「標準に戻す」と**同じ行**。**この行しかまとまった空きが無い**
        (622/636 と 730/744 の行は右端948まで埋まっており、枠は1024。
        上は割り当ての最終行が504まで、下は622から次の見出し)。
@@ -6773,17 +6774,17 @@ function xrMenuDraw(){
        見出しの代わりに、ボタンの文字自体へ用途を書く。
        **項目を足すときは必ず runprobe で測ること**(検査3が箱への食い込みを見る) */
     btn('hand', 300, 528, 300, 52,
-        '手での操作: ' + (S.handTrack ? 'ON' : 'OFF'), S.handTrack, false, true);
+        '手をかざす操作: ' + (S.handTrack ? 'ON' : 'OFF'), S.handTrack, false, true);
 
-    label('トリガーのドラッグ', 36, 622);
+    label('トリガーの使い分け', 36, 622);
     btn('trig:vd', 36, 636, 200, 54, 'スクロール対応', S.trig !== 'plain', false, true);
     btn('trig:plain', 244, 636, 200, 54, '常にドラッグ', S.trig === 'plain', false, true);
 
     label('スティックの役割', 540, 622);
-    btn('stick:left', 540, 636, 200, 54, '左=調整', S.stick !== 'right', false, true);
-    btn('stick:right', 748, 636, 200, 54, '右=調整', S.stick === 'right', false, true);
+    btn('stick:left', 540, 636, 200, 54, '左=画面の調整', S.stick !== 'right', false, true);
+    btn('stick:right', 748, 636, 200, 54, '右=画面の調整', S.stick === 'right', false, true);
 
-    label('ポインターの安定化', 36, 730);
+    label('手ぶれ補正', 36, 730);
     btn('stab', 36, 744, 140, 54, S.ptrStab ? 'ON' : 'OFF', S.ptrStab);
 
     label('スクロールの速さ', 280, 730);
@@ -6793,7 +6794,7 @@ function xrMenuDraw(){
 
     label('スクロールの向き', 640, 730);
     btn('sdir:1', 640, 744, 150, 54, '標準', S.scrollDir !== -1, false, true);
-    btn('sdir:-1', 798, 744, 150, 54, '逆', S.scrollDir === -1, false, true);
+    btn('sdir:-1', 798, 744, 150, 54, '逆にする', S.scrollDir === -1, false, true);
   }
 
   xr.menu.btns = btns;
@@ -6903,7 +6904,7 @@ function xrMenuActivate(id){
   refreshSettingsUi();
 }
 
-/* ---------- 配置スロット ---------- */
+/* ---------- 画面の配置を記憶 ---------- */
 function xrBasis(){
   var up = new THREE.Vector3(0, 1, 0);
   var f = xr.forward.clone();
@@ -7080,7 +7081,7 @@ function xrEnsureMedia(){
       xr.glBinding = okGl ? gb : null;
       xr.glOk = okGl; /* **必ず両方に入れること**: 取れなかったときに前の値を残すと、死んだ binding を使う */
     } catch (_e2) { xr.glOk = false; xr.glBinding = null; }
-    questLog('くっきり合成の用意: 平面=' + (xr.mediaOk ? '可' : '不可')
+    questLog('くっきり表示の用意: 平面=' + (xr.mediaOk ? '可' : '不可')
       + ' / 湾曲=' + (xr.glOk ? '可' : '不可(この機器は円柱レイヤーを作れません)'));
   } catch (_e) { xr.mediaTries = 999; }
 }
@@ -7160,7 +7161,7 @@ function xrSyncMediaLayers(){
       /* 作成に失敗した画面は従来描画のまま。**理由は残すこと**(握りつぶさない) */
       if (cyl && !xr.cylErrLogged) {
         xr.cylErrLogged = true;
-        questLog('湾曲のくっきり合成を作れませんでした: ' + ((e && e.name) || 'Error')
+        questLog('湾曲のくっきり表示を作れませんでした: ' + ((e && e.name) || 'Error')
           + ': ' + ((e && e.message) || '') + ' → この画面は従来描画のままです');
       }
     }
@@ -7233,7 +7234,7 @@ function xrSyncMediaLayers(){
 /* 円柱レイヤーへ映像を1コマ流し込む(15b)。
    平面(XRMediaBinding)は映像を渡すだけで合成器が読み続けるが、円柱は
    XRWebGLBinding なので中身を自分で入れる。1画素対1画素の素のコピーなので、
-   「合成器の解像度で1回だけ標本化される」というくっきり合成の利点は残る。
+   「合成器の解像度で1回だけ標本化される」というくっきり表示の利点は残る。
 
    **呼ぶ場所を動かさないこと**: three が描画先を確定したあと(xrRenderInner の中)で
    ないと getSubImage が使えない。また updateRenderState の反映は次のコマなので、
@@ -7261,7 +7262,7 @@ function xrCylDraw(){
     if (!sub || !sub.colorTexture) {
       /* 反映待ちの数コマは普通に失敗する。続くようなら諦める */
       if (++e.subFails > 120) {
-        questLog('湾曲のくっきり合成に映像を渡せません(画面' + e.s.slot + ') → 従来描画へ戻します');
+        questLog('湾曲のくっきり表示に映像を渡せません(画面' + e.s.slot + ') → 従来の描き方へ戻します');
         e.s.cylGaveUp = true; /* 二度と作り直さない(作り直すと同じ失敗を延々くり返す) */
         drops.push(e.s);
       }
@@ -7308,13 +7309,13 @@ function xrCylDraw(){
         e.drew = true;
         if (e.s.mesh) e.s.mesh.material = xrHoleMat(e.s.dim);
         xr.hudStale = true; /* 操作ガイドの「湾曲◯/◯枚」を描き直させる */
-        questLog('湾曲のくっきり合成が働いています(画面' + e.s.slot + '・' + px + ')');
+        questLog('湾曲のくっきり表示が働いています(画面' + e.s.slot + '・' + px + ')');
       }
     } catch (e2) {
       /* 転写の失敗は getSubImage の失敗と別に数えること(同じ数え方だと、
          毎コマ getSubImage が通るぶん数が0に戻り、いつまでも諦めない) */
       if (++e.blitFails > 30) {
-        questLog('湾曲のくっきり合成で映像を書けません(画面' + e.s.slot + '): '
+        questLog('湾曲のくっきり表示で映像を書けません(画面' + e.s.slot + '): '
           + ((e2 && e2.name) || 'Error') + ' → 従来描画へ戻します');
         e.s.cylGaveUp = true;
         drops.push(e.s);
@@ -7429,7 +7430,7 @@ function xrRenderInner(){
     xrSaveLayout();
   }
   if (xr.hud) {
-    /* キー送信パネルは操作ガイドの上端と同じ高さに出るため、開いている間は隠す。
+    /* 「よく使うキー」のパネルは操作ガイドの上端と同じ高さに出るため、開いている間は隠す。
        ただし休憩の知らせは操作ガイドにしか出ず、見逃すと二度と出ないので、その間だけは隠さない */
     var wantHud = (xr.hudPinned || now < xr.hudUntil)
       && (!xr.keys.open || Date.now() < xr.remindShownUntil);
@@ -7438,7 +7439,7 @@ function xrRenderInner(){
     xr.hud.visible = wantHud;
   }
 
-  /* 時計の分更新と休憩リマインダー。
+  /* 時計の分更新と休憩のお知らせ。
      描き直すのはガイドが見えているときだけ(05x。1024x920のキャンバスを
      57箇所描き直してGPUへ送る処理なので、隠れている間に毎分走らせる
      意味がない)。分は覚えておき、次に出したときに新しい時刻で描かれる */
