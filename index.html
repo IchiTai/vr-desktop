@@ -541,40 +541,39 @@ footer.site a{color:var(--muted);text-decoration:underline}
           <span id="codecApplyNote" class="hidden" style="margin-left:10px;color:var(--muted);font-size:13px"></span>
         </p>
       </div>
-      <p class="set-note hidden" id="picCodecPcNote">映像の圧縮形式は<b>見る側の端末</b>(Quest・スマホ・タブレット)の設定で決まります。このパソコンの設定画面からは変えられないため、ここには出していません。</p>
-      <div class="set-row">
-        <label>画面の描画方式(VR)</label>
-        <select class="monsel" id="selRender">
-          <option value="layers">くっきり合成(Media Layers・標準)</option>
-          <option value="classic">従来</option>
-        </select>
-      </div>
-      <div class="set-row">
-        <label>湾曲でもくっきり合成(実験)</label>
-        <select class="monsel" id="selCylLayer">
-          <option value="off">使わない(標準)</option>
-          <option value="on">使う</option>
-        </select>
-      </div>
-      <p class="set-note">いまは<b>平面にした画面だけ</b>が合成器の直描き(くっきり合成)になり、湾曲の画面は従来描画です。これを<b>湾曲でも使う</b>試みです。<b>お使いの機器で描けるかどうかが未確認</b>なので、既定は「使わない」にしてあります。<br><b>試し方</b>: 「使う」にしてVRへ入り、湾曲の画面を見てください。<b>文字がくっきりすれば成功</b>です。<b>真っ黒になったら描けない機器</b>なので、その画面のボタンバーのいちばん左(平面/湾曲の切替)を押せばすぐ戻せます(ヘッドセットを外さずに戻せます)。VRの中の操作ガイドにも結果が出ます。</p>
-      <div class="set-row">
-        <label>ふちのギザギザ取り(VR)</label>
-        <select class="monsel" id="selAA">
-          <option value="on">あり(標準)</option>
-          <option value="off">なし(描画が軽くなる)</option>
-        </select>
-      </div>
-      <p class="set-note">レーザーの線・足元の格子・画面や操作ガイドの<b>ふちの階段状のギザギザ</b>をなめらかにします。<b>画面の中の文字には効きません</b>(文字は「VRの描画解像度」と「文字のちらつき低減」の担当です)。また、合成器が直接描いている画面(平面、および「湾曲でもくっきり合成」が働いている湾曲)には効きません。<b>ページを読み込み直したときから</b>反映されます。VRの中の操作ガイドに出る「描画」の数字(1秒あたりのコマ数)が低い(60を大きく下回る)ときは「なし」を試してください。</p>
-      <div class="set-row">
-        <label>操作の機敏さ優先</label>
-        <select class="monsel" id="selLowLat">
-          <option value="on">する(標準)</option>
-          <option value="off">しない(ブラウザ任せ)</option>
-        </select>
-      </div>
-      <p class="set-note">映像の受け取り側の溜め(揺らぎ吸収用のバッファ)を最小にするようブラウザへ希望します。<b>切り替えたその場で</b>反映されます(受信中の映像にも効きます)。映像の乱れ(コマ飛び)が増えたと感じたら「しない」に戻してください。この項目は環境タブの「低遅延モード」と同じ設定です。</p>
-      <p class="set-note">標準の方式は、画面を合成器が直接描くため文字がくっきりし、消費電力も下がります(対応機のみ)。長らく<b>平面の画面だけ</b>が対象でしたが、湾曲の画面も下の「湾曲でもくっきり合成(実験)」で試せます。表示に不具合が出たときは「従来」に切り替えてください(即時反映)。</p>
-    </div>
+      <p class="set-note hidden" id="picPcNote">ここから変えられるのは<b>画質プリセット</b>だけです。映像の圧縮形式・VRの描画方式・ふちのギザギザ取り・受信のため込みは、<b>見る側の端末</b>(Quest・スマホ・タブレット)の設定で決まります。</p>
+      <!-- ここから下は**見る側の端末でしか効かない**(VRの描画と受信の設定)。
+           共有する側では箱ごと隠す(renderSettings の picVrOnly)。
+           **新しい項目をこの箱の外に足さないこと**: 外に置くと、効かない設定が
+           共有する側の画面に並ぶ(2026-08-15eで4項目がその状態になっていた) -->
+      <div id="picVrOnly">
+        <div class="set-row">
+          <label>画面の描画方式(VR)</label>
+          <select class="monsel" id="selRender">
+            <option value="layers">くっきり合成(Media Layers・標準)</option>
+            <option value="classic">従来</option>
+          </select>
+        </div>
+        <p class="set-note">標準の方式は、画面を合成器が直接描くため文字がくっきりし、消費電力も下がります(対応機のみ)。表示に不具合が出たときは「従来」に切り替えてください(即時反映)。</p>
+        <div class="set-row">
+          <label>湾曲でもくっきり合成(実験)</label>
+          <select class="monsel" id="selCylLayer">
+            <option value="off">使わない(標準)</option>
+            <option value="on">使う</option>
+          </select>
+        </div>
+        <p class="set-note">くっきり合成は長らく<b>平面にした画面だけ</b>が対象で、湾曲の画面は従来描画でした。これを<b>湾曲でも使う</b>試みです。<b>お使いの機器で描けるかどうかが未確認</b>なので、既定は「使わない」にしてあります。<br><b>試し方</b>: 「使う」にしてVRへ入り、湾曲の画面を見てください。<b>文字がくっきりすれば成功</b>です。<b>真っ黒になったら描けない機器</b>なので、その画面のボタンバーのいちばん左(平面/湾曲の切替)を押せばすぐ戻せます(ヘッドセットを外さずに戻せます)。VRの中の操作ガイドにも結果が出ます。</p>
+        <div class="set-row">
+          <label>ふちのギザギザ取り(VR)</label>
+          <select class="monsel" id="selAA">
+            <option value="on">あり(標準)</option>
+            <option value="off">なし(描画が軽くなる)</option>
+          </select>
+        </div>
+        <p class="set-note">レーザーの線・足元の格子・画面や操作ガイドの<b>ふちの階段状のギザギザ</b>をなめらかにします。<b>画面の中の文字には効きません</b>(文字は「VRの描画解像度」と「文字のちらつき低減」の担当です)。また、合成器が直接描いている画面(平面、および「湾曲でもくっきり合成」が働いている湾曲)には効きません。<b>ページを読み込み直したときから</b>反映されます。VRの中の操作ガイドに出る「描画」の数字(1秒あたりのコマ数)が低い(60を大きく下回る)ときは「なし」を試してください。</p>
+        <p class="set-note">受信のため込みを減らす<b>「低遅延モード」</b>は<b>環境</b>タブにあります(以前はここにも同じ欄がありましたが、同じ設定の欄が2つあると混乱するため1つにまとめました)。</p>
+      </div><!-- /picVrOnly -->
+    </div><!-- /setPanePic -->
     <div id="setPaneEnv" class="hidden">
       <div id="envVrOnly">
         <p class="strong" style="margin-bottom:8px;color:var(--ink);font-size:14px">VRの背景</p>
@@ -2646,7 +2645,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-15d';
+var APP_VER = '2026-08-15e';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -3080,8 +3079,11 @@ function renderSettings(){
   show($('setPaneEnv'), setTab === 'env');
   /* 圧縮形式は見る側の応答SDPを書き換える方式なので、共有する側で操作しても
      何も起きない(13b)。効かない欄を出したままにしない */
+  /* 画質タブは共有する側にも出る唯一のタブ。**効くのは画質プリセットだけ**なので、
+     残りは箱ごと隠す(2026-08-15e。以前は4項目が効かないまま並んでいた) */
   show($('picCodecBox'), setRole === 'q');
-  show($('picCodecPcNote'), setRole !== 'q');
+  show($('picVrOnly'), setRole === 'q');
+  show($('picPcNote'), setRole !== 'q');
 
   syncSetControls();
   if (setTab === 'ctl') renderKm();
@@ -3093,7 +3095,7 @@ function renderSettings(){
    タブごとに分けないこと(操作欄の所在タブと書き戻す条件がずれると、そのタブを
    開いたときに保存値ではなくHTMLの先頭の選択肢が表示される)。
    操作欄を1つ足したら、ここにも1行足すこと。
-   同じ設定に操作欄が2つある低遅延(selLowLat/chkLowLat)は、両方をここで書く。
+   低遅延の欄は環境タブの chkLowLat 1つだけ(2026-08-15eで画質タブの selLowLat を撤去)。
    3つのrenderより前に呼ぶこと(renderが落ちても書き戻しは済ませるため)。
    画質・背景・ボタン割り当ての「選択中」表示は、各タブのrender側が受け持つ */
 function syncSetControls(){
@@ -3108,7 +3110,6 @@ function syncSetControls(){
   $('selRender').value = S.renderMode;
   $('selCylLayer').value = S.cylLayer ? 'on' : 'off';
   $('selAA').value = S.aa ? 'on' : 'off';
-  $('selLowLat').value = S.lowLat ? 'on' : 'off';
   /* 環境タブ */
   $('selScrollDir').value = String(S.scrollDir);
   $('selPanoStereo').value = S.panoStereo;
@@ -3310,11 +3311,6 @@ function initSettingsUi(){
     S.aa = ($('selAA').value !== 'off');
     saveS();
   });
-  $('selLowLat').addEventListener('change', function(){
-    S.lowLat = ($('selLowLat').value !== 'off');
-    saveS();
-    qApplyLatencyAll(); /* 低遅延は操作欄が2つ(画質タブ/環境タブ)。両方から即時反映する(13a) */
-  });
   $('selScrollSpd').addEventListener('change', function(){
     /* 0(ゆっくり)は正当な値。`|| 1` で既定へ倒すと 0 が保存できない(13a) */
     var sp = parseInt($('selScrollSpd').value, 10);
@@ -3348,6 +3344,7 @@ function initSettingsUi(){
     if (APP.xrAnisoChanged) APP.xrAnisoChanged();
   });
   $('chkLowLat').addEventListener('change', function(){
+    /* 低遅延の操作欄はこの1つだけ(2026-08-15e。以前は画質タブにも同じものがあった) */
     S.lowLat = $('chkLowLat').checked;
     saveS();
     qApplyLatencyAll();
