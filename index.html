@@ -550,6 +550,14 @@ footer.site a{color:var(--muted);text-decoration:underline}
         </select>
       </div>
       <div class="set-row">
+        <label>湾曲でもくっきり合成(実験)</label>
+        <select class="monsel" id="selCylLayer">
+          <option value="off">使わない(標準)</option>
+          <option value="on">使う</option>
+        </select>
+      </div>
+      <p class="set-note">いまは<b>平面にした画面だけ</b>が合成器の直描き(くっきり合成)になり、湾曲の画面は従来描画です。これを<b>湾曲でも使う</b>試みです。<b>お使いの機器で描けるかどうかが未確認</b>なので、既定は「使わない」にしてあります。<br><b>試し方</b>: 「使う」にしてVRへ入り、湾曲の画面を見てください。<b>文字がくっきりすれば成功</b>です。<b>真っ黒になったら描けない機器</b>なので、その画面のボタンバーのいちばん左(平面/湾曲の切替)を押せばすぐ戻せます(ヘッドセットを外さずに戻せます)。VRの中の操作ガイドにも結果が出ます。</p>
+      <div class="set-row">
         <label>ふちのギザギザ取り(VR)</label>
         <select class="monsel" id="selAA">
           <option value="on">あり(標準)</option>
@@ -2638,7 +2646,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-15a';
+var APP_VER = '2026-08-15b';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2719,6 +2727,9 @@ function loadS(){
   s.ptrStab = (s.ptrStab === false) ? false : true; /* ポインターの安定化(手ぶれ補正) */
   s.codec = (s.codec === 'vp8') ? 'vp8' : 'h264'; /* 映像の圧縮形式。h264=ハードウェア復号優先 */
   s.renderMode = (s.renderMode === 'classic') ? 'classic' : 'layers'; /* VRの画面の描画方式 */
+  /* 湾曲のくっきり合成(15b)。**既定はOFF**: 実機で描かれるかがまだ未確認で、
+     描かれないと窓だけが残って真っ黒に見えるため(第10節) */
+  s.cylLayer = (s.cylLayer === true);
   s.aa = (s.aa === false) ? false : true; /* ふちのギザギザ取り(4サンプルのMSAA)。切ると描画が軽くなる */
   s.lowLat = (s.lowLat !== false); /* 低遅延モード(操作の機敏さ優先): 受信の溜めを最小に希望。初期ON */
   s.stick = (s.stick === 'right') ? 'right'
@@ -3095,6 +3106,7 @@ function syncSetControls(){
   /* 画質タブ */
   $('selCodec').value = S.codec;
   $('selRender').value = S.renderMode;
+  $('selCylLayer').value = S.cylLayer ? 'on' : 'off';
   $('selAA').value = S.aa ? 'on' : 'off';
   $('selLowLat').value = S.lowLat ? 'on' : 'off';
   /* 環境タブ */
@@ -3286,6 +3298,13 @@ function initSettingsUi(){
   $('selRender').addEventListener('change', function(){
     S.renderMode = ($('selRender').value === 'classic') ? 'classic' : 'layers';
     saveS();
+  });
+  $('selCylLayer').addEventListener('change', function(){
+    S.cylLayer = ($('selCylLayer').value === 'on');
+    saveS();
+    /* VR中に切り替えたらその場で反映する。判定(xrScreenLayerWanted)が変わるので、
+       次の同期で作られる/外される */
+    if (APP.xrCylChanged) APP.xrCylChanged();
   });
   $('selAA').addEventListener('change', function(){
     S.aa = ($('selAA').value !== 'off');
@@ -4791,6 +4810,16 @@ APP.xrAnisoChanged = function(){
   });
 };
 
+/* 「湾曲でもくっきり合成」を切り替えたときの反映(15b)。
+   いま出ている湾曲のレイヤーを一度外すだけでよい(次の同期が判定し直す) */
+APP.xrCylChanged = function(){
+  if (!xr.built || !xr.mediaLayers) return;
+  for (var i = xr.mediaLayers.length - 1; i >= 0; i--) {
+    if (xr.mediaLayers[i].cyl) xrDropScreenLayer(xr.mediaLayers[i].s);
+  }
+  xr.cylErrLogged = false;
+};
+
 APP.xrSync = function(){ if (xr.built) xrSyncScreens(); };
 APP.xrHud = function(){ if (xr.built) xrDrawHud(); };
 
@@ -4803,11 +4832,15 @@ function xrScreenW(s){
   return xrScreenWBase(s) * (s.wScale || 1);
 }
 
+/* 湾曲の中心角。**円柱レイヤーの radius と centralAngle もこの値から決まる**ので、
+   式を変えるときは xrSyncMediaLayers の円柱の分岐も一緒に確かめること(15b) */
+function xrCurveAngle(width, curved){
+  return curved ? Math.min(1.5, 0.85 * (width / Math.max(0.8, xr.params.width))) : 0;
+}
+
 function xrMakeScreenGeo(width, aspect, curved){
   var height = width / aspect;
-  var angle = curved
-    ? Math.min(1.5, 0.85 * (width / Math.max(0.8, xr.params.width)))
-    : 0;
+  var angle = xrCurveAngle(width, curved);
   var segX = 48, segY = 8;
   var pos = [], uv = [], idx = [];
   var iy, ix;
@@ -4877,6 +4910,7 @@ function xrCreateScreen(d){
   s.mesh = new THREE.Mesh(xrMakeScreenGeo(xrScreenW(s), s.aspect, s.curved), mat);
   s.mesh.userData.w = xrScreenW(s);
   s.mesh.userData.h = xrScreenW(s) / s.aspect;
+  s.mesh.userData.ang = xrCurveAngle(xrScreenW(s), s.curved);
   s.mesh.userData.ref = s;
   xrBuildBar(s);
   xr.root.add(s.mesh);
@@ -4889,6 +4923,7 @@ function xrRebuildGeos(){
     s.mesh.geometry = xrMakeScreenGeo(xrScreenW(s), s.aspect, s.curved);
     s.mesh.userData.w = xrScreenW(s);
     s.mesh.userData.h = xrScreenW(s) / s.aspect;
+    s.mesh.userData.ang = xrCurveAngle(xrScreenW(s), s.curved);
     if (old) old.dispose();
     xrPlaceBar(s);
   });
@@ -4978,6 +5013,7 @@ function xrBarActivate(s, idx){
     s.mesh.geometry = xrMakeScreenGeo(xrScreenW(s), s.aspect, s.curved);
     s.mesh.userData.w = xrScreenW(s);
     s.mesh.userData.h = xrScreenW(s) / s.aspect;
+    s.mesh.userData.ang = xrCurveAngle(xrScreenW(s), s.curved);
     if (old) old.dispose();
   } else if (idx === 1) {
     s.video.muted = !s.video.muted;
@@ -5130,15 +5166,22 @@ function xrDrawHud(){
   if (S.renderMode === 'classic') drawParts.push('従来');
   else if (!xr.mediaOk) drawParts.push('くっきり合成: 非対応');
   else {
-    var nLay = xr.mediaLayers ? xr.mediaLayers.length : 0;
-    drawParts.push('くっきり合成 ' + nLay + '枚');
+    /* 平面と湾曲を分けて出す(15b)。湾曲は「作った枚数」ではなく
+       「映像を流し込めた枚数」を出すこと。作れても描かれない機器があるため */
+    var nQ = 0, nC = 0, nCok = 0;
+    (xr.mediaLayers || []).forEach(function(e){
+      if (e.cyl) { nC++; if (e.drew) nCok++; } else { nQ++; }
+    });
+    var t = 'くっきり合成 平面' + nQ + '枚';
+    if (S.cylLayer) t += ' 湾曲' + nCok + '/' + nC + '枚';
+    drawParts.push(t);
   }
   /* 落とす順は**後ろから**なので、切り分けに要る情報ほど前に置くこと(14b)。
      「平面にすると効きます」は案内なので最後 */
   if (xr.panoWay) drawParts.push('全天球: ' + xr.panoWay);
   if (S.renderMode !== 'classic' && xr.mediaOk && (!xr.mediaLayers || !xr.mediaLayers.length)) {
-    /* 対象は平面のみ。既定は湾曲なので、切り替えないと0枚のままになる */
-    drawParts.push('平面にすると効きます');
+    /* 既定は湾曲。「湾曲でもくっきり合成」を使っていなければ平面にするしかない */
+    drawParts.push(S.cylLayer ? '湾曲は作れませんでした' : '平面にすると効きます');
   }
   ctx.fillStyle = (xr.fps && xr.fps < 55) ? '#ff8f8f' : '#8f89a8';
   ctx.font = 'bold 26px sans-serif';
@@ -6679,9 +6722,18 @@ var MEDIA_MAX = 14; /* Questのレイヤー上限(16)からprojection分を引�
    詳細は引き継ぎ書)。**再挑戦するなら XRMediaBinding ではなく
    XRWebGLBinding.createCylinderLayer に自前で描き込む方式**しか残っていない */
 function xrScreenLayerWanted(s){
-  return S.renderMode !== 'classic' && !s.curved && s.mesh && s.video &&
-         s.video.readyState >= 2 && s.dim >= 0.999; /* 明るさを下げた画面は従来描画(レイヤーに明るさ調整が無い) */
+  /* 明るさを下げた画面は従来描画(レイヤーに明るさ調整が無い) */
+  if (S.renderMode === 'classic' || !s.mesh || !s.video) return false;
+  if (s.video.readyState < 2 || s.dim < 0.999) return false;
+  if (!s.curved) return true;
+  /* 湾曲は XRWebGLBinding の円柱レイヤーで出す(15b)。
+     **XRMediaBinding の円柱は使わないこと**: 生成はできるが Quest では描画されない
+     (第10節。4通り試して全滅)。こちらは映像を自分で流し込む別の経路 */
+  return !!S.cylLayer && !!xr.glOk;
 }
+
+/* 円柱レイヤーで出す画面か(湾曲かどうかだけの違い) */
+function xrIsCyl(s){ return !!s.curved; }
 /* 指定の画面の合成器レイヤーを手放す(13b)。映像の器が差し替わったとき、
    レイヤーは古い器を握ったままなので、作り直させるにはいったん外すしかない。
    破棄は即座にせず捨て待ち箱へ((d)③。その瞬間の合成にまだ使われている) */
@@ -6710,6 +6762,17 @@ function xrEnsureMedia(){
     xr.projLayer = lay;
     xr.mediaBinding = new XRMediaBinding(xr.session);
     xr.mediaOk = true;
+    /* 湾曲用(15b)。three が layers 経路で既に作った XRWebGLBinding を借りる。
+       自分で new すると同じ GL 文脈に2つできるので、必ず getBinding を使うこと */
+    try {
+      var gb = xr.renderer.xr.getBinding ? xr.renderer.xr.getBinding() : null;
+      if (gb && typeof gb.createCylinderLayer === 'function' && typeof gb.getSubImage === 'function') {
+        xr.glBinding = gb;
+        xr.glOk = true;
+      }
+    } catch (_e2) { xr.glOk = false; }
+    questLog('くっきり合成の用意: 平面=' + (xr.mediaOk ? '可' : '不可')
+      + ' / 湾曲=' + (xr.glOk ? '可' : '不可(この機器は円柱レイヤーを作れません)'));
   } catch (_e) { xr.mediaTries = 999; }
 }
 
@@ -6748,10 +6811,28 @@ function xrSyncMediaLayers(){
   }
   want.forEach(function(s){
     for (var k = 0; k < xr.mediaLayers.length; k++) if (xr.mediaLayers[k].s === s) return;
+    var cyl = xrIsCyl(s);
     try {
-      var layer = xr.mediaBinding.createQuadLayer(s.video, {
-        space: xr.renderer.xr.getReferenceSpace(), width: 1, height: 1
-      });
+      var layer;
+      if (cyl) {
+        /* 円柱レイヤー(15b)。中身は毎コマ xrCylDraw が自分で流し込む。
+           **器の画素数は作ったあと変えられない**ので、映像の実寸で確保する
+           (映像の大きさが変わったら作り直す=下の sigPx) */
+        var vw = s.video.videoWidth | 0, vh = s.video.videoHeight | 0;
+        if (!vw || !vh) return;
+        layer = xr.glBinding.createCylinderLayer({
+          space: xr.renderer.xr.getReferenceSpace(),
+          viewPixelWidth: vw, viewPixelHeight: vh,
+          layout: 'mono',
+          /* 形は下の毎コマの同期で入れ直すので、ここは当たり障りのない初期値でよい */
+          radius: 2, centralAngle: 1, aspectRatio: (vw / Math.max(1, vh)),
+          isStatic: false
+        });
+      } else {
+        layer = xr.mediaBinding.createQuadLayer(s.video, {
+          space: xr.renderer.xr.getReferenceSpace(), width: 1, height: 1
+        });
+      }
       if (!xr.holeMat) {
         /* 穴あけ材質: RGBA(0,0,0,0)を直書きして、背景に「窓」を開ける。
            メッシュ自体は残すので、当たり判定・つかみ・バーは無改修で動く */
@@ -6760,10 +6841,24 @@ function xrSyncMediaLayers(){
           blending: THREE.NoBlending, side: THREE.DoubleSide, fog: false
         });
       }
-      s.mesh.material = xr.holeMat;
-      xr.mediaLayers.push({ s: s, layer: layer, sig: '' });
+      /* **円柱は、映像を1コマでも流し込めるまで穴を開けないこと(15b)**。
+         先に開けると、流し込みに失敗したときに真っ黒の窓だけが残る
+         (第10節で起きたのがこれ) */
+      if (!cyl) s.mesh.material = xr.holeMat;
+      xr.mediaLayers.push({
+        s: s, layer: layer, sig: '', cyl: cyl,
+        px: cyl ? (s.video.videoWidth + 'x' + s.video.videoHeight) : '',
+        drew: false, fails: 0
+      });
       changed = true;
-    } catch (_e) { /* 作成に失敗した画面は従来描画のまま */ }
+    } catch (e) {
+      /* 作成に失敗した画面は従来描画のまま。**理由は残すこと**(握りつぶさない) */
+      if (cyl && !xr.cylErrLogged) {
+        xr.cylErrLogged = true;
+        questLog('湾曲のくっきり合成を作れませんでした: ' + ((e && e.name) || 'Error')
+          + ': ' + ((e && e.message) || '') + ' → この画面は従来描画のままです');
+      }
+    }
   });
   /* 奥→手前の並べ替え((d)②): レイヤー同士に奥行き判定はなく(仕様)、配列順で
      合成される。画面の並び順のままだと、奥の画面が配列で後ろにいるとき、
@@ -6782,10 +6877,36 @@ function xrSyncMediaLayers(){
   if (!xr.tmpQ) xr.tmpQ = new THREE.Quaternion();
   xr.mediaLayers.forEach(function(e){
     var m = e.s.mesh;
-    m.getWorldPosition(xr.tmpV1);
     m.getWorldQuaternion(xr.tmpQ);
     var w = (m.userData.w || 1) * m.scale.x;
     var h = (m.userData.h || 1) * m.scale.y;
+    if (e.cyl) {
+      /* **円柱の位置は「見えている面」ではなく「円柱の軸」に置くこと(15b)**。
+         xrMakeScreenGeo はメッシュの原点を弧の中央=面の上に置き、軸は
+         メッシュ座標の (0,0,+R) にある。ここを面のまま渡すと、絵は軸を中心に
+         描かれるので窓から半径ぶん外れ、**窓からは何も見えない=真っ黒に見える**。
+         第10節の「一度も描画されなかった」は、この取り違えでも同じ見え方になる */
+      var ang = (m.userData.ang || 0);
+      if (ang <= 0.001) return; /* 湾曲していない=円柱にできない */
+      var R = w / ang;
+      xr.tmpV1.set(0, 0, R);
+      m.localToWorld(xr.tmpV1);
+      var sigC = xr.tmpV1.x.toFixed(3) + ',' + xr.tmpV1.y.toFixed(3) + ',' + xr.tmpV1.z.toFixed(3) + ','
+        + xr.tmpQ.x.toFixed(3) + ',' + xr.tmpQ.y.toFixed(3) + ',' + xr.tmpQ.z.toFixed(3) + ',' + xr.tmpQ.w.toFixed(3) + ','
+        + R.toFixed(3) + ',' + ang.toFixed(4) + ',' + h.toFixed(3);
+      if (sigC === e.sig) return;
+      e.sig = sigC;
+      e.layer.transform = new XRRigidTransform(
+        { x: xr.tmpV1.x, y: xr.tmpV1.y, z: xr.tmpV1.z },
+        { x: xr.tmpQ.x, y: xr.tmpQ.y, z: xr.tmpQ.z, w: xr.tmpQ.w }
+      );
+      /* 弧の長さ = R × 中心角 = w なので、縦横比はそのまま w/h */
+      e.layer.radius = R;
+      e.layer.centralAngle = ang;
+      e.layer.aspectRatio = w / Math.max(0.001, h);
+      return;
+    }
+    m.getWorldPosition(xr.tmpV1);
     var sig = xr.tmpV1.x.toFixed(3) + ',' + xr.tmpV1.y.toFixed(3) + ',' + xr.tmpV1.z.toFixed(3) + ','
       + xr.tmpQ.x.toFixed(3) + ',' + xr.tmpQ.y.toFixed(3) + ',' + xr.tmpQ.z.toFixed(3) + ',' + xr.tmpQ.w.toFixed(3) + ','
       + w.toFixed(3) + ',' + h.toFixed(3);
@@ -6802,6 +6923,67 @@ function xrSyncMediaLayers(){
     e.layer.height = h / 2;
   });
   if (changed) xrPanoLayerSync(); /* 全天球を先頭に、画面、projection の順で組み直す */
+}
+
+/* 円柱レイヤーへ映像を1コマ流し込む(15b)。
+   平面(XRMediaBinding)は映像を渡すだけで合成器が読み続けるが、円柱は
+   XRWebGLBinding なので中身を自分で入れる。1画素対1画素の素のコピーなので、
+   「合成器の解像度で1回だけ標本化される」というくっきり合成の利点は残る。
+
+   **呼ぶ場所を動かさないこと**: three が描画先を確定したあと(xrRenderInner の中)で
+   ないと getSubImage が使えない。また updateRenderState の反映は次のコマなので、
+   作った直後は必ず失敗する(下の try で捨てて次のコマに任せる) */
+function xrCylDraw(){
+  if (!xr.glOk || !xr.mediaLayers || !xr.mediaLayers.length) return;
+  var frame = xr.renderer.xr.getFrame ? xr.renderer.xr.getFrame() : null;
+  if (!frame) return;
+  var gl = xr.renderer.getContext();
+  var touched = false;
+  for (var i = 0; i < xr.mediaLayers.length; i++) {
+    var e = xr.mediaLayers[i];
+    if (!e.cyl) continue;
+    var v = e.s.video;
+    if (!v || v.readyState < 2 || !v.videoWidth) continue;
+    /* 映像の大きさが変わったら器を作り直す(画素数は作ったあと変えられない) */
+    var px = v.videoWidth + 'x' + v.videoHeight;
+    if (px !== e.px) { xrDropScreenLayer(e.s); return; }
+    var sub = null;
+    try { sub = xr.glBinding.getSubImage(e.layer, frame); } catch (_e) { sub = null; }
+    if (!sub || !sub.colorTexture) {
+      /* 反映待ちの数コマは普通に失敗する。続くようなら諦めて従来描画へ戻す */
+      if (++e.fails > 120) {
+        questLog('湾曲のくっきり合成に映像を渡せません(画面' + e.s.slot + ') → 従来描画へ戻します');
+        xrDropScreenLayer(e.s);
+        return;
+      }
+      continue;
+    }
+    e.fails = 0;
+    try {
+      gl.bindTexture(gl.TEXTURE_2D, sub.colorTexture);
+      /* **上下が逆さまに見えたら、この false を true にする(調整点)**。
+         公式サンプル(cyld-layer.html)は反転せずに正しく出ている */
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, v);
+      touched = true;
+      if (!e.drew) {
+        /* ここで初めて窓を開ける。**先に開けないこと**(開けてから失敗すると真っ黒が残る) */
+        e.drew = true;
+        if (e.s.mesh && xr.holeMat) e.s.mesh.material = xr.holeMat;
+        questLog('湾曲のくっきり合成が働いています(画面' + e.s.slot + '・' + px + ')');
+      }
+    } catch (e2) {
+      if (++e.fails > 30) {
+        questLog('湾曲のくっきり合成で映像を書けません(画面' + e.s.slot + '): '
+          + ((e2 && e2.name) || 'Error') + ' → 従来描画へ戻します');
+        xrDropScreenLayer(e.s);
+        return;
+      }
+    }
+  }
+  /* 生のGL呼び出しで three の状態の控えとずれるので、必ず戻す */
+  if (touched) { try { xr.renderer.resetState(); } catch (_e3) {} }
 }
 
 /* 描画ループの保険(14a)。three の WebGLAnimation は**次のコマの予約を
@@ -6919,6 +7101,10 @@ function xrRenderInner(){
     xrDrawHud();
     if (xr.menu.open) xrMenuDraw();
   }
+
+  /* 円柱レイヤーへ映像を流し込む(15b)。**render の前に置くこと**:
+     three が描画先を確定したあとで、かつ three が状態を使い直す前に済ませる */
+  xrCylDraw();
 
   xr.renderer.render(xr.scene, xr.camera);
 
