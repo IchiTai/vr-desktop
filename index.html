@@ -2777,7 +2777,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-15k';
+var APP_VER = '2026-08-15l';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2845,7 +2845,7 @@ function kmHas(action){
 /* 画質プリセットの並び順。**ここ1箇所で決めること**(15j。以前は3箇所に
    直書きされていて、足すと必ずどこかで抜けた)。
    `QUALITY_VR` はVR内メニュー用で、4つ横並びの座標が決め打ちなので増やせない */
-var QUALITY_ORDER = ['sharp', 'balance', 'smooth', 'auto', 'half'];
+var QUALITY_ORDER = ['sharp', 'balance', 'smooth', 'auto'];
 var QUALITY_VR = ['sharp', 'balance', 'smooth', 'auto'];
 /* **この2つは loadS より前に置くこと(15j)**。var は巻き上がるが代入は実行順で、
    loadS はページ読み込みの早い段階で走るため、後ろに置くと undefined を読む */
@@ -2907,20 +2907,25 @@ function hostSend(host, m){
 
 /* ---------- 画質プリセット ---------- */
 var QUALITY = {
-  sharp:   { hint: 'detail', br: 30000000, deg: 'maintain-resolution', fps: 60,
-             name: 'くっきり', desc: '文字を最優先。資料や文章の作業向き' },
-  balance: { hint: 'detail', br: 10000000, deg: 'balanced', fps: 60,
-             name: 'バランス(標準)', desc: '文字と動きの両立(60fps)。まずはこれ' },
-  smooth:  { hint: 'motion', br: 12000000, deg: 'maintain-framerate', fps: 60,
-             name: 'なめらか', desc: '動きを最優先(60fps)。動画やゲーム画面向き' },
-  auto:    { hint: 'detail', br: 0, deg: '', fps: 60,
-             name: '自動', desc: '通信の状態にあわせてブラウザにおまかせ' },
-  /* **測定用(15j)**。解像度はそのままでコマ数だけ半分にする。
-     「圧縮の遅れ」が段数(コマ間隔×約1.5)で決まっているなら、ここで**約50msへ延びる**。
-     25.5msのままなら段数説は棄却され、別の原因を探すことになる。
-     ⚠️ **測り終えたら消してよい**。常用の選択肢ではない(動きがカクつく) */
-  half:    { hint: 'detail', br: 30000000, deg: 'maintain-resolution', fps: 30,
-             name: '30fps(測定用)', desc: '解像度そのままでコマ数だけ半分。圧縮の遅れを測るためのもの' }
+  /* **名前どおりの働きをさせること(15l)**。2026-08-15の実測で、それ以前の4つは
+     「一度も届かない上限の数字」しか違わないと分かった(静止画で送信1.0Mbps・上限30Mbps)。
+     効くレバーは3つ: 送る解像度(scale)・contentHint・degradationPreference。
+     上限(br)はスクロール中にだけ効く。
+     ⚠️ **解像度を下げてよいのは「なめらか」だけ**(利用者の判断。文字を読む用途では
+     解像度がいちばん効くため、くっきり/バランス/自動は等倍を守る) */
+  sharp:   { hint: 'detail', br: 40000000, deg: 'maintain-resolution', fps: 60, scale: 1,
+             name: 'くっきり', desc: '文字を最優先。等倍のまま、動いてもぼかさない' },
+  balance: { hint: 'detail', br: 15000000, deg: 'balanced', fps: 60, scale: 1,
+             name: 'バランス(標準)', desc: '等倍のまま。混んだら少しずつ譲る。まずはこれ' },
+  /* 送る解像度を 1/1.333 = 1920×1200 にする。画素数が44%減るので、
+     圧縮の遅れ(実測24ms)と符号化の負荷が下がり、動きに使えるビットが増える */
+  smooth:  { hint: 'motion', br: 15000000, deg: 'maintain-framerate', fps: 60, scale: 1.3333,
+             name: 'なめらか', desc: '動きを最優先。1920×1200へ落として動画やゲーム向き' },
+  /* 「おまかせ」と名乗る以上、degradationPreference も明示して balanced にする(N19)。
+     以前は空にしていたが、W3C仕様では contentHint が detail だと
+     暗黙に maintain-resolution になり、名前と実態が食い違っていた */
+  auto:    { hint: 'detail', br: 0, deg: 'balanced', fps: 60, scale: 1,
+             name: '自動', desc: '上限なし。混み具合にあわせてブラウザが決める' }
 };
 
 /* 取り込みをプリセットに合わせる。Retinaなどの超高解像度は、
@@ -2972,10 +2977,7 @@ function pcApplyQualityToCall(call, attempt){
     setTimeout(function(){ pcApplyQualityToCall(call, attempt + 1); }, 300);
     return;
   }
-  if (q.br > 0) params.encodings[0].maxBitrate = q.br;
-  else delete params.encodings[0].maxBitrate;
-  if (q.deg) params.degradationPreference = q.deg;
-  else delete params.degradationPreference;
+  pcFillEncoding(params, q);
   sender.setParameters(params).catch(function(){
     /* params は1回の setParameters で使い切られる。取り直さずに再利用すると
        仕様上 InvalidStateError で必ず失敗する */
@@ -2985,6 +2987,21 @@ function pcApplyQualityToCall(call, attempt){
     else delete p2.encodings[0].maxBitrate;
     sender.setParameters(p2).catch(function(){});
   });
+}
+
+/* 送信の設定を1組ぶん埋める(15l)。**取り込みではなく送信側で縮めること**:
+   取り込み(applyConstraints)を変えると共有を選び直す必要があり、VRの配置も崩れる。
+   scaleResolutionDownBy なら交渉のやり直しなしでその場で変わる */
+function pcFillEncoding(params, q){
+  var e = params.encodings[0];
+  if (q.br > 0) e.maxBitrate = q.br;
+  else delete e.maxBitrate;
+  /* 1(等倍)のときは指定そのものを消すこと。1を入れっぱなしにすると、
+     ブラウザによっては「縮小あり」として扱われる */
+  if (q.scale && q.scale > 1.001) e.scaleResolutionDownBy = q.scale;
+  else delete e.scaleResolutionDownBy;
+  if (q.deg) params.degradationPreference = q.deg;
+  else delete params.degradationPreference;
 }
 
 /* 見る側からの画質変更(全パソコンに送る) */
