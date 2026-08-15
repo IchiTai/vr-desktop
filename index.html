@@ -342,7 +342,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
 <!-- パソコン側 -->
 <section id="viewPC" class="hidden">
   <button class="btn-back" id="btnBackPC">← もどる</button>
-  <div class="eyebrow">PC / Mac</div>
+  <div class="eyebrow">パソコン(Windows / Mac)</div>
   <h1>画面を共有する</h1>
 
   <div id="pcStepA">
@@ -390,7 +390,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
 <!-- 見る側 -->
 <section id="viewQuest" class="hidden">
   <button class="btn-back" id="btnBackQ">← もどる</button>
-  <div class="eyebrow">Quest / Phone / Tablet</div>
+  <div class="eyebrow">Quest・スマホ・タブレット</div>
   <h1>コードを入力して接続する</h1>
 
   <div id="qStepA">
@@ -438,12 +438,12 @@ footer.site a{color:var(--muted);text-decoration:underline}
         <tr><td>グリップ(両手)</td><td>指した画面をつかんで移動(高さ変更もこれで。設定・ガイドのパネルもつかめます)</td></tr>
         <tr><td>右手 スティック上下</td><td>スクロール</td></tr>
         <tr><td>左手 スティック</td><td>上下で指した画面の遠近、左右で大きさ</td></tr>
-        <tr><td>左スティック押し込み</td><td>レーザーの表示/非表示</td></tr>
+        <tr><td>左スティック押し込み</td><td>レーザーの表示切替</td></tr>
         <tr><td>右スティック押し込み</td><td>よく使うキー(Enter・コピー・貼り付けなど)</td></tr>
         <tr><td>手をかざす操作</td><td>指さしでレーザー、つまむ(ピンチ)=クリック。押し方の使い分けも同じ</td></tr>
-        <tr><td>Bluetoothキーボード</td><td>Questにペアリングしたキーボードで、そのままパソコンに入力</td></tr>
+        <tr><td>つないだキーボード</td><td>Questにつないだキーボードの打鍵が、そのままパソコンに入力</td></tr>
         <tr><td>左手 X(下) / Y(上)</td><td>設定メニュー / 画面を正面に戻す</td></tr>
-        <tr><td>何もない所をクリック</td><td>操作ガイドの表示/非表示</td></tr>
+        <tr><td>何もない所をクリック</td><td>操作ガイドの表示切替</td></tr>
         <tr><td>画面のすぐ上にレーザー</td><td>「平面/湾曲・ミュート・固定・追従・明るさ」のボタンが現れる</td></tr>
       </table>
       <p class="msg-info" style="margin-top:10px;margin-bottom:0">ボタンごとの機能は「⚙ 設定 → 操作」で変えられます(同じ機能を複数のボタンに割り当ててもOK)。</p>
@@ -500,8 +500,8 @@ footer.site a{color:var(--muted);text-decoration:underline}
       <div class="set-row">
         <label>トリガーの使い分け</label>
         <select class="monsel" id="selTrig">
-          <option value="vd">スクロール対応(長押し→動かすとスクロール)</option>
-          <option value="plain">標準(押した瞬間からドラッグ)</option>
+          <option value="vd">スクロール対応(標準・長押し→動かすとスクロール)</option>
+          <option value="plain">常にドラッグ(押した瞬間から)</option>
         </select>
       </div>
       <div class="set-row">
@@ -541,17 +541,17 @@ footer.site a{color:var(--muted);text-decoration:underline}
         <div class="set-row">
           <label>映像の圧縮形式</label>
           <select class="monsel" id="selCodec">
-            <option value="h264">H.264優先(ハードウェア復号・標準)</option>
+            <option value="h264">H.264優先(専用回路で再生・標準)</option>
             <option value="vp8">従来(VP8)</option>
           </select>
         </div>
-        <p class="set-note">形式は<b>次に接続したときから</b>反映されます。切り替えたあと下のボタンを押すと、映像だけを張り直してその場で切り替わります(VRの画面の配置はそのまま保たれます)。いま使われている形式は品質表示の「形式」で確認できます。</p>
+        <p class="set-note">形式は<b>次に接続したときから</b>反映されます。切り替えたあと下のボタンを押すと、映像だけを張り直してその場で切り替わります(VRの画面の配置はそのまま保たれます)。いま使われている形式は「接続品質の表示」の「形式」で確認できます。</p>
         <p style="margin-top:-6px">
           <button class="btn-ghost btn-sm" id="btnCodecApply">いま反映する(映像を張り直す)</button>
           <span id="codecApplyNote" class="hidden" style="margin-left:10px;color:var(--muted);font-size:13px"></span>
         </p>
       </div>
-      <p class="set-note hidden" id="picPcNote">ここから変えられるのは<b>画質プリセット</b>だけです。映像の圧縮形式・文字をくっきり表示・ふちのギザギザ取り・操作の反応は、<b>見る側の機器</b>(Quest・スマホ・タブレット)の設定で決まります。</p>
+      <p class="set-note hidden" id="picPcNote">ここから変えられるのは<b>画質プリセット</b>だけです。映像の圧縮形式・文字をくっきり表示・ふちのギザギザ取り・映像の遅れは、<b>見る側の機器</b>(Quest・スマホ・タブレット)の設定で決まります。</p>
       <!-- ここから下は**見る側の端末でしか効かない**(VRの描画と受信の設定)。
            共有する側では箱ごと隠す(renderSettings の picVrOnly)。
            **新しい項目をこの箱の外に足さないこと**: 外に置くと、効かない設定が
@@ -580,8 +580,8 @@ footer.site a{color:var(--muted);text-decoration:underline}
             <option value="off">なし(描画が軽くなる)</option>
           </select>
         </div>
-        <p class="set-note">レーザーの線・足元の格子・画面や操作ガイドの<b>ふちの階段状のギザギザ</b>をなめらかにします。<b>画面の中の文字には効きません</b>(文字は「VRの描画解像度」と「文字のちらつきを減らす」の担当です)。また、機器が直接描いている画面(平面、および「湾曲した画面にも使う」が働いている湾曲)には効きません。<b>ページを読み込み直したときから</b>反映されます。VRの中の操作ガイドに出る「描画」の数字(1秒あたりのコマ数)が低い(60を大きく下回る)ときは「なし」を試してください。</p>
-        <p class="set-note">受信のため込みを減らす<b>「操作の反応を最優先にする」</b>は<b>環境</b>タブにあります(以前はここにも同じ欄がありましたが、同じ設定の欄が2つあると混乱するため1つにまとめました)。</p>
+        <p class="set-note">レーザーの線・足元の格子・画面や操作ガイドの<b>ふちの階段状のギザギザ</b>をなめらかにします。<b>画面の中の文字には効きません</b>(文字のくっきりさは、上の「文字をくっきり表示(VR)」と、環境タブの「VRの描画解像度」「文字のちらつきを減らす」が担当します)。また、機器が直接描いている画面(平面、および「湾曲した画面にも使う」が働いている湾曲)には効きません。<b>ページを読み込み直したときから</b>反映されます。VRの中の操作ガイドに出る「描画」の数字(1秒あたりのコマ数)が低い(60を大きく下回る)ときは「なし」を試してください。</p>
+        <p class="set-note"><b>「映像の遅れを最小にする」</b>は<b>環境</b>タブにあります。</p>
       </div><!-- /picVrOnly -->
     </div><!-- /setPanePic -->
     <div id="setPaneEnv" class="hidden">
@@ -620,7 +620,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
         <div class="set-row">
           <label>VRの描画解像度</label>
           <select class="monsel" id="selRScale">
-            <option value="1">ふつう</option>
+            <option value="1">低め(電池が長持ち)</option>
             <option value="1.15">高(標準)</option>
             <option value="1.3">最高(電池消費が増えます)</option>
           </select>
@@ -652,9 +652,10 @@ footer.site a{color:var(--muted);text-decoration:underline}
         <input type="checkbox" id="chkKbFwd" style="width:18px;height:18px;accent-color:var(--accent)">
       </div>
       <div class="set-row">
-        <label>操作の反応を最優先にする</label>
+        <label>映像の遅れを最小にする</label>
         <input type="checkbox" id="chkLowLat" style="width:18px;height:18px;accent-color:var(--accent)">
       </div>
+      <p class="set-note">届いた映像をため込まずにすぐ映します(初期ON)。電波が不安定なところでは、OFFにしたほうが映像が安定することがあります。</p>
       <div class="set-row">
         <label>接続品質を表示する</label>
         <input type="checkbox" id="chkStats" style="width:18px;height:18px;accent-color:var(--accent)">
@@ -1961,7 +1962,7 @@ function questAddHost(codeRaw, errEl){
       : exist.state === 'retry' ? '再接続中'
       : exist.screens.length ? ('画面' + exist.screens.length + '枚を受信中')
       : '映像待ち';
-    errEl.textContent = 'そのコードには接続済みです(' + exSt + ')。つながらないときは、接続一覧の「切断」でいったん外してからやり直してください。';
+    errEl.textContent = 'そのコードには接続済みです(' + exSt + ')。つながらないときは、接続一覧の「接続をやめる」でいったん外してからやり直してください。';
     return false;
   }
   errEl.textContent = '';
@@ -2099,9 +2100,9 @@ function questLogRouteType(host, conn, attempt){
         if (lt === 'relay' || rt === 'relay') {
           questLog('経路の種類: ⚠ 中継サーバー経由(直結ではない)。この表示が出たら設定のTURN除外が効いていない');
         } else if (lt === 'host' && (rt === 'host' || !rt)) {
-          questLog('経路の種類: 同一ネットワーク直結');
+          questLog('経路の種類: 直接(同一ネット)');
         } else if (lt || rt) {
-          questLog('経路の種類: 直結(NAT越え)');
+          questLog('経路の種類: 直接');
         } else {
           again(); /* 候補の種類がまだ埋まっていない */
         }
@@ -2283,8 +2284,8 @@ function questLogCallRoute(host, call, slot, attempt){
         var lc = byId[pair.localCandidateId], rc = byId[pair.remoteCandidateId];
         var lt = lc && lc.candidateType, rt = rc && rc.candidateType;
         var label = (lt === 'relay' || rt === 'relay') ? '⚠ 中継サーバー経由'
-          : (lt === 'host' && (rt === 'host' || !rt)) ? '同一ネットワーク直結'
-          : (lt || rt) ? '直結(NAT越え)'
+          : (lt === 'host' && (rt === 'host' || !rt)) ? '直接(同一ネット)'
+          : (lt || rt) ? '直接'
           : null;
         if (!label) {
           if (tries < 16) { questLogCallRoute(host, call, slot, tries + 1); return; }
@@ -2742,7 +2743,7 @@ function questUiSync(){
     row.appendChild(label);
     var btn = document.createElement('button');
     btn.className = 'btn-ghost btn-sm';
-    btn.textContent = '切断';
+    btn.textContent = '接続をやめる';
     btn.addEventListener('click', function(){ questDropHost(h, ''); });
     row.appendChild(btn);
     var st = document.createElement('span');
@@ -2810,7 +2811,7 @@ KM_ACTS.forEach(function(a){ KM_ACT_LABEL[a[0]] = a[1]; });
    1024pxのキャンバスの中で「ボタン名: 機能」の1行に収まらない */
 var KM_ACT_SHORT = {
   click: 'クリック', rclick: '右クリック', grab: 'つかむ', ptr: 'レーザー',
-  recenter: '正面に戻す', menu: 'メニュー', keys: 'よく使うキー', hud: 'ガイド', '': 'なし'
+  recenter: '正面に戻す', menu: 'メニュー', keys: 'よく使うキー', hud: '操作ガイド', '': 'なし'
 };
 
 function kmDefault(){
@@ -5271,7 +5272,7 @@ function xrUpdateBars(){
         if (p.bar.idx !== null) hovIdx = p.bar.idx;
       }
     });
-    var sig = (shown ? 1 : 0) + '|' + hovIdx + '|' + (s.video.muted ? 1 : 0) + (s.locked ? 1 : 0) + (s.follow ? 1 : 0) + '|' + s.dim;
+    var sig = (shown ? 1 : 0) + '|' + hovIdx + '|' + (s.video.muted ? 1 : 0) + (s.locked ? 1 : 0) + (s.follow ? 1 : 0) + (s.curved ? 1 : 0) + '|' + s.dim;
     if (sig !== s.barSig) {
       s.barSig = sig;
       xrDrawBar(s, hovIdx, shown);
@@ -5423,7 +5424,7 @@ function xrDrawHud(){
   lines.push(['画面を正面に戻す', kmButtonsFor('recenter')]);
   lines.push(['設定メニュー', kmButtonsFor('menu')]);
   lines.push(['よく使うキー', kmButtonsFor('keys')]);
-  lines.push(['このガイド', (kmHas('hud') ? kmButtonsFor('hud') + ' / ' : '') + '何もない所をクリック']);
+  lines.push(['操作ガイド', (kmHas('hud') ? kmButtonsFor('hud') + ' / ' : '') + '何もない所をクリック']);
   lines.push(['画面ごとのボタン', '画面のすぐ上にレーザーを当てると表示']);
 
   var y = 150; /* 138 だと、すぐ上の状態行(y=112・26px)と縦がぶつかっていた(14b) */
@@ -6470,7 +6471,9 @@ function xrPadDraw(){
     pbtn(grid[gi][0], gx, gy, 100, 74, grid[gi][1], true);
   }
 
-  pbtn('go', 420, 160, 220, 74, '接続する', true);
+  /* 一覧は3行目が y=164 まで下りるので、**y=200 より上へ戻さないこと**(15r)。
+     以前は y=160 で、3台つないだときに3行目がこのボタンに9px食い込んでいた */
+  pbtn('go', 420, 200, 220, 74, '接続する', true);
 
   /* 接続の一覧 */
   ctx.font = '24px sans-serif';
