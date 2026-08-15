@@ -773,7 +773,10 @@ var pc = {
   diag: [], offAt: 0,  /* 誤OFFの採取(13c)。診断行と違い、ONに戻っても消えない */
   inputOk: true, inputFailN: 0, /* 操作の送信が通っているか(14a)。33ms間隔なので状態の変わり目だけ記録する */
   sendWorker: null, sendUrl: null, sendTimer: null, /* 操作送信の合図(05n。Worker/退避用interval) */
-  statsTimer: null, statsBusy: false /* 送信側の計器(15h)。止めるのは pcStop の1箇所 */
+  /* 送信側の計器(15h)。**起こすのは pcStatsTimer() だけ**で、その呼び出し口は
+     pcAddScreen と pcRemoveScreen の2箇所。**止めるのは pcStatsTimer() の else と
+     pcStop() の2箇所**(15pで数え直した) */
+  statsTimer: null, statsBusy: false
 };
 
 async function pcCapture(errId){
@@ -805,6 +808,10 @@ async function pcStartShare(){
   show($('pcStepB'), true);
   setDot('dotShare', 'on');
   setDot('dotQuest', 'wait');
+  /* **pcAddScreen より前に降ろすこと(15p)**。この中の pcStatsTimer が pc.stopped を見るので、
+     pcStartHelperLoop まで待つと、2回目以降の共有で送信側の計器が起動しない
+     (1枚目では出ず、2枚目を足したときだけ動き出す、という不揃いになる) */
+  pc.stopped = false;
   pcAddScreen(stream);
   pcSetQuality(S.q);
   pcCreatePeer(0);
@@ -906,8 +913,9 @@ function pcRemoveScreen(slot){
    これまで getStats を呼ぶのは見る側だけで、**共有している側は一度も通信の統計を
    読んでいなかった**。そのため「1コマの圧縮に何ミリ秒かかっているか」「コマ数が
    落ちたのは機械の頭(CPU)が足りないのか電波が細いのか」が誰にも分からなかった。
-   **60fpsを保つには1コマを16.7ms以内に圧縮し終える必要がある**ので、この数字ひとつで
-   「くっきり=2560×1600・60fps」が本当に成立しているかが決まる(第7節(h)④の判定材料)。
+   **コマ数が足りているかは framesPerSecond、頭打ちの有無は qualityLimitationReason で
+   判定すること**(第7節(h)④の判定材料)。圧縮の遅れは帰りの遅れの内訳であって、
+   コマ数の判定には使わない(理由は下の「圧縮の遅れ」を出している所のコメント)。
 
    見る側の questStatsTick と同じ作法にそろえてある: 2秒ごと・再入防止・
    要るときだけ回す・表示は文字列を持たせて描き直しは別。 */
@@ -1843,6 +1851,7 @@ function pcStop(){
   pcStopSendLoop(); /* 操作送信のWorker(または退避用interval)を止める(05n) */
   if (pc.pingTimer) { clearTimeout(pc.pingTimer); pc.pingTimer = null; }
   if (pc.statsTimer) { clearInterval(pc.statsTimer); pc.statsTimer = null; } /* 送信側の計器(15h) */
+  pc.statsBusy = false; /* 錠を持ち越さないこと(15p)。飛行中の getStats と停止が重なると、次の共有で計器が黙る */
   pc.inputQueue = [];
   pc.helperOn = false;
   pc.monSig = '';
@@ -2773,7 +2782,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-15n';
+var APP_VER = '2026-08-15p';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2980,8 +2989,10 @@ function pcApplyQualityToCall(call, attempt){
        仕様上 InvalidStateError で必ず失敗する */
     var p2 = sender.getParameters();
     if (!p2.encodings || !p2.encodings.length) return;
-    if (q.br > 0) p2.encodings[0].maxBitrate = q.br; /* 未対応ブラウザではビットレートだけ適用 */
-    else delete p2.encodings[0].maxBitrate;
+    /* **ここでも同じ係を通すこと(15p)**。ビットレートだけ直していたので、
+       「なめらか」から他へ移ったときに 1920×1200 への縮小が残りえた */
+    pcFillEncoding(p2, q);
+    delete p2.degradationPreference; /* 未対応ブラウザ向けの退避なので、これだけは外す */
     sender.setParameters(p2).catch(function(){});
   });
 }
@@ -6744,12 +6755,15 @@ function xrMenuDraw(){
     });
     btn('kmreset', 36, 528, 200, 52, '標準に戻す', false, false, true);
     /* 手での操作(15n)。**邪魔になるのはかぶっている最中**なので、その場で切れることが要る。
-       置き場所は「標準に戻す」の行の右。**この行しかまとまった空きが無い**
+       置き場所は「標準に戻す」と**同じ行**。**この行しかまとまった空きが無い**
        (622/636 と 730/744 の行は右端948まで埋まっており、枠は1024。
-       下も 744+54=798 で枠820まで22pxしかない)。
-       **項目を足すときは必ず runprobe で重なりとはみ出しを測ること**(15nで一度はみ出した) */
-    label('手での操作(ハンドトラッキング)', 300, 514);
-    btn('hand', 300, 528, 160, 52, S.handTrack ? 'ON' : 'OFF', S.handTrack, false, true);
+       上は割り当ての最終行が504まで、下は622から次の見出し)。
+       ⚠️ **見出しを上に置かないこと(15p)**: 504〜528 は24pxしかなく、
+       文字(高さ24px)を置くと真上のボタンの箱に食い込む(15nで実際にやった)。
+       見出しの代わりに、ボタンの文字自体へ用途を書く。
+       **項目を足すときは必ず runprobe で測ること**(検査3が箱への食い込みを見る) */
+    btn('hand', 300, 528, 300, 52,
+        '手での操作: ' + (S.handTrack ? 'ON' : 'OFF'), S.handTrack, false, true);
 
     label('トリガーのドラッグ', 36, 622);
     btn('trig:vd', 36, 636, 200, 54, 'スクロール対応', S.trig !== 'plain', false, true);
