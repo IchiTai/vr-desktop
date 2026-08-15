@@ -512,6 +512,14 @@ footer.site a{color:var(--muted);text-decoration:underline}
         </select>
       </div>
       <div class="set-row">
+        <label>手での操作(ハンドトラッキング)</label>
+        <select class="monsel" id="selHandTrack">
+          <option value="on">使う(標準)</option>
+          <option value="off">使わない(コントローラーだけ)</option>
+        </select>
+      </div>
+      <p class="set-note">コントローラーを置いて手をかざすと、指さしの向きにレーザーが出て、親指と人差し指で<b>つまむとクリック</b>になります。意図せず反応して邪魔なときは「使わない」にしてください。<b>その場で反映されます</b>(VRに入り直す必要はありません)。「使わない」にしても<b>コントローラーは今までどおり</b>使えます。</p>
+      <div class="set-row">
         <label>ポインターの安定化(手ぶれ補正)</label>
         <input type="checkbox" id="chkPtrStab" style="width:18px;height:18px;accent-color:var(--accent)">
       </div>
@@ -1025,29 +1033,17 @@ function pcRenderScreens(){
     name.textContent = '画面' + (i + 1);
     head.appendChild(name);
 
-    if (pc.helperOn && pc.monitors.length > 0) {
-      var sel = document.createElement('select');
-      sel.className = 'monsel';
-      var opNone = document.createElement('option');
-      opNone.value = '-1';
-      opNone.textContent = '操作しない(見るだけ)';
-      sel.appendChild(opNone);
-      pc.monitors.forEach(function(m, mi){
-        var op = document.createElement('option');
-        op.value = String(mi);
-        op.textContent = '操作先: モニター' + (mi + 1) + (mi === 0 ? '(メイン)' : '') + ' ' + m.w + '×' + m.h;
-        sel.appendChild(op);
-      });
-      if (item.mon !== -1 && item.mon > pc.monitors.length - 1) item.mon = 0;
-      sel.value = String(item.mon);
-      sel.addEventListener('change', function(){
-        /* 0(メインモニター)は正当な値。`|| 既定値` で倒さないこと(13a) */
-        var mv = parseInt(sel.value, 10);
-        item.mon = isNaN(mv) ? 0 : mv;
-        pcSendHelperState();
-      });
-      head.appendChild(sel);
-    }
+    /* **「操作先」の選択欄は 2026-08-15m で撤去した**(利用者の判断)。
+       この欄は「表示する画面」を選ぶものではなく、
+       「VRのこの画面をクリックしたとき、実物のどのモニターでカーソルを動かすか」を
+       手で教えるためのものだった。実際には共有した順に 0,1,2… と機械的に割り当てており、
+       **メイン→外部の順に共有すれば正しく当たる**。順番を間違えたときにだけ直す欄で、
+       ふだんは出番が無い割に、モニター一覧が画面の真上に並ぶので
+       「この画面にどのモニターを映すか」を選ぶものだと誤解させていた。
+       ⚠️ **判定の仕組み(mon<0 で操作しない / noctl の伝達)はそのまま残してある**。
+       ミラーリング画面を誤って操作する事故を防ぎたくなったら、ここに欄を戻すだけでよい。
+       割り当てそのものは pcAddScreen が行う */
+    if (item.mon !== -1 && pc.monitors.length && item.mon > pc.monitors.length - 1) item.mon = 0;
 
     var rm = document.createElement('button');
     rm.className = 'btn-ghost btn-sm';
@@ -2777,7 +2773,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-15l';
+var APP_VER = '2026-08-15n';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2868,6 +2864,7 @@ function loadS(){
   /* 湾曲のくっきり合成(15b)。**既定はOFF**: 実機で描かれるかがまだ未確認で、
      描かれないと窓だけが残って真っ黒に見えるため(第10節) */
   s.cylLayer = (s.cylLayer === true);
+  s.handTrack = (s.handTrack !== false); /* 手での操作。既定は使う(いままでの振る舞い) */
   delete s.fovea; /* 15aで撤去。古い保存値を持ち越さない */
   s.aa = (s.aa === false) ? false : true; /* ふちのギザギザ取り(4サンプルのMSAA)。切ると描画が軽くなる */
   s.lowLat = (s.lowLat !== false); /* 低遅延モード(操作の機敏さ優先): 受信の溜めを最小に希望。初期ON */
@@ -3266,6 +3263,7 @@ function syncSetControls(){
   var volPct = Math.round(S.vol * 100);
   /* 操作タブ */
   $('selTrig').value = S.trig;
+  $('selHandTrack').value = S.handTrack ? 'on' : 'off';
   $('chkPtrStab').checked = S.ptrStab;
   $('selStick').value = S.stick;
   $('selScrollSpd').value = String(S.scrollSpd);
@@ -3418,6 +3416,11 @@ function initSettingsUi(){
       setTab = t.getAttribute('data-tab');
       renderSettings();
     });
+  });
+  $('selHandTrack').addEventListener('change', function(){
+    S.handTrack = ($('selHandTrack').value !== 'off');
+    saveS();
+    if (APP.xrHandChanged) APP.xrHandChanged();
   });
   $('chkPtrStab').addEventListener('change', function(){
     S.ptrStab = $('chkPtrStab').checked;
@@ -4983,6 +4986,23 @@ APP.xrCylChanged = function(){
   xr.screens.forEach(function(sc){ sc.cylGaveUp = false; }); /* 設定を入れ直したら諦めも取り消す */
 };
 
+/* 手での操作を切り替えたときの後始末(15n)。
+   ⚠️ **つまんだままOFFにされたときに、必ず離すこと**。離さないと相手PCの
+   ボタンが押しっぱなしで残る(実物のマウスを押すまで戻らない=第4節の不変条件) */
+APP.xrHandChanged = function(){
+  if (!xr.built || S.handTrack) return;
+  ['right', 'left'].forEach(function(hand){
+    if (!xr.handSel[hand]) return;
+    xr.handSel[hand] = false;
+    xrActUp('click', hand);
+  });
+  /* つかんで動かしている最中なら、それも手放す */
+  ['right', 'left'].forEach(function(hand){
+    if (xr.grab[hand] && xrIsBareHand(hand)) xr.grab[hand] = null;
+  });
+  if (xr.menu.open) xrMenuDraw();
+};
+
 APP.xrSync = function(){ if (xr.built) xrSyncScreens(); };
 APP.xrHud = function(){ if (xr.built) xrDrawHud(); };
 
@@ -5474,10 +5494,14 @@ async function xrEnter(){
   }
 }
 
-/* ハンドトラッキング: つまむ(ピンチ)=クリック。押し分け(タップ/ドラッグ/長押しスクロール)も共通 */
+/* ハンドトラッキング: つまむ(ピンチ)=クリック。押し分け(タップ/ドラッグ/長押しスクロール)も共通。
+   `S.handTrack` が偽なら手の入力を全部無視する(15n)。
+   ⚠️ **「離す」は設定に関係なく必ず通すこと**: つまんだままOFFにされると、
+   相手PCのボタンが押しっぱなしで残る */
 function xrOnSelectStart(e){
   var src = e.inputSource;
   if (!src || !src.hand) return; /* コントローラーのトリガーはボタン側で処理済み */
+  if (!S.handTrack) return;
   var hand = (src.handedness === 'left') ? 'left' : 'right';
   xr.handSel[hand] = true;
   xrActDown('click', hand);
@@ -5487,6 +5511,7 @@ function xrOnSelectEnd(e){
   var src = e.inputSource;
   if (!src || !src.hand) return;
   var hand = (src.handedness === 'left') ? 'left' : 'right';
+  if (!xr.handSel[hand]) return; /* つまんだ記録が無い=押していないので離さない */
   xr.handSel[hand] = false;
   xrActUp('click', hand);
 }
@@ -5627,6 +5652,20 @@ function xrGrabStart(hand){
 
 function xrGrabEnd(hand){
   xr.grab[hand] = null;
+}
+
+/* その手(right/left)の入力源が、コントローラーではなく**素手**かどうか(15n)。
+   WebXR の XRInputSource は、ハンドトラッキング中だけ `hand` を持つ。
+   three は素手もコントローラーも同じ入れ物(xr.controllers)へ入れるので、
+   区別するにはセッションの入力源を引き直すしかない */
+function xrIsBareHand(hand){
+  var ses = xr.session;
+  if (!ses || !ses.inputSources) return false;
+  for (var i = 0; i < ses.inputSources.length; i++) {
+    var src = ses.inputSources[i];
+    if (src && src.handedness === hand && src.hand) return true;
+  }
+  return false;
 }
 
 function xrControllerFor(hand){
@@ -6015,7 +6054,9 @@ function xrUpdatePointerFor(hand){
     xr.ph[hand] = p;
     return;
   }
-  if (!ctrl || !xr.mouseEnabled) {
+  /* 手での操作を切っているなら、素手のレーザーは出さない(15n)。
+     コントローラーは今までどおり */
+  if (!ctrl || !xr.mouseEnabled || (!S.handTrack && xrIsBareHand(hand))) {
     L.line.visible = false;
     L.dot.visible = false;
     xr.ph[hand] = p;
@@ -6702,6 +6743,13 @@ function xrMenuDraw(){
           KM_BTN_LABEL[b] + ': ' + (KM_ACT_SHORT[act] || 'なし'), false, false, true);
     });
     btn('kmreset', 36, 528, 200, 52, '標準に戻す', false, false, true);
+    /* 手での操作(15n)。**邪魔になるのはかぶっている最中**なので、その場で切れることが要る。
+       置き場所は「標準に戻す」の行の右。**この行しかまとまった空きが無い**
+       (622/636 と 730/744 の行は右端948まで埋まっており、枠は1024。
+       下も 744+54=798 で枠820まで22pxしかない)。
+       **項目を足すときは必ず runprobe で重なりとはみ出しを測ること**(15nで一度はみ出した) */
+    label('手での操作(ハンドトラッキング)', 300, 514);
+    btn('hand', 300, 528, 160, 52, S.handTrack ? 'ON' : 'OFF', S.handTrack, false, true);
 
     label('トリガーのドラッグ', 36, 622);
     btn('trig:vd', 36, 636, 200, 54, 'スクロール対応', S.trig !== 'plain', false, true);
@@ -6812,6 +6860,10 @@ function xrMenuActivate(id){
     S.stick = (p[1] === 'right') ? 'right' : 'left';
     saveS();
     if (APP.xrKmChanged) APP.xrKmChanged();
+  } else if (id === 'hand') {
+    S.handTrack = !S.handTrack;
+    saveS();
+    if (APP.xrHandChanged) APP.xrHandChanged();
   } else if (id === 'stab') {
     S.ptrStab = !S.ptrStab;
     saveS();
