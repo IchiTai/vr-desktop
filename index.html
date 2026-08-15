@@ -3100,7 +3100,7 @@ async function questStatsTick(){
 async function questStatsTickBody(){
   if (!S.stats) {
     var cleared = false;
-    qs.hosts.forEach(function(h){ if (h.statText) { h.statText = ''; cleared = true; } });
+    qs.hosts.forEach(function(h){ if (h.statText || h.statShort) { h.statText = ''; h.statShort = ''; cleared = true; } });
     if (cleared) statsRefreshUi();
     return;
   }
@@ -3181,12 +3181,18 @@ async function questStatsTickBody(){
       : route === 'net' ? ' / 経路: 直接' : '';
     /* 表示のOFFは getStats の待ちの最中にも起きる。書く直前にもう一度見ること
        (在庫の1回が書き戻すと、消したはずの表示が残る) */
-    if (!S.stats) { h.statText = ''; continue; }
-    h.statText = got
+    if (!S.stats) { h.statText = ''; h.statShort = ''; continue; }
+    /* **VRの操作ガイドには短いほう(statShort)を出すこと**(N32・15r)。
+       全部入りは24pxで1039pxになり、x=40 から描くと枠1024pxを55px割る。
+       経路と形式は「一度確かめれば済む」ものなので、VRからは落として
+       2Dの一覧とスマホ画面の上部に残してある(guide 第7節に明記)。
+       ⚠️ **2つを別々に組まないこと**。ずれると、同じ数字が場所によって違って見える */
+    var core = got
       ? ('受信 ' + (Math.max(0, bps) / 1e6).toFixed(1) + ' Mbps / ' + fps + 'fps / ' + w + '×' + hh
-         + (rtt !== null ? ' / 往復' + rtt + 'ms' : '') + routeJp
-         + (codec ? ' / 形式: ' + codec : ''))
+         + (rtt !== null ? ' / 往復' + rtt + 'ms' : ''))
       : '計測中…';
+    h.statShort = core;
+    h.statText = got ? (core + routeJp + (codec ? ' / 形式: ' + codec : '')) : core;
   }
   statsRefreshUi();
 }
@@ -5443,7 +5449,7 @@ function xrDrawHud(){
     ctx.font = '24px sans-serif';
     for (var k = 0; k < qs.hosts.length && k < 3 && y < H - 70; k++) {
       ctx.fillStyle = '#8f89a8';
-      ctx.fillText('PC' + (k + 1) + ': ' + (qs.hosts[k].statText || '計測中…'), 40, y);
+      ctx.fillText('パソコン' + (k + 1) + ': ' + (qs.hosts[k].statShort || '計測中…'), 40, y);
       y += 40;
     }
   }
