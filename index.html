@@ -564,7 +564,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
           <option value="off">なし(描画が軽くなる)</option>
         </select>
       </div>
-      <p class="set-note">レーザーの線・足元の格子・画面や操作ガイドの<b>ふちの階段状のギザギザ</b>をなめらかにします。<b>画面の中の文字には効きません</b>(文字は「VRの描画解像度」と「文字のちらつき低減」の担当です)。また、画面を「平面」にすると合成器が直接描くため、その画面には効きません。<b>ページを読み込み直したときから</b>反映されます。VRの中の操作ガイドに出る「描画」の数字(1秒あたりのコマ数)が低い(60を大きく下回る)ときは「なし」を試してください。</p>
+      <p class="set-note">レーザーの線・足元の格子・画面や操作ガイドの<b>ふちの階段状のギザギザ</b>をなめらかにします。<b>画面の中の文字には効きません</b>(文字は「VRの描画解像度」と「文字のちらつき低減」の担当です)。また、合成器が直接描いている画面(平面、および「湾曲でもくっきり合成」が働いている湾曲)には効きません。<b>ページを読み込み直したときから</b>反映されます。VRの中の操作ガイドに出る「描画」の数字(1秒あたりのコマ数)が低い(60を大きく下回る)ときは「なし」を試してください。</p>
       <div class="set-row">
         <label>操作の機敏さ優先</label>
         <select class="monsel" id="selLowLat">
@@ -573,7 +573,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
         </select>
       </div>
       <p class="set-note">映像の受け取り側の溜め(揺らぎ吸収用のバッファ)を最小にするようブラウザへ希望します。<b>切り替えたその場で</b>反映されます(受信中の映像にも効きます)。映像の乱れ(コマ飛び)が増えたと感じたら「しない」に戻してください。この項目は環境タブの「低遅延モード」と同じ設定です。</p>
-      <p class="set-note">標準の方式は、平面の画面を合成器が直接描くため文字がくっきりし、消費電力も下がります(対応機のみ)。<b>湾曲の画面はこの方式を使えません</b>(合成器が湾曲の映像を描けないため)。くっきりさせたい画面は「平面」にしてください。表示に不具合が出たときは「従来」に切り替えてください(即時反映)。</p>
+      <p class="set-note">標準の方式は、画面を合成器が直接描くため文字がくっきりし、消費電力も下がります(対応機のみ)。長らく<b>平面の画面だけ</b>が対象でしたが、湾曲の画面も下の「湾曲でもくっきり合成(実験)」で試せます。表示に不具合が出たときは「従来」に切り替えてください(即時反映)。</p>
     </div>
     <div id="setPaneEnv" class="hidden">
       <div id="envVrOnly">
@@ -2646,7 +2646,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-15b';
+var APP_VER = '2026-08-15c';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -4814,10 +4814,15 @@ APP.xrAnisoChanged = function(){
    いま出ている湾曲のレイヤーを一度外すだけでよい(次の同期が判定し直す) */
 APP.xrCylChanged = function(){
   if (!xr.built || !xr.mediaLayers) return;
+  var n = 0;
   for (var i = xr.mediaLayers.length - 1; i >= 0; i--) {
-    if (xr.mediaLayers[i].cyl) xrDropScreenLayer(xr.mediaLayers[i].s);
+    if (xr.mediaLayers[i].cyl) { xrDropScreenLayer(xr.mediaLayers[i].s); n++; }
   }
   xr.cylErrLogged = false;
+  xr.screens.forEach(function(sc){ sc.cylGaveUp = false; }); /* 設定を入れ直したら諦めも取り消す */
+  /* **外したら必ず組み直すこと(15c)**: 組み直さないと、まだ合成に使われている
+     レイヤーを2コマ後に壊してVRごと落ちる */
+  if (n) xrPanoLayerSync();
 };
 
 APP.xrSync = function(){ if (xr.built) xrSyncScreens(); };
@@ -5009,6 +5014,11 @@ function xrBarHit(uv){
 function xrBarActivate(s, idx){
   if (idx === 0) {
     s.curved = !s.curved;
+    /* **形を変えたらレイヤーを必ず外すこと(15c)**。平面はQuad、湾曲は円柱と
+       種類が違うので、外さないと古い種類のレイヤーが残り、位置が固まったまま
+       透明な穴だけが板について回る。**この切替は「真っ黒になったときの逃げ道」**
+       として案内しているので、ここが効かないと戻れなくなる */
+    xrDropScreenLayer(s);
     var old = s.mesh.geometry;
     s.mesh.geometry = xrMakeScreenGeo(xrScreenW(s), s.aspect, s.curved);
     s.mesh.userData.w = xrScreenW(s);
@@ -5286,8 +5296,13 @@ async function xrEnter(){
        利用者の判断で常に0(ふちまで鮮明)に固定した。設定で選ばせないこと */
     try { xr.renderer.xr.setFoveation(0); } catch (_e3) {}
     xr.mediaTries = 0; /* 描画層は毎フレーム取り直しを試みる(下の xrEnsureMedia) */
+    /* 湾曲の状態は必ず持ち越さないこと(15c)。three はセッションの終わりに
+       XRWebGLBinding を捨てるので、glOk を残すと死んだ binding を指したままになる */
+    xr.glOk = false; xr.glBinding = null; xr.cylErrLogged = false;
+    xr.cylFboSrc = null; xr.cylFboDst = null;
+    xr.screens.forEach(function(sc){ sc.cylGaveUp = false; });
     xr.lastRenderErr = null; /* 前のセッションの記録を持ち越さない(14b。持ち越すと同じ例外が二度と記録されない) */
-    xr.fps = 0; xr.frameCount = 0; xr.fpsAt = 0; xr.hudFps = undefined; xr.hudLayN = -1; /* 計測を初期化 */
+    xr.fps = 0; xr.frameCount = 0; xr.fpsAt = 0; xr.hudFps = undefined; xr.hudLayN = -1; xr.hudLayOk = -1; /* 計測を初期化 */
     xr.mediaTrash = []; /* 破棄待ちのレイヤー((d)③対策) */
     xr.needsRecenter = true;
     xr.hudPinned = false;
@@ -6679,6 +6694,7 @@ function xrApplyLayoutSlot(sl){
     if (!s || !e) return;
     s.locked = !!e.l;
     s.follow = !!e.f;
+    if (s.curved !== !!e.cv) xrDropScreenLayer(s); /* 形が変わるならレイヤーも作り直す(15c) */
     s.curved = !!e.cv;
     s.wScale = clamp(+e.w || 1, 0.35, 6);
     s.dim = clamp(+e.dm || 1, 0.2, 1);
@@ -6728,8 +6744,10 @@ function xrScreenLayerWanted(s){
   if (!s.curved) return true;
   /* 湾曲は XRWebGLBinding の円柱レイヤーで出す(15b)。
      **XRMediaBinding の円柱は使わないこと**: 生成はできるが Quest では描画されない
-     (第10節。4通り試して全滅)。こちらは映像を自分で流し込む別の経路 */
-  return !!S.cylLayer && !!xr.glOk;
+     (第10節。4通り試して全滅)。こちらは映像を自分で流し込む別の経路。
+     **一度諦めた画面は作り直さないこと(15c)**: 外した直後にまた欲しくなるので、
+     印を持たないと「作る→失敗→外す」を延々くり返し、診断の記録が流れてしまう */
+  return !!S.cylLayer && !!xr.glOk && !s.cylGaveUp;
 }
 
 /* 円柱レイヤーで出す画面か(湾曲かどうかだけの違い) */
@@ -6766,11 +6784,10 @@ function xrEnsureMedia(){
        自分で new すると同じ GL 文脈に2つできるので、必ず getBinding を使うこと */
     try {
       var gb = xr.renderer.xr.getBinding ? xr.renderer.xr.getBinding() : null;
-      if (gb && typeof gb.createCylinderLayer === 'function' && typeof gb.getSubImage === 'function') {
-        xr.glBinding = gb;
-        xr.glOk = true;
-      }
-    } catch (_e2) { xr.glOk = false; }
+      var okGl = !!(gb && typeof gb.createCylinderLayer === 'function' && typeof gb.getSubImage === 'function');
+      xr.glBinding = okGl ? gb : null;
+      xr.glOk = okGl; /* **必ず両方に入れること**: 取れなかったときに前の値を残すと、死んだ binding を使う */
+    } catch (_e2) { xr.glOk = false; xr.glBinding = null; }
     questLog('くっきり合成の用意: 平面=' + (xr.mediaOk ? '可' : '不可')
       + ' / 湾曲=' + (xr.glOk ? '可' : '不可(この機器は円柱レイヤーを作れません)'));
   } catch (_e) { xr.mediaTries = 999; }
@@ -6938,52 +6955,98 @@ function xrCylDraw(){
   var frame = xr.renderer.xr.getFrame ? xr.renderer.xr.getFrame() : null;
   if (!frame) return;
   var gl = xr.renderer.getContext();
+  if (!gl.blitFramebuffer) { xr.glOk = false; return; } /* WebGL2 が要る */
   var touched = false;
+  var drops = [];
   for (var i = 0; i < xr.mediaLayers.length; i++) {
     var e = xr.mediaLayers[i];
     if (!e.cyl) continue;
     var v = e.s.video;
     if (!v || v.readyState < 2 || !v.videoWidth) continue;
-    /* 映像の大きさが変わったら器を作り直す(画素数は作ったあと変えられない) */
+    /* 映像の大きさが変わったら器を作り直す(画素数は作ったあと変えられない)。
+       **ここで return しないこと**: 下の後始末(状態を戻す)を飛ばすと、
+       three が別のものを描いてしまう */
     var px = v.videoWidth + 'x' + v.videoHeight;
-    if (px !== e.px) { xrDropScreenLayer(e.s); return; }
+    if (px !== e.px) { drops.push(e.s); continue; }
     var sub = null;
     try { sub = xr.glBinding.getSubImage(e.layer, frame); } catch (_e) { sub = null; }
     if (!sub || !sub.colorTexture) {
-      /* 反映待ちの数コマは普通に失敗する。続くようなら諦めて従来描画へ戻す */
-      if (++e.fails > 120) {
+      /* 反映待ちの数コマは普通に失敗する。続くようなら諦める */
+      if (++e.subFails > 120) {
         questLog('湾曲のくっきり合成に映像を渡せません(画面' + e.s.slot + ') → 従来描画へ戻します');
-        xrDropScreenLayer(e.s);
-        return;
+        e.s.cylGaveUp = true; /* 二度と作り直さない(作り直すと同じ失敗を延々くり返す) */
+        drops.push(e.s);
       }
       continue;
     }
-    e.fails = 0;
+    e.subFails = 0;
     try {
-      gl.bindTexture(gl.TEXTURE_2D, sub.colorTexture);
-      /* **上下が逆さまに見えたら、この false を true にする(調整点)**。
-         公式サンプル(cyld-layer.html)は反転せずに正しく出ている */
+      if (!xr.cylFboSrc) { xr.cylFboSrc = gl.createFramebuffer(); xr.cylFboDst = gl.createFramebuffer(); }
+      if (!e.srcTex) {
+        e.srcTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, e.srcTex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      }
+      /* **合成器から借りた器へ texSubImage2D で直接書かないこと(15c)**。
+         仕様上あれは texStorage2D 相当で確保された「不透明なテクスチャ」で、
+         書き込みは WebGL の決まりで拒まれうる(例外は飛ばず、静かに失敗する)。
+         いったん自前のテクスチャへ受けてから、枠を指定して転写する */
+      gl.bindTexture(gl.TEXTURE_2D, e.srcTex);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
       gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, v);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v);
+
+      var vp = sub.viewport || { x: 0, y: 0, width: v.videoWidth, height: v.videoHeight };
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, xr.cylFboSrc);
+      gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, e.srcTex, 0);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, xr.cylFboDst);
+      gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, sub.colorTexture, 0);
+      if (gl.checkFramebufferStatus(gl.DRAW_FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error('FB not complete');
+      /* **読み取り枠の左右と上下をどちらも入れ替えて転写している(15c)**。
+         15b は入れ替えずに出したところ、実機で絵が180度回って見えた。
+         上下だけ・左右だけ直したいときは、この4つの数のどちらかの組を戻す(調整点):
+           左右そのまま = (0, ..., vw, ...) / 上下そのまま = (..., 0, ..., vh) */
+      var vw = v.videoWidth, vh = v.videoHeight;
+      gl.blitFramebuffer(vw, vh, 0, 0,
+                         vp.x, vp.y, vp.x + vp.width, vp.y + vp.height,
+                         gl.COLOR_BUFFER_BIT, gl.LINEAR);
       touched = true;
       if (!e.drew) {
         /* ここで初めて窓を開ける。**先に開けないこと**(開けてから失敗すると真っ黒が残る) */
         e.drew = true;
         if (e.s.mesh && xr.holeMat) e.s.mesh.material = xr.holeMat;
+        xr.hudStale = true; /* 操作ガイドの「湾曲◯/◯枚」を描き直させる */
         questLog('湾曲のくっきり合成が働いています(画面' + e.s.slot + '・' + px + ')');
       }
     } catch (e2) {
-      if (++e.fails > 30) {
+      /* 転写の失敗は getSubImage の失敗と別に数えること(同じ数え方だと、
+         毎コマ getSubImage が通るぶん数が0に戻り、いつまでも諦めない) */
+      if (++e.blitFails > 30) {
         questLog('湾曲のくっきり合成で映像を書けません(画面' + e.s.slot + '): '
           + ((e2 && e2.name) || 'Error') + ' → 従来描画へ戻します');
-        xrDropScreenLayer(e.s);
-        return;
+        e.s.cylGaveUp = true;
+        drops.push(e.s);
       }
     }
   }
-  /* 生のGL呼び出しで three の状態の控えとずれるので、必ず戻す */
-  if (touched) { try { xr.renderer.resetState(); } catch (_e3) {} }
+  if (touched) {
+    /* **three の描画先を必ず戻すこと(15c)**。resetState() は状態の控えを消すだけでなく
+       「いまの描き先」も null にするため、そのままだと three が描いたものが
+       VRの目のバッファへ行かず、**画面以外が全部真っ暗になる**(15bの実機で発症)。
+       控えを消したあとに、退避しておいた描き先を入れ直す */
+    var prevRT = xr.renderer.getRenderTarget();
+    try { gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null); } catch (_e4) {}
+    try { gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null); } catch (_e5) {}
+    try { xr.renderer.resetState(); } catch (_e3) {}
+    try { xr.renderer.setRenderTarget(prevRT); } catch (_e6) {}
+  }
+  /* 外すのは最後にまとめて(途中で外すと上の走査がずれる) */
+  for (var d = 0; d < drops.length; d++) xrDropScreenLayer(drops[d]);
+  if (drops.length) xrPanoLayerSync(); /* **外したら必ず組み直すこと**: 組み直さないまま
+                                          捨てると、まだ合成に使われているレイヤーを壊してVRごと落ちる */
 }
 
 /* 描画ループの保険(14a)。three の WebGLAnimation は**次のコマの予約を
@@ -7042,12 +7105,17 @@ function xrRenderInner(){
      隠れていて描き直しを飛ばすと、二度と機会が来ないため(表示が固まる)。
      71と72の往復で毎秒描き直すと、その転送自体が引っかかりを生むので、
      2以上の差か、まだ一度も出していないときだけ描き直す */
-  var layN = xr.mediaLayers ? xr.mediaLayers.length : 0;
+  /* **枚数だけでなく「描けた枚数」も見ること(15c)**。湾曲は作ってから
+     数コマ遅れて描け始めるので、枚数だけだと「湾曲0/1枚」のまま固まり、
+     ガイドが「左の数字が実際に描けた枚数」と案内している目印が嘘になる */
+  var layN = 0, layOk = 0;
+  (xr.mediaLayers || []).forEach(function(e){ layN++; if (!e.cyl || e.drew) layOk++; });
   if (xr.hud && xr.hud.visible &&
       (xr.hudFps === undefined || Math.abs((xr.fps || 0) - xr.hudFps) >= 2
-       || layN !== xr.hudLayN)) {
+       || layN !== xr.hudLayN || layOk !== xr.hudLayOk)) {
     xr.hudFps = xr.fps || 0;
     xr.hudLayN = layN; /* 枚数が変わったときも描き直す(内訳の表示のため) */
+    xr.hudLayOk = layOk;
     xrDrawHud();
   }
   xr.camera.getWorldPosition(xr.camPos);
