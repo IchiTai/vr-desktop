@@ -612,15 +612,6 @@ footer.site a{color:var(--muted);text-decoration:underline}
           <label>文字のちらつき低減(ミップマップ)</label>
           <input type="checkbox" id="chkAniso" style="width:18px;height:18px;accent-color:var(--accent)">
         </div>
-        <div class="set-row">
-          <label>視界のふちの粗さ</label>
-          <select class="monsel" id="selFovea">
-            <option value="1">最大(標準・いちばん軽い)</option>
-            <option value="0.5">中くらい</option>
-            <option value="0">なし(ふちまで鮮明・重い)</option>
-          </select>
-        </div>
-        <p class="set-note">VRの機器は、視界の<b>中心から外れたところをわざと粗く描いて</b>負担を減らしています(標準は最大)。「<b>ふちの方だけぼやけて見える。頭を動かして正面に持ってくると直る</b>」ときはこれが原因なので、「なし」にすると消えます。かわりに描画のコマ数が落ち、電池の減りが速くなります。<b>次にVRへ入るときから</b>反映されます。</p>
         <p class="set-note">描画解像度は、次にVRへ入るときに反映されます(文字のちらつき低減はその場で反映)。<b>背景・画面の最大距離・画面の最大の幅</b>は、VRの中の設定メニュー(標準では左手のXボタン)からもその場で変えられます。背景も即時に切り替わりますが、パススルーとの行き来だけはVRの入り直しで反映されます(対応機のみ)。</p>
       </div>
       <div class="set-row">
@@ -2647,7 +2638,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-14d';
+var APP_VER = '2026-08-15a';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2742,7 +2733,6 @@ function loadS(){
   s.kbfwd = (s.kbfwd !== false); /* BTキーボード直送: 初期ON */
   s.ptrMode = (s.ptrMode === 'rel') ? 'rel' : 'abs'; /* カーソルの移動方法(タッチで見る) */
   s.rscale = ([1, 1.15, 1.3].indexOf(+s.rscale) >= 0) ? +s.rscale : 1.15; /* VR描画解像度 */
-  s.fovea = ([0, 0.5, 1].indexOf(+s.fovea) >= 0) ? +s.fovea : 1; /* 視界のふちの粗さ。1=three既定(最大)なので初期値は従来と同じ */
   s.aniso = (s.aniso !== false); /* 文字のちらつき低減: 初期ON */
   if (!Array.isArray(s.slots) || s.slots.length !== 3) s.slots = [null, null, null];
   s.slots = s.slots.map(function(x){
@@ -3116,7 +3106,6 @@ function syncSetControls(){
   $('chkStats').checked = S.stats;
   $('selRScale').value = String(S.rscale);
   $('chkAniso').checked = S.aniso;
-  $('selFovea').value = String(S.fovea);
   $('rangeMaxD').value = String(S.maxDist);
   $('valMaxD').textContent = S.maxDist + 'm';
   $('rangeMaxW').value = String(S.maxW);
@@ -3338,12 +3327,6 @@ function initSettingsUi(){
     S.aniso = $('chkAniso').checked;
     saveS();
     if (APP.xrAnisoChanged) APP.xrAnisoChanged();
-  });
-  $('selFovea').addEventListener('change', function(){
-    var fv = parseFloat($('selFovea').value);
-    S.fovea = ([0, 0.5, 1].indexOf(fv) >= 0) ? fv : 1;
-    saveS();
-    if (APP.xrFoveaChanged) APP.xrFoveaChanged();
   });
   $('chkLowLat').addEventListener('change', function(){
     S.lowLat = $('chkLowLat').checked;
@@ -4808,14 +4791,6 @@ APP.xrAnisoChanged = function(){
   });
 };
 
-/* 視界のふちの粗さ(13b)。three 0.149 は既定でこれを最大(1.0)にするため、
-   指定しないと視界の周辺が常に粗く描かれる(「ふちがぼける」の正体)。
-   セッションが始まってからでないと効かないので、xrEnter でも呼ぶこと */
-APP.xrFoveaChanged = function(){
-  if (!xr.built || !xr.session) return;
-  try { xr.renderer.xr.setFoveation(S.fovea); } catch (_e) {}
-};
-
 APP.xrSync = function(){ if (xr.built) xrSyncScreens(); };
 APP.xrHud = function(){ if (xr.built) xrDrawHud(); };
 
@@ -5262,9 +5237,11 @@ async function xrEnter(){
       if (session.visibilityState === 'visible') questResumeVideos('VRが見えるようになった');
     });
     await xr.renderer.xr.setSession(session);
-    /* 視界のふちの粗さ(13b)。setSession の中で three が既定の最大へ戻すので、
-       必ずそのあとに指定すること */
-    try { xr.renderer.xr.setFoveation(S.fovea); } catch (_e3) {}
+    /* **この行を消さないこと(2026-08-15a)**。three 0.149 は foveation(視界の周辺を
+       わざと粗く描いて負担を減らす仕組み)の既定を最大にしており、setSession の中で
+       毎回そこへ戻す。消すと「ふちだけぼやけて、正面に持ってくると直る」が復活する。
+       利用者の判断で常に0(ふちまで鮮明)に固定した。設定で選ばせないこと */
+    try { xr.renderer.xr.setFoveation(0); } catch (_e3) {}
     xr.mediaTries = 0; /* 描画層は毎フレーム取り直しを試みる(下の xrEnsureMedia) */
     xr.lastRenderErr = null; /* 前のセッションの記録を持ち越さない(14b。持ち越すと同じ例外が二度と記録されない) */
     xr.fps = 0; xr.frameCount = 0; xr.fpsAt = 0; xr.hudFps = undefined; xr.hudLayN = -1; /* 計測を初期化 */
