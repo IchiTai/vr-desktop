@@ -949,10 +949,15 @@ async function pcStatsTickBody(){
           }
           if (out.frameWidth && out.frameHeight) parts.push(out.frameWidth + '×' + out.frameHeight);
           if (typeof out.framesPerSecond === 'number') parts.push(out.framesPerSecond + 'fps');
-          /* **これが本命**: 1コマあたりの圧縮時間。16.7msを超えると60fpsは出せない */
+          /* 1コマが符号化器を通り抜けるのにかかる時間。**これは「遅れ」であって
+             「次のコマを待たせる時間」ではない(15i)**。符号化器は複数のコマを
+             並行して流すので、16.7msを超えていても60fpsは出る(実測: 25.5msで59fps)。
+             **「16.7msを超えたら60fpsに間に合わない」と書かないこと**(15hで間違えた)。
+             コマ数が足りているかは framesPerSecond を、頭打ちの有無は
+             qualityLimitationReason を見ること。この数字は帰りの遅れの内訳(第7節h) */
           if (pv && out.framesEncoded > pv.framesEncoded && typeof out.totalEncodeTime === 'number') {
             var ms = (out.totalEncodeTime - pv.totalEncodeTime) * 1000 / (out.framesEncoded - pv.framesEncoded);
-            parts.push('圧縮 ' + ms.toFixed(1) + 'ms/コマ' + (ms > 16.7 ? '(60fpsに間に合っていません)' : ''));
+            parts.push('圧縮の遅れ ' + ms.toFixed(1) + 'ms/コマ');
           }
           /* **2つめの本命**: コマ数が落ちた理由。none/cpu/bandwidth/other */
           var why = { none: '', cpu: '機械の頭が足りない', bandwidth: '電波が細い', other: 'その他' };
@@ -960,6 +965,19 @@ async function pcStatsTickBody(){
             parts.push('頭打ち: ' + why[out.qualityLimitationReason]);
           }
           if (codec) parts.push('形式: ' + codec);
+          /* **どの符号化器が使われているか(15i/15j)**。
+             名前が `OpenH264` / `libvpx` / `libaom` ならCPUで圧縮している。
+             ⚠️ **Mac は名前だけで判断できない**: ハードでもソフトでも同じ `VideoToolbox` と出る。
+             `powerEfficientEncoder` が真なら専用回路。**必ず両方を読むこと**。
+             なお、この2つは**そのページが画面を取り込んでいる間しか出ない**(Chromeの決まり)ので、
+             見る側では取れない */
+          if (out.encoderImplementation) {
+            var eng = out.encoderImplementation;
+            if (typeof out.powerEfficientEncoder === 'boolean') {
+              eng += out.powerEfficientEncoder ? '(専用回路)' : '(CPU)';
+            }
+            parts.push('符号化器: ' + eng);
+          }
           txt = parts.join(' / ');
           item.pv = { ts: out.timestamp, bytesSent: out.bytesSent || 0,
                       framesEncoded: out.framesEncoded || 0, totalEncodeTime: out.totalEncodeTime || 0 };
@@ -2759,7 +2777,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-15h';
+var APP_VER = '2026-08-15k';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2824,10 +2842,17 @@ function kmHas(action){
   return false;
 }
 
+/* 画質プリセットの並び順。**ここ1箇所で決めること**(15j。以前は3箇所に
+   直書きされていて、足すと必ずどこかで抜けた)。
+   `QUALITY_VR` はVR内メニュー用で、4つ横並びの座標が決め打ちなので増やせない */
+var QUALITY_ORDER = ['sharp', 'balance', 'smooth', 'auto', 'half'];
+var QUALITY_VR = ['sharp', 'balance', 'smooth', 'auto'];
+/* **この2つは loadS より前に置くこと(15j)**。var は巻き上がるが代入は実行順で、
+   loadS はページ読み込みの早い段階で走るため、後ろに置くと undefined を読む */
 function loadS(){
   var s = {};
   try { s = JSON.parse(localStorage.getItem('vrdd') || '{}') || {}; } catch (_e) { s = {}; }
-  if (['sharp', 'balance', 'smooth', 'auto'].indexOf(s.q) < 0) s.q = 'balance';
+  if (QUALITY_ORDER.indexOf(s.q) < 0) s.q = 'balance';
   if (['dark', 'black', 'stars', 'sky', 'sunset', 'pass', 'photo', 'video'].indexOf(s.bg) < 0) s.bg = 'dark';
   s.panoStereo = (['tb', 'lr'].indexOf(s.panoStereo) >= 0) ? s.panoStereo : 'mono'; /* 全天球映像の立体視の並び */
   if (s.bg === 'photo' || s.bg === 'video') s.bg = 'dark'; /* 写真も映像もこの場かぎり */
@@ -2889,7 +2914,13 @@ var QUALITY = {
   smooth:  { hint: 'motion', br: 12000000, deg: 'maintain-framerate', fps: 60,
              name: 'なめらか', desc: '動きを最優先(60fps)。動画やゲーム画面向き' },
   auto:    { hint: 'detail', br: 0, deg: '', fps: 60,
-             name: '自動', desc: '通信の状態にあわせてブラウザにおまかせ' }
+             name: '自動', desc: '通信の状態にあわせてブラウザにおまかせ' },
+  /* **測定用(15j)**。解像度はそのままでコマ数だけ半分にする。
+     「圧縮の遅れ」が段数(コマ間隔×約1.5)で決まっているなら、ここで**約50msへ延びる**。
+     25.5msのままなら段数説は棄却され、別の原因を探すことになる。
+     ⚠️ **測り終えたら消してよい**。常用の選択肢ではない(動きがカクつく) */
+  half:    { hint: 'detail', br: 30000000, deg: 'maintain-resolution', fps: 30,
+             name: '30fps(測定用)', desc: '解像度そのままでコマ数だけ半分。圧縮の遅れを測るためのもの' }
 };
 
 /* 取り込みをプリセットに合わせる。Retinaなどの超高解像度は、
@@ -3280,7 +3311,7 @@ function renderQGrid(){
   if (note) { note.textContent = ''; show(note, false); }
   var box = $('qGrid');
   box.innerHTML = '';
-  ['sharp', 'balance', 'smooth', 'auto'].forEach(function(p){
+  QUALITY_ORDER.forEach(function(p){
     var q = QUALITY[p];
     var b = document.createElement('button');
     b.className = 'opt' + (S.q === p ? ' on' : '');
@@ -6600,7 +6631,8 @@ function xrMenuDraw(){
 
   if (page === 'basic') {
     label('画質', 36, 170);
-    ['sharp', 'balance', 'smooth', 'auto'].forEach(function(p, i){
+    /* VR内は4つ横並びの座標が決め打ち。**増やすなら座標から作り直すこと**(15j) */
+    QUALITY_VR.forEach(function(p, i){
       btn('q:' + p, 36 + i * 242, 184, 226, 58, QUALITY[p].name, S.q === p, false, true);
     });
 
