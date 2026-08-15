@@ -2646,7 +2646,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-15c';
+var APP_VER = '2026-08-15d';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -7005,12 +7005,13 @@ function xrCylDraw(){
       gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, xr.cylFboDst);
       gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, sub.colorTexture, 0);
       if (gl.checkFramebufferStatus(gl.DRAW_FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error('FB not complete');
-      /* **読み取り枠の左右と上下をどちらも入れ替えて転写している(15c)**。
-         15b は入れ替えずに出したところ、実機で絵が180度回って見えた。
-         上下だけ・左右だけ直したいときは、この4つの数のどちらかの組を戻す(調整点):
-           左右そのまま = (0, ..., vw, ...) / 上下そのまま = (..., 0, ..., vh) */
+      /* **読み取り枠は「上下だけ」入れ替えて転写する(15d。実機で確定)**。
+         経過: 15b(入れ替えなし)=上下が逆 → 15c(上下と左右)=左右が逆 →
+         15d(上下だけ)。**左右を入れ替え直さないこと**。
+         映像は上の行から並ぶのに GL のテクスチャは下から並ぶので、上下だけが逆になる。
+         調整点: 上下も戻すなら (0, 0, vw, vh) */
       var vw = v.videoWidth, vh = v.videoHeight;
-      gl.blitFramebuffer(vw, vh, 0, 0,
+      gl.blitFramebuffer(0, vh, vw, 0,
                          vp.x, vp.y, vp.x + vp.width, vp.y + vp.height,
                          gl.COLOR_BUFFER_BIT, gl.LINEAR);
       touched = true;
