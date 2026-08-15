@@ -195,6 +195,8 @@ video.preview{
 .screenrow:first-child{margin-top:0;border-top:none;padding-top:0}
 .screenrow-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .screenrow-name{font-weight:700;font-size:14px}
+/* 送信側の計器(15h)。見る側の品質表示と同じ調子(小さい字・控えめな色) */
+.sendstat{font-size:11px;color:var(--muted);font-family:var(--font-disp);line-height:1.5;margin-top:6px;word-break:break-word}
 .monsel{
   background:var(--surface-2);color:var(--ink);border:1px solid var(--line);
   border-radius:8px;padding:6px 8px;font-family:var(--font-jp);font-size:12px;max-width:100%;
@@ -762,7 +764,8 @@ var pc = {
   inputQueue: [],
   diag: [], offAt: 0,  /* 誤OFFの採取(13c)。診断行と違い、ONに戻っても消えない */
   inputOk: true, inputFailN: 0, /* 操作の送信が通っているか(14a)。33ms間隔なので状態の変わり目だけ記録する */
-  sendWorker: null, sendUrl: null, sendTimer: null /* 操作送信の合図(05n。Worker/退避用interval) */
+  sendWorker: null, sendUrl: null, sendTimer: null, /* 操作送信の合図(05n。Worker/退避用interval) */
+  statsTimer: null, statsBusy: false /* 送信側の計器(15h)。止めるのは pcStop の1箇所 */
 };
 
 async function pcCapture(errId){
@@ -827,6 +830,7 @@ function pcAddScreen(stream){
   }
   pc.screens.push(item);
   pcRenderScreens();
+  pcStatsTimer(); /* 画面が増減したら計器の要否も見直す(15h) */
   pcCallScreen(item);
 }
 
@@ -887,6 +891,105 @@ function pcRemoveScreen(slot){
   pcBroadcast({ t: 'del', s: slot });
   if (pc.screens.length === 0) { pcStop(); return; }
   pcRenderScreens();
+  pcStatsTimer();
+}
+
+/* ---------- 送信側の計器(15h・第8.5節 N16) ----------
+   これまで getStats を呼ぶのは見る側だけで、**共有している側は一度も通信の統計を
+   読んでいなかった**。そのため「1コマの圧縮に何ミリ秒かかっているか」「コマ数が
+   落ちたのは機械の頭(CPU)が足りないのか電波が細いのか」が誰にも分からなかった。
+   **60fpsを保つには1コマを16.7ms以内に圧縮し終える必要がある**ので、この数字ひとつで
+   「くっきり=2560×1600・60fps」が本当に成立しているかが決まる(第7節(h)④の判定材料)。
+
+   見る側の questStatsTick と同じ作法にそろえてある: 2秒ごと・再入防止・
+   要るときだけ回す・表示は文字列を持たせて描き直しは別。 */
+var PCSTAT_MS = 2000;
+
+async function pcStatsTick(){
+  if (pc.statsBusy) return;      /* getStats が2秒より遅い機器で二重に走らせない */
+  pc.statsBusy = true;
+  try { await pcStatsTickBody(); } finally { pc.statsBusy = false; }
+}
+
+async function pcStatsTickBody(){
+  if (!pc.screens.length) return;
+  var dirty = false;
+  for (var i = 0; i < pc.screens.length; i++) {
+    var item = pc.screens[i];
+    /* 見る側が複数つないでいても、送っている中身は同じなので最初の1本だけ読む */
+    var call = null;
+    if (item.calls) {
+      var ks = Object.keys(item.calls);
+      for (var k = 0; k < ks.length && !call; k++) call = item.calls[ks[k]];
+    }
+    var txt = '';
+    if (!call || !call.peerConnection) {
+      txt = '';
+    } else {
+      try {
+        var rs = await call.peerConnection.getStats();
+        var out = null, codec = '', codecs = {};
+        rs.forEach(function(rep){
+          if (rep.type === 'outbound-rtp' && rep.kind === 'video') {
+            if (!out || (rep.framesEncoded || 0) > (out.framesEncoded || 0)) out = rep;
+          } else if (rep.type === 'codec') { codecs[rep.id] = rep; }
+        });
+        if (out) {
+          if (out.codecId && codecs[out.codecId] && codecs[out.codecId].mimeType) {
+            codec = String(codecs[out.codecId].mimeType).replace('video/', '');
+          }
+          var pv = item.pv || null;
+          var parts = [];
+          /* 送信Mbps: 前回との差から出す(累計をそのまま出しても読めない) */
+          /* 統計の時刻は `timestamp`。`ts` という欄は無いので、間違えると
+             送信Mbpsだけ黙って出なくなる(15hで踏んだ) */
+          if (pv && out.bytesSent >= pv.bytesSent && out.timestamp > pv.ts) {
+            var mbps = (out.bytesSent - pv.bytesSent) * 8 / (out.timestamp - pv.ts) / 1000;
+            parts.push('送信 ' + mbps.toFixed(1) + ' Mbps');
+          }
+          if (out.frameWidth && out.frameHeight) parts.push(out.frameWidth + '×' + out.frameHeight);
+          if (typeof out.framesPerSecond === 'number') parts.push(out.framesPerSecond + 'fps');
+          /* **これが本命**: 1コマあたりの圧縮時間。16.7msを超えると60fpsは出せない */
+          if (pv && out.framesEncoded > pv.framesEncoded && typeof out.totalEncodeTime === 'number') {
+            var ms = (out.totalEncodeTime - pv.totalEncodeTime) * 1000 / (out.framesEncoded - pv.framesEncoded);
+            parts.push('圧縮 ' + ms.toFixed(1) + 'ms/コマ' + (ms > 16.7 ? '(60fpsに間に合っていません)' : ''));
+          }
+          /* **2つめの本命**: コマ数が落ちた理由。none/cpu/bandwidth/other */
+          var why = { none: '', cpu: '機械の頭が足りない', bandwidth: '電波が細い', other: 'その他' };
+          if (out.qualityLimitationReason && why[out.qualityLimitationReason]) {
+            parts.push('頭打ち: ' + why[out.qualityLimitationReason]);
+          }
+          if (codec) parts.push('形式: ' + codec);
+          txt = parts.join(' / ');
+          item.pv = { ts: out.timestamp, bytesSent: out.bytesSent || 0,
+                      framesEncoded: out.framesEncoded || 0, totalEncodeTime: out.totalEncodeTime || 0 };
+        }
+      } catch (_e) { txt = ''; }
+    }
+    if (txt !== item.statText) { item.statText = txt; dirty = true; }
+  }
+  if (dirty) pcStatsRefreshUi();
+}
+
+/* 表示だけ差し替える(行ごと作り直すと映像のプレビューが点滅するため) */
+function pcStatsRefreshUi(){
+  pc.screens.forEach(function(item){
+    if (!item.statEl) return;
+    item.statEl.textContent = item.statText || '';
+    show(item.statEl, !!item.statText);
+  });
+}
+
+/* 要るときだけ回す(見る側の questStatsTimer と同じ考え方) */
+function pcStatsTimer(){
+  var want = !pc.stopped && pc.screens.length > 0;
+  if (want && !pc.statsTimer) {
+    pc.statsTimer = setInterval(pcStatsTick, PCSTAT_MS);
+    pcStatsTick();
+  } else if (!want && pc.statsTimer) {
+    clearInterval(pc.statsTimer);
+    pc.statsTimer = null;
+  }
 }
 
 function pcRenderScreens(){
@@ -955,6 +1058,16 @@ function pcRenderScreens(){
     /* 付け直したあとに止まっていたら鳴らし直す。autoplay は要素を作った
        ときの1回しか効かないので、これが無いと黒いまま戻らない */
     if (v.paused) v.play().catch(function(){});
+
+    /* 送信側の計器(15h)。**行ごと作り直しているので、ここで毎回作ること**:
+       前の要素を使い回すと box.innerHTML='' で外れたままになる。
+       文字は item.statText に持たせてあるので、組み直しても消えない */
+    var st = document.createElement('div');
+    st.className = 'sendstat';
+    st.textContent = item.statText || '';
+    show(st, !!item.statText);
+    item.statEl = st;
+    row.appendChild(st);
 
     box.appendChild(row);
   });
@@ -1715,6 +1828,7 @@ function pcStop(){
      ここで確実に止めること(まとめ入れの箱は、止め忘れの温床になる) */
   pcStopSendLoop(); /* 操作送信のWorker(または退避用interval)を止める(05n) */
   if (pc.pingTimer) { clearTimeout(pc.pingTimer); pc.pingTimer = null; }
+  if (pc.statsTimer) { clearInterval(pc.statsTimer); pc.statsTimer = null; } /* 送信側の計器(15h) */
   pc.inputQueue = [];
   pc.helperOn = false;
   pc.monSig = '';
@@ -2645,7 +2759,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-15g';
+var APP_VER = '2026-08-15h';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
