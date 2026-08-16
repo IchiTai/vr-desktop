@@ -778,9 +778,7 @@ var pc = {
   diag: [], offAt: 0,  /* 誤OFFの採取(13c)。診断行と違い、ONに戻っても消えない */
   inputOk: true, inputFailN: 0, /* 操作の送信が通っているか(14a)。33ms間隔なので状態の変わり目だけ記録する */
   sendWorker: null, sendUrl: null, sendTimer: null, /* 操作送信の合図(05n。Worker/退避用interval) */
-  /* 送信側の計器(15h)。**起こすのは pcStatsTimer() だけ**で、その呼び出し口は
-     pcAddScreen と pcRemoveScreen の2箇所。**止めるのは pcStatsTimer() の else と
-     pcStop() の2箇所**(15pで数え直した) */
+  /* 送信側の計器(15h)。**起こし止めは pcStatsTimer() と pcStop() だけで行うこと** */
   statsTimer: null, statsBusy: false
 };
 
@@ -1315,6 +1313,10 @@ function pcToggleDiag(){
    H.265/AV1 を選択肢に足せるかは機器ごとに違い、ここの実物の値でしか判断できない。
    ⚠️ **rtx/red/ulpfec/flexfec は再送・訂正用の疑似形式なので除くこと**
    (14bで「最初に見つかった video/ の codec」を形式として出しかけたのと同じ罠) */
+/* 再送・訂正用の疑似形式。**形式の一覧にも「いま流れている形式」にも出さないこと**
+   (14bで rtx を形式として表示しかけた)。大文字小文字は区別しない */
+var CODEC_SKIP_RE = /\/(rtx|red|ulpfec|flexfec)/i;
+
 function videoCodecList(kind){
   try {
     var api = (kind === 'send') ? RTCRtpSender : RTCRtpReceiver;
@@ -1323,9 +1325,7 @@ function videoCodecList(kind){
     var seen = [];
     caps.codecs.forEach(function(c){
       var mt = String(c.mimeType || '');
-      /* **除外は questStatsTickBody の codec 拾い直しと同じ書き方にすること**。大文字小文字を区別する完全一致だと
-         video/RTX や -03 の付かない flexfec を素通しする */
-      if (!/^video\//.test(mt) || /\/(rtx|red|ulpfec|flexfec)/i.test(mt)) return;
+      if (!/^video\//.test(mt) || CODEC_SKIP_RE.test(mt)) return;
       var m = mt.replace(/^video\//, '');
       if (seen.indexOf(m) < 0) seen.push(m);
     });
@@ -2444,7 +2444,7 @@ function questWireConn(host){
          クリックもキーも黙って捨てられるので、描き直すだけでは気づけない。
          ⚠️ **変わったときだけ**。毎回呼ぶと生存確認のたびにガイドが出る */
       if (wasOn !== host.helperOn && APP.xrNotice) APP.xrNotice();
-      else if (APP.xrHud) APP.xrHud();
+      else if (APP.xrHudSync) APP.xrHudSync();
     } else if (m.t === 'del') {
       var had = false;
       host.screens.forEach(function(x){ if (x.slot === m.s) had = true; });
@@ -2787,16 +2787,10 @@ function questCopyDiag(){
   } catch (_e) { done(false); }
 }
 
-/* #qStatus は questUiSync と xrEnter の両方が書く。**必ず同じ文を使うこと**。
-   片方だけ変えると、押した直後の案内が数秒で別の文に化ける(15sで踏んだ) */
-var Q_NO_HOST = 'つながっているパソコンがありません。6桁のコードを入れて接続してください。';
-var Q_NO_VIDEO = 'つながりましたが、映像がまだ届いていません。共有しているパソコンで、このページのウィンドウを見える場所に出してください。';
-/* **ダイヤル中を「つながった」扱いにしないこと**。初回は最大90秒かかるので、
-   その間ずっと「共有側のウィンドウを出して」と、まだつながっていない機械を直させてしまう */
-var Q_DIALING = 'パソコンにつないでいます… そのままお待ちください。';
-
 /* **#qStatus の本文はここだけで決めること**。questUiSync と xrEnter の2人が書くので、
-   片方だけ枝を足すと同じ状態で違う文が出る(15sで踏み、16bでも retry を取りこぼした) */
+   片方だけ枝を足すと同じ状態で違う文が出る(15sで踏み、16bでも retry を取りこぼした)。
+   ⚠️ **ダイヤル中を「つながった」扱いにしないこと**。初回は最大90秒かかるので、
+   その間ずっと「共有側のウィンドウを出して」と、まだつながっていない機械を直させてしまう */
 function qStatusText(){
   var anyRetry = false, anyScreen = false, anyDialing = false;
   qs.hosts.forEach(function(h){
@@ -2804,11 +2798,11 @@ function qStatusText(){
     if (h.state === 'connecting') anyDialing = true;
     if (h.screens.length) anyScreen = true;
   });
-  return !qs.hosts.length ? Q_NO_HOST
-    : anyRetry ? '接続が切れました。自動で再接続しています…'
-    : (anyDialing && !anyScreen) ? Q_DIALING
-    : !anyScreen ? Q_NO_VIDEO
-    : 'パソコンの画面を受信しています。';
+  if (!qs.hosts.length) return 'つながっているパソコンがありません。6桁のコードを入れて接続してください。';
+  if (anyRetry) return '接続が切れました。自動で再接続しています…';
+  if (anyDialing && !anyScreen) return 'パソコンにつないでいます… そのままお待ちください。';
+  if (!anyScreen) return 'つながりましたが、映像がまだ届いていません。共有しているパソコンで、このページのウィンドウを見える場所に出してください。';
+  return 'パソコンの画面を受信しています。';
 }
 
 function questUiSync(){
@@ -2872,7 +2866,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-16e';
+var APP_VER = '2026-08-17a';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2903,12 +2897,18 @@ var KM_ACT_SHORT = {
   recenter: '正面に戻す', menu: 'メニュー', keys: 'よく使うキー', hud: '操作ガイド', '': 'なし'
 };
 
-/* いまの割り当てが標準と同じか。**標準の表を見せてよいかの判断にだけ使う** */
-function kmIsDefault(km){
-  var d = kmDefault();
-  for (var k in d) { if ((km && km[k]) !== d[k]) return false; }
+/* 割り当て表どうしの突き合わせ。⚠️ **KM_BTNS を回すこと**。
+   KM_BTNS に足して kmDefault() に足し忘れたら気づける。
+   逆に **kmDefault() だけに足したキーは見逃す**ので、ボタンは必ず KM_BTNS から足すこと */
+function kmEquals(km, ref){
+  for (var i = 0; i < KM_BTNS.length; i++) {
+    var b = KM_BTNS[i];
+    if ((km && km[b]) !== ref[b]) return false;
+  }
   return true;
 }
+/* いまの割り当てが標準と同じか。**標準の表を見せてよいかの判断にだけ使う** */
+function kmIsDefault(km){ return kmEquals(km, kmDefault()); }
 
 function kmDefault(){
   return { r0: 'click', r1: 'grab', r3: 'keys', r4: 'click', r5: 'rclick',
@@ -3249,7 +3249,7 @@ async function questStatsTickBody(){
             Object.keys(codecs).forEach(function(cid){
               if (cRep) return;
               var mt = String(codecs[cid].mimeType || '');
-              if (/^video\//.test(mt) && !/\/(rtx|red|ulpfec|flexfec)/i.test(mt)) cRep = codecs[cid];
+              if (/^video\//.test(mt) && !CODEC_SKIP_RE.test(mt)) cRep = codecs[cid];
             });
           }
           if (cRep && cRep.mimeType) codec = String(cRep.mimeType).replace('video/', '');
@@ -3321,7 +3321,7 @@ function statsRefreshUi(){
     if (el) el.textContent = (h.state === 'retry' ? '⟳ 再接続中… ' : '') + (h.statText || '');
   });
   if (APP.tvStats) APP.tvStats();
-  if (APP.xrHud) APP.xrHud();
+  if (APP.xrHudSync) APP.xrHudSync();
 }
 
 /* ---------- 設定モーダル ---------- */
@@ -4503,10 +4503,10 @@ var xr = {
   padHL: null, padCustom: false,
   handSel: { right: false, left: false },
   lastClock: '', remindMin: 0, remindAt: 0, remindShownUntil: 0,
-  /* **パネルを開いていても操作ガイドを見せる期限**(Date.now基準)。
-     休憩の知らせと切断の知らせは、ここに期限を入れないと
-     「よく使うキー」を開いている間だけ黙って隠れる */
-  hudForceUntil: 0,
+  /* 切断の知らせを、パネルを開いていても見せる期限(Date.now基準)。
+     ⚠️ **☕の期限と1本にまとめないこと**。まとめると「この期限は誰が入れたか」を
+     値の一致で当てる羽目になり、片方の秒数を変えただけで壊れる */
+  noticeUntil: 0,
   menuHL: null, menuCustom: false, hudCustom: false,
   camPos: null,
   bg: { grid: null, ring: null, sky: null, spark: null, tex: {} },
@@ -5137,7 +5137,15 @@ APP.xrHandChanged = function(){
 };
 
 APP.xrSync = function(){ if (xr.built) xrSyncScreens(); };
-APP.xrHud = function(){ if (xr.built) xrDrawHud(); };
+/* **中身が変わったので描き直す**口。⚠️ **隠れているときは描かず印だけ立てること**。
+   1024x920のキャンバスの全描き直し + 3.77MB のGPU転送なので、見えていないのに
+   2秒ごとに走らせる意味がない(statsRefreshUi がまさにそれをしていた)。
+   ⚠️ **見せたいときはこれではなく APP.xrNotice を呼ぶこと**(名前で3回間違えた) */
+APP.xrHudSync = function(){
+  if (!xr.built) return;
+  if (xr.hud && xr.hud.visible) xrDrawHud();
+  else xr.hudStale = true;
+};
 /* VRの中の利用者へ、**見える形で**知らせる(N4)。
    ⚠️ **xrDrawHud() だけでは足りない**。あれは隠れたキャンバスに描き直すだけで、
    操作ガイドは入室12秒で自動的に消えている(xr.hudUntil)。切断は画面が丸ごと
@@ -5151,9 +5159,10 @@ APP.xrNotice = function(){
   /* **パネルを開いていても見せること**。ここを忘れると、
      「よく使うキー」を開いている最中の切断が黙って隠れる(N4が効かなくなる) */
   var d = Date.now() + 20000;
-  if (d > xr.hudForceUntil) xr.hudForceUntil = d;
-  xr.hudStale = false;
-  xrDrawHud();
+  if (d > xr.noticeUntil) xr.noticeUntil = d;
+  /* ⚠️ **ここで xrDrawHud() を直に呼ばないこと**。切断1回で最大4本が数コマ以内に
+     連なるので、印だけ立てて毎コマの側で1回に畳む */
+  xr.hudStale = true;
 };
 
 /* ---------- 画面の形状 ---------- */
@@ -5237,7 +5246,7 @@ function xrCreateScreen(d){
     key: d.key, host: d.host, slot: d.slot, video: null,
     tex: null, mat: mat, mesh: null, aspect: 16 / 9, wScale: 1,
     curved: xr.params.curved, locked: false, custom: false, follow: false, dim: 1, prevScale: 0,
-    bar: null, barSig: '', barScale: 1
+    bar: null, barSig: ''
   };
   xrAttachVideo(s, d.video);
   s.mesh = new THREE.Mesh(xrMakeScreenGeo(xrScreenW(s), s.aspect, s.curved), mat);
@@ -5293,9 +5302,7 @@ function xrPlaceBar(s){
 }
 
 /* 帯を距離に合わせて拡大する。**当たり判定も一緒に大きくなる**(判定は板の uv から出すため)。
-   ⚠️ **画面の幅を超えないこと**。超えると、画面より大きな看板が上に乗って見える。
-   ⚠️ **見た目は「レーザーが当たっている間だけ」のまま**(利用者の判断)。
-      常時見えると、たまにしか触らない5つのために視界が occupied されて気が散る */
+   ⚠️ **画面の幅を超えないこと**。超えると、画面より大きな看板が上に乗って見える */
 function xrBarScale(s){
   if (!s.bar || !s.mesh) return 1;
   var d = s.mesh.position.distanceTo(xr.camPos);
@@ -5405,13 +5412,11 @@ function xrBarActivate(s, idx){
 function xrUpdateBars(){
   xr.screens.forEach(function(s){
     /* 拡大は毎コマ見る(距離はスティックでもつかみでも連続で変わる)。
-       **1%より小さい変化では書かないこと**: 書くたびに three が行列を作り直す */
+       1%の足切りは値のばたつき止め(three は matrixAutoUpdate が真なので、
+       書いても書かなくても行列は毎コマ作り直される) */
     if (s.bar) {
       var bk = xrBarScale(s);
-      if (Math.abs(bk - (s.barScale || 1)) > 0.01) {
-        s.barScale = bk;
-        s.bar.mesh.scale.setScalar(bk);
-      }
+      if (Math.abs(bk - s.bar.mesh.scale.x) > 0.01) s.bar.mesh.scale.setScalar(bk);
     }
     var hovIdx = -1;
     var shown = false;
@@ -5647,7 +5652,7 @@ async function xrEnter(){
     xr.remindShownUntil = 0;
     /* **前の入室から持ち越した免除は必ず捨てること**。残すと、開いた「よく使うキー」に
        操作ガイドが重なる(この時点でこのセッションの xrNotice はまだ発火していない) */
-    xr.hudForceUntil = 0;
+    xr.noticeUntil = 0;
     /* Media Layers(第1弾・04q): threeがlayers経路(XRProjectionLayer)を使い、かつ
        XRMediaBindingがある環境でだけ有効。無ければ全画面が従来描画のまま(安全側) */
     xr.projLayer = null;
@@ -5682,6 +5687,7 @@ async function xrEnter(){
     xr.hudPinned = !!S.hudPin;
     xr.hudUntil = performance.now() + 12000;
     xr.geoDirty = true;
+    xr.hudStale = false; /* VRの外で溜まった印は、この一発で消化される */
     xrDrawHud();
     xr.renderer.setAnimationLoop(xrRender);
   } catch (e) {
@@ -5743,6 +5749,7 @@ function xrOnSessionEnd(){
   xrReleaseAllButtons();
   xr.grab.right = null;
   xr.grab.left = null;
+  if (xr.hud) xr.hud.visible = false; /* VRの外で描き直しが走らないように */
   xr.menu.open = false;
   if (xr.menu.mesh) xr.menu.mesh.visible = false;
   xr.menuHL = null;
@@ -6027,13 +6034,7 @@ function xrActDown(action, hand){
       }
     } else {
       /* 何もない所をクリック → 操作ガイドの表示/非表示 */
-      /* **自動表示の12秒の間に押したら、消すのではなく留めること**。
-         「消えかけたので押して止める」が自然な反応なのに、以前はその場で消えていた */
-      if (performance.now() < xr.hudUntil) { xr.hudPinned = true; xr.hudUntil = 0; }
-      else { xr.hudPinned = !xr.hudPinned; xr.hudUntil = 0; }
-      S.hudPin = xr.hudPinned;
-      saveS();
-      if (xr.hudPinned) xr.hudCustom = false; /* 出し直しは定位置に */
+      xrHudToggle();
     }
   } else if (action === 'rclick') {
     if (p.onMenu || p.onHud || p.onKeys || p.onPad || p.bar) return;
@@ -6054,10 +6055,7 @@ function xrActDown(action, hand){
   } else if (action === 'recenter') {
     xr.needsRecenter = true;
   } else if (action === 'hud') {
-    if (performance.now() < xr.hudUntil) { xr.hudPinned = true; xr.hudUntil = 0; }
-    else { xr.hudPinned = !xr.hudPinned; xr.hudUntil = 0; }
-    S.hudPin = xr.hudPinned;
-    saveS();
+    xrHudToggle();
   }
 }
 
@@ -6808,6 +6806,20 @@ function xrPanelsCloseOthers(keep){
   }
 }
 
+/* 操作ガイドの表示切替。**2箇所(何もない所のクリック / 割り当てボタン)から呼ぶので
+   ここ1つにまとめること**。以前は写しが2つあり、hudCustom の行が片方にしか無かった */
+function xrHudToggle(){
+  /* 自動表示の12秒の間に押したら、消すのではなく留める
+     (「消えかけたので押して止める」が自然な反応) */
+  if (performance.now() < xr.hudUntil) xr.hudPinned = true;
+  else xr.hudPinned = !xr.hudPinned;
+  xr.hudUntil = 0;
+  if (xr.hudPinned) xr.hudCustom = false; /* 次の xrLayout で定位置へ戻す(この場では動かない) */
+  /* ⚠️ **変わったときだけ書くこと**。saveS は描画のコマの中で走るので、
+     同じ値を毎回 JSON 化して同期書き込みするのは無駄 */
+  if (S.hudPin !== xr.hudPinned) { S.hudPin = xr.hudPinned; saveS(); }
+}
+
 function xrMenuToggle(){
   xrMenuEnsure();
   xr.menu.open = !xr.menu.open;
@@ -7045,9 +7057,8 @@ function xrMenuActivate(id){
     var mm = parseInt(p[1], 10) || 0;
     xr.remindMin = mm;
     xr.remindAt = mm ? (Date.now() + mm * 60000) : 0;
-    /* ☕の免除だけを捨てる。値が違うなら切断の知らせが後から伸ばしたものなので残す */
-    if (xr.hudForceUntil === xr.remindShownUntil) xr.hudForceUntil = 0;
     xr.remindShownUntil = 0;
+    xr.hudStale = true; /* ☕の文字を消すため描き直させる(次の分替わりまで残ってしまう) */
     S.remindMin = mm;
     saveS();
   } else if (p[0] === 'sv') {
@@ -7585,20 +7596,27 @@ function xrRenderInner(){
   }
   /* 描き直しの判定は「いま出ている値」と照らす。値が変わった瞬間にガイドが
      隠れていて描き直しを飛ばすと、二度と機会が来ないため(表示が固まる)。
-     71と72の往復で毎秒描き直すと、その転送自体が引っかかりを生むので、
-     2以上の差か、まだ一度も出していないときだけ描き直す */
+     71と72の往復で毎秒描き直すと、その転送自体が引っかかりを生む */
   /* **枚数だけでなく「描けた枚数」も見ること(15c)**。湾曲は作ってから
      数コマ遅れて描け始めるので、枚数だけだと「湾曲0/1枚」のまま固まり、
      ガイドが「左の数字が実際に描けた枚数」と案内している目印が嘘になる */
   var layN = 0, layOk = 0;
   (xr.mediaLayers || []).forEach(function(e){ layN++; if (!e.cyl || e.drew) layOk++; });
   if (xr.hud && xr.hud.visible &&
-      (xr.hudFps === undefined || Math.abs((xr.fps || 0) - xr.hudFps) >= 2
+      /* ⚠️ **しきい値を下げないこと**。出しっぱなし(S.hudPin)を覚えるようにしたので、
+         留めた人は最後までガイドが見えたまま=毎秒1回、1024x920の全描き直しと
+         3.77MBの転送が走りうる */
+      (xr.hudFps === undefined || Math.abs((xr.fps || 0) - xr.hudFps) >= 5
+       /* ⚠️ **55fps の赤字をまたぐときは必ず描き直すこと**。足切りだけだと
+          57→54 のような小さな落ち込みで色が変わらず、警告が出ないまま固まる */
+       || ((xr.fps || 0) < 55) !== (xr.hudFps < 55)
        || layN !== xr.hudLayN || layOk !== xr.hudLayOk)) {
     xr.hudFps = xr.fps || 0;
     xr.hudLayN = layN; /* 枚数が変わったときも描き直す(内訳の表示のため) */
     xr.hudLayOk = layOk;
-    xrDrawHud();
+    /* ⚠️ **ここで直に描かないこと**。下の消化点と同じコマで両方成立すると、
+       いちばん重い全描き直しが1コマに2回積まれる。印だけ立てる */
+    xr.hudStale = true;
   }
   xr.camera.getWorldPosition(xr.camPos);
   xrSyncMediaLayers();
@@ -7626,9 +7644,9 @@ function xrRenderInner(){
     /* 「よく使うキー」のパネルは操作ガイドの上端と同じ高さに出るため、開いている間は隠す。
        ただし休憩の知らせは操作ガイドにしか出ないので、出ている60秒の間だけは隠さない */
     var wantHud = (xr.hudPinned || now < xr.hudUntil)
-      && (!xr.keys.open || Date.now() < xr.hudForceUntil);
-    /* 隠れている間に時刻などが変わっていたら、出す瞬間に描き直す(05x) */
-    if (wantHud && !xr.hud.visible && xr.hudStale) { xr.hudStale = false; xrDrawHud(); }
+      && (!xr.keys.open || Date.now() < xr.remindShownUntil || Date.now() < xr.noticeUntil);
+    /* 印が立っていれば描く。**1コマに何本 xrNotice が来ても描画は1回**に畳まれる */
+    if (wantHud && xr.hudStale) { xr.hudStale = false; xrDrawHud(); }
     xr.hud.visible = wantHud;
   }
 
@@ -7645,8 +7663,7 @@ function xrRenderInner(){
   }
   /* **☕の60秒が切れた瞬間に一度だけ描き直すこと**。描き直さないとキャンバスに
      「☕ 休憩の時間です」が残り、次に出したガイドが終わった休憩を知らせ続ける
-     (次の分の変わり目まで最大60秒)。⚠️ hudForceUntil はここで 0 にしないこと。
-     切断の知らせ(xrNotice)が伸ばした免除まで切ってしまう */
+     (次の分の変わり目まで最大60秒) */
   if (xr.remindShownUntil && Date.now() >= xr.remindShownUntil) {
     xr.remindShownUntil = 0;
     if (xr.hud && xr.hud.visible) xrDrawHud();
@@ -7661,7 +7678,6 @@ function xrRenderInner(){
     /* **ピン留めには触らないこと**。触ると、利用者が畳んだガイドが鳴るたびに
        出っぱなしになる(APP.xrNotice と同じ作法)。60秒で☕と一緒に引っ込む */
     if (now + 60000 > xr.hudUntil) xr.hudUntil = now + 60000;
-    xr.hudForceUntil = xr.remindShownUntil;
     xrDrawHud();
     if (xr.menu.open) xrMenuDraw();
   }
