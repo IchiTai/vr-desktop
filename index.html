@@ -2862,7 +2862,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-16c';
+var APP_VER = '2026-08-16d';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -5217,7 +5217,7 @@ function xrCreateScreen(d){
     key: d.key, host: d.host, slot: d.slot, video: null,
     tex: null, mat: mat, mesh: null, aspect: 16 / 9, wScale: 1,
     curved: xr.params.curved, locked: false, custom: false, follow: false, dim: 1, prevScale: 0,
-    bar: null, barSig: ''
+    bar: null, barSig: '', barScale: 1
   };
   xrAttachVideo(s, d.video);
   s.mesh = new THREE.Mesh(xrMakeScreenGeo(xrScreenW(s), s.aspect, s.curved), mat);
@@ -5245,6 +5245,8 @@ function xrRebuildGeos(){
 
 /* ---------- 画面の上のボタン列(平面/湾曲・ミュート・固定) ---------- */
 var BAR_W = 860, BAR_H = 88;
+/* 帯の板の実寸(m)と、拡大の基準になる距離。**この2つで見かけの大きさが決まる** */
+var BAR_M = 1.35, BAR_REF_D = 2.4;
 var BAR_BTNS = [
   { x: 8, w: 160 }, { x: 178, w: 160 }, { x: 348, w: 160 },
   { x: 518, w: 160 }, { x: 688, w: 160 }
@@ -5256,7 +5258,7 @@ function xrBuildBar(s){
   c.height = BAR_H;
   var tex = new THREE.CanvasTexture(c);
   var mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, fog: false });
-  var mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 1.35 * BAR_H / BAR_W), mat);
+  var mesh = new THREE.Mesh(new THREE.PlaneGeometry(BAR_M, BAR_M * BAR_H / BAR_W), mat);
   mesh.userData.barOf = s;
   s.bar = { canvas: c, ctx: c.getContext('2d'), tex: tex, mesh: mesh };
   s.mesh.add(mesh);
@@ -5268,6 +5270,17 @@ function xrPlaceBar(s){
   if (!s.bar) return;
   var h = xrScreenW(s) / s.aspect;
   s.bar.mesh.position.set(0, h / 2 + 0.12, 0.03);
+}
+
+/* 帯を距離に合わせて拡大する。**当たり判定も一緒に大きくなる**(判定は板の uv から出すため)。
+   ⚠️ **画面の幅を超えないこと**。超えると、画面より大きな看板が上に乗って見える。
+   ⚠️ **見た目は「レーザーが当たっている間だけ」のまま**(利用者の判断)。
+      常時見えると、たまにしか触らない5つのために視界が occupied されて気が散る */
+function xrBarScale(s){
+  if (!s.bar || !s.mesh) return 1;
+  var d = s.mesh.position.distanceTo(xr.camPos);
+  if (!(d > 0)) return 1;
+  return clamp(d / BAR_REF_D, 1, Math.max(1, xrScreenW(s) / BAR_M));
 }
 
 function xrDrawBar(s, hoverIdx, shown){
@@ -5371,6 +5384,15 @@ function xrBarActivate(s, idx){
 /* 状態に応じてバーの表示/再描画をまとめて更新 */
 function xrUpdateBars(){
   xr.screens.forEach(function(s){
+    /* 拡大は毎コマ見る(距離はスティックでもつかみでも連続で変わる)。
+       **1%より小さい変化では書かないこと**: 書くたびに three が行列を作り直す */
+    if (s.bar) {
+      var bk = xrBarScale(s);
+      if (Math.abs(bk - (s.barScale || 1)) > 0.01) {
+        s.barScale = bk;
+        s.bar.mesh.scale.setScalar(bk);
+      }
+    }
     var hovIdx = -1;
     var shown = false;
     ['right', 'left'].forEach(function(hand){
