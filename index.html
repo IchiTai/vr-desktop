@@ -1310,6 +1310,25 @@ function pcToggleDiag(){
   pcDiagRender();
 }
 
+/* その機器が実際に扱える映像の形式(N10)。kind は 'send'(共有する側) / 'recv'(見る側)。
+   H.265/AV1 を選択肢に足せるかは機器ごとに違い、ここの実物の値でしか判断できない。
+   ⚠️ **rtx/red/ulpfec/flexfec は再送・訂正用の疑似形式なので除くこと**
+   (14bで「最初に見つかった video/ の codec」を形式として出しかけたのと同じ罠) */
+function videoCodecList(kind){
+  try {
+    var api = (kind === 'send') ? RTCRtpSender : RTCRtpReceiver;
+    var caps = api.getCapabilities('video');
+    if (!caps || !caps.codecs) return '';
+    var seen = [];
+    caps.codecs.forEach(function(c){
+      var m = String(c.mimeType || '').replace('video/', '');
+      if (!m || m === 'rtx' || m === 'red' || m === 'ulpfec' || m === 'flexfec-03') return;
+      if (seen.indexOf(m) < 0) seen.push(m);
+    });
+    return seen.join(', ');
+  } catch (_e) { return ''; } /* getCapabilities の無い環境では欄ごと出さない(診断の付け足しでアプリを止めない) */
+}
+
 /* コピーには前提情報を先頭に付ける(採取のたびに版やヘルパーの状態を聞き返さずに済む) */
 function pcCopyDiag(){
   var b = $('pcDiagCopy');
@@ -1326,6 +1345,7 @@ function pcCopyDiag(){
     '共有中の画面: ' + pc.screens.length + '枚 / 見る側: ' + pc.conns.length + '台',
     'いま操作できるか: ' + (pc.helperOn ? 'はい' : 'いいえ'),
     '生存確認: 間隔' + PING_MS + '〜' + PING_MS_MAX + 'ms / 打ち切り' + PING_TIMEOUT_MS + 'ms / 2回連続でOFF',
+    '送れる映像の形式: ' + (videoCodecList('send') || '取得できない環境'),
     '---'
   ];
   try {
@@ -1881,6 +1901,7 @@ var qs = {
   pendingHost: null,
   diag: [],
   anyStream: false,
+  codecLogged: false, /* 受けられる形式の記録は1回だけ(N10) */
   xrOk: false
 };
 
@@ -2000,8 +2021,17 @@ function questConnectingNote(msg){
 var DIAL_TOTAL_MS = 90000;
 var DIAL_MAX = 2;
 
+/* 受けられる形式を最初のダイヤル時に1回だけ記録する(N10) */
+function questLogCodecsOnce(){
+  if (qs.codecLogged) return;
+  qs.codecLogged = true;
+  var c = videoCodecList('recv');
+  if (c) questLog('この機器が受けられる映像の形式: ' + c);
+}
+
 function questDialStart(host){
   if (host.gone || host.state !== 'connecting') return;
+  questLogCodecsOnce();
   host.dialTries++;
   questDetachConn(host);
   questLog('ダイヤル ' + host.dialTries + '回目 → vrdd-' + host.code);
@@ -2818,7 +2848,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-15s';
+var APP_VER = '2026-08-16a';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
