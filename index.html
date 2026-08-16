@@ -2866,7 +2866,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-17a';
+var APP_VER = '2026-08-17b';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -5298,7 +5298,10 @@ function xrBuildBar(s){
 function xrPlaceBar(s){
   if (!s.bar) return;
   var h = xrScreenW(s) / s.aspect;
-  s.bar.mesh.position.set(0, h / 2 + 0.12, 0.03);
+  /* ⚠️ **持ち上げる量も倍率に合わせること**。板は自分の中心で拡大するので、
+     0.12 を固定にすると拡大したぶんが下へ伸びて画面に食い込む
+     (16dで実機で発覚: 2倍で1.8cm、3.7倍で13.6cm) */
+  s.bar.mesh.position.set(0, h / 2 + 0.12 * (s.bar.mesh.scale.x || 1), 0.03);
 }
 
 /* 帯を距離に合わせて拡大する。**当たり判定も一緒に大きくなる**(判定は板の uv から出すため)。
@@ -5416,7 +5419,10 @@ function xrUpdateBars(){
        書いても書かなくても行列は毎コマ作り直される) */
     if (s.bar) {
       var bk = xrBarScale(s);
-      if (Math.abs(bk - s.bar.mesh.scale.x) > 0.01) s.bar.mesh.scale.setScalar(bk);
+      if (Math.abs(bk - s.bar.mesh.scale.x) > 0.01) {
+        s.bar.mesh.scale.setScalar(bk);
+        xrPlaceBar(s); /* **倍率を変えたら位置も置き直すこと**(持ち上げが倍率に連動する) */
+      }
     }
     var hovIdx = -1;
     var shown = false;
