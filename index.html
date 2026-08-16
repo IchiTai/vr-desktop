@@ -1955,6 +1955,9 @@ function questHostByPeerId(pid){
 }
 
 function questAddHost(codeRaw, errEl){
+  /* **経過の灰色(msg-wait)を持ち越さないこと**。残ると失敗が控えめな色で出て、
+     6桁でないコードを入れても失敗したと分からない */
+  if (errEl) errEl.className = 'msg-err';
   var code = String(codeRaw || '').replace(/\D/g, '');
   if (code.length !== 6) { errEl.textContent = '6桁のコードを入力してください。'; return false; }
   var exist = questHostByPeerId(PEER_PREFIX + code);
@@ -2373,10 +2376,18 @@ function questWireConn(host){
     host.dialTries = 1;
     clearTimeout(host.connWatch);
     clearTimeout(host.retryWatch);
-    if (!$('qStepA').classList.contains('hidden')) { $('qErr').className = 'msg-err'; $('qErr').textContent = ''; }
+    /* **ボタンを戻すこと**。qStepB へ移るのは最初の映像が届いたときだけなので、
+       開通しただけの段階では入力画面のまま。戻さないと「接続中…」で固まり、
+       別のコードも入れられなくなる(第7節(n)の「つながったが映像が来ない」で必ず踏む) */
+    if (!$('qStepA').classList.contains('hidden')) {
+      $('qErr').className = 'msg-err'; $('qErr').textContent = '';
+      $('btnConnect').disabled = false; $('btnConnect').textContent = '接続する';
+    }
     hostSend(host, { t: 'q', p: S.q });
     questUiSync();
-    if (APP.xrHud) APP.xrHud();
+    /* 戻ったことも見せる(N4)。切れたのが見えて戻ったのが見えないと、
+       いつまで待てばよいのか分からない */
+    if (APP.xrNotice) APP.xrNotice();
   });
   conn.on('data', function(m){
     if (!m || host.conn !== conn) return;
@@ -2435,7 +2446,9 @@ function questConnLost(host){
   host.state = 'retry';
   host.helperOn = false;
   questUiSync();
-  if (APP.xrHud) APP.xrHud();
+  /* **VRの中では、描くだけでなく見せること(N4)**。画面が消えた理由が伝わらないと、
+     利用者はヘッドセットを外して2Dの画面を見に行くしかない */
+  if (APP.xrNotice) APP.xrNotice();
   clearTimeout(host.retryTimer);
   host.retryTimer = setTimeout(function(){
     if (host.gone) return;
@@ -2638,7 +2651,7 @@ function questDropHost(host, msg){
     show($('qStepA'), true);
     $('btnConnect').disabled = false;
     $('btnConnect').textContent = '接続する';
-    if (msg) $('qErr').textContent = msg;
+    if (msg) { $('qErr').className = 'msg-err'; $('qErr').textContent = msg; }
   }
 }
 
@@ -2681,7 +2694,7 @@ function questOnPeerError(err){
 function questShowErr(msg){
   if (APP.xrPadMsg) APP.xrPadMsg(msg);
   if (!$('qStepA').classList.contains('hidden')) {
-    $('qErr').className = 'msg-err'; /* 経過の色を外して、失敗は赤で出す */
+    $('qErr').className = 'msg-err'; /* msg-wait を必ず外すこと(残ると失敗が灰色で出る) */
     $('qErr').textContent = msg;
     $('btnConnect').disabled = false;
     $('btnConnect').textContent = '接続する';
@@ -2731,6 +2744,11 @@ function questCopyDiag(){
   } catch (_e) { done(false); }
 }
 
+/* #qStatus は questUiSync と xrEnter の両方が書く。**必ず同じ文を使うこと**。
+   片方だけ変えると、押した直後の案内が数秒で別の文に化ける(15sで踏んだ) */
+var Q_NO_HOST = 'つながっているパソコンがありません。6桁のコードを入れて接続してください。';
+var Q_NO_VIDEO = 'つながりましたが、映像がまだ届いていません。共有しているパソコンで、このページのウィンドウを見える場所に出してください。';
+
 function questUiSync(){
   questStatsTimer(); /* つなぎ先が増減したら計測の要否も見直す(05x) */
   var box = $('qHosts');
@@ -2766,15 +2784,15 @@ function questUiSync(){
     if (h.state === 'retry') anyRetry = true;
     if (h.screens.length) anyScreen = true;
   });
-  /* **画面が0枚のときに「受信しています」と書かないこと**。つながってはいるが映像が
-     1枚も来ていない状態は実際に起きる(第7節(n)のMac)。ここが嘘をつくと、
-     「VRで見る」が無反応な理由(N5)も打ち消してしまう */
+  /* **実際の状態を書くこと**。以前は画面0枚でも0台でも「受信しています」と出ており、
+     「VRで見る」が入れない理由(N5)を打ち消していた。0台に至る道は questDropHost
+     (qStepBごと閉じる)のほかに questDialGiveUp / questOnPeerError があり、
+     そちらは qStepB が出たまま残る */
   var qsEl = $('qStatus');
-  if (qsEl) qsEl.textContent = anyRetry
-    ? '接続が切れました。自動で再接続しています…'
-    : (qs.hosts.length && !anyScreen)
-      ? 'つながりましたが、映像がまだ届いていません。'
-      : 'パソコンの画面を受信しています。';
+  if (qsEl) qsEl.textContent = !qs.hosts.length ? Q_NO_HOST
+    : anyRetry ? '接続が切れました。自動で再接続しています…'
+    : !anyScreen ? Q_NO_VIDEO
+    : 'パソコンの画面を受信しています。';
   if (APP.xrPadSync) APP.xrPadSync();
 }
 
@@ -2789,6 +2807,7 @@ function questReset(){
   show($('qStepA'), true);
   $('btnConnect').disabled = false;
   $('btnConnect').textContent = '接続する';
+  $('qErr').className = 'msg-err'; /* 経過の灰色を持ち越さない */
   $('qErr').textContent = '';
   $('qAddErr').textContent = '';
   show($('qAddBox'), false);
@@ -2879,8 +2898,8 @@ function loadS(){
   s.panoStereo = (['tb', 'lr'].indexOf(s.panoStereo) >= 0) ? s.panoStereo : 'mono'; /* 全天球映像の立体視の並び */
   if (s.bg === 'photo' || s.bg === 'video') s.bg = 'dark'; /* 写真も映像もこの場かぎり */
   s.stats = !!s.stats;
-  /* 休憩のお知らせ(N28)。同じメニューの他の項目は全部保存しているのに、ここだけ
-     VRのセッション中の変数にしか入っていなかった */
+  /* 休憩のお知らせ。**この並びは xrMenuDraw の rm: ボタンと必ず一致させること**
+     (合わないと、選べるのに保存されない値ができる) */
   s.remindMin = ([0, 30, 60, 90].indexOf(+s.remindMin) >= 0) ? +s.remindMin : 0;
   s.diagOpen = (s.diagOpen !== false); /* 診断欄の開閉は利用者が決める(12e)。既定は開 */
   s.pcDiagOpen = (s.pcDiagOpen !== false); /* PC側の操作の記録の開閉(13c)。既定は開 */
@@ -5037,7 +5056,7 @@ APP.xrHandChanged = function(){
   });
   /* **つかみの解除はここに書かないこと**。xr.grab に入るのは KM_BTNS
      (コントローラーのボタン)経由だけで、素手のつまみは xr.handSel の側で扱う。
-     つまり「素手のつかみ」は存在せず、条件を書いても成立しない(15sで撤去) */
+     つまり「素手のつかみ」は存在しない */
   /* **「いまの手」が素手のままだと、OFFの間ずっと何もできなくなる(15q)**。
      xr.activeHand が動くのはコントローラーのボタンを押したときだけ(xrPollInput)で、
      素手側を指したまま切ると xrActiveHover が永久にnullを返してスティック調整が死に、
@@ -5051,6 +5070,19 @@ APP.xrHandChanged = function(){
 
 APP.xrSync = function(){ if (xr.built) xrSyncScreens(); };
 APP.xrHud = function(){ if (xr.built) xrDrawHud(); };
+/* VRの中の利用者へ、**見える形で**知らせる(N4)。
+   ⚠️ **xrDrawHud() だけでは足りない**。あれは隠れたキャンバスに描き直すだけで、
+   操作ガイドは入室12秒で自動的に消えている(xr.hudUntil)。切断は画面が丸ごと
+   消える出来事なので、描いただけでは「何も出ないまま取り残される」ことになる。
+   ⚠️ **hudPinned は触らないこと**。利用者が自分で畳んだ状態を勝手に覆さない。
+   伸ばすだけにして、20秒たてば元どおり自動で消える */
+APP.xrNotice = function(){
+  if (!xr.built) return;
+  var t = performance.now() + 20000;
+  if (t > xr.hudUntil) xr.hudUntil = t;
+  xr.hudStale = false;
+  xrDrawHud();
+};
 
 /* ---------- 画面の形状 ---------- */
 /* 画面ごとの表示幅: 高さを揃える(16:9でちょうど設定幅)。縦長のスマホ画面も自然に並ぶ */
@@ -5490,9 +5522,9 @@ async function xrEnter(){
      途切れても出っぱなしなので、押しても何も起きない場面が実際に起きる(第7節(n)のMac) */
   if (!has) {
     var stEl = $('qStatus');
-    if (stEl) stEl.textContent = qs.hosts.length
-      ? '映像がまだ届いていないので、VRに入れません。共有しているパソコンで、このページのウィンドウを見える場所に出してください。'
-      : 'まだどのパソコンにもつながっていません。6桁のコードを入れて接続してください。';
+    /* questUiSync が同じ欄を上書きするので、**本文は共通のものを使い、頭だけ足す**。
+       上書きされても案内が残る */
+    if (stEl) stEl.textContent = 'VRに入れません。' + (qs.hosts.length ? Q_NO_VIDEO : Q_NO_HOST);
     return;
   }
   xrBuildScene();
@@ -6536,7 +6568,9 @@ function xrPadDraw(){
   ctx.font = '23px sans-serif';
   var stx = xr.pad.status || '';
   for (var li = 0; li < 6 && stx.length; li++) {
-    ctx.fillText(stx.slice(0, 24), 420, 286 + li * 32);
+    /* ⚠️ **302 より上へ戻さないこと**。すぐ上の「接続する」の箱は y=200..274 で、
+       286 だと1行目の上端が箱に6px食い込む(15sで発覚)。6行目でもパネル(520)に収まる */
+    ctx.fillText(stx.slice(0, 24), 420, 302 + li * 32);
     stx = stx.slice(24);
   }
 
@@ -6739,9 +6773,8 @@ function xrMenuDraw(){
   ctx.fillText('設定', 36, 58);
 
   btn('close', W - 166, 20, 130, 48, '閉じる');
-  /* 「パソコン追加」は22pxで132px。**箱140pxだと左右4pxしか残らない**ので160pxにし、
-     そのぶん「正面に戻す」を左へ寄せた(左は「設定」の題まで400px以上空いている)。
-     間隔はどちらも14pxで、以前と同じ */
+  /* **「パソコン追加」は箱160pxを保つこと**(22pxで132px。140pxだと左右4pxしか残らない)。
+     3つの間隔は14px。左は「設定」の題まで400px以上空いている */
   btn('pad', W - 340, 20, 160, 48, 'パソコン追加', false, false, true);
   btn('rc', W - 494, 20, 140, 48, '正面に戻す', false, false, true);
 
@@ -7476,7 +7509,7 @@ function xrRenderInner(){
   }
   if (xr.hud) {
     /* 「よく使うキー」のパネルは操作ガイドの上端と同じ高さに出るため、開いている間は隠す。
-       ただし休憩の知らせは操作ガイドにしか出ず、見逃すと二度と出ないので、その間だけは隠さない */
+       ただし休憩の知らせは操作ガイドにしか出ないので、出ている60秒の間だけは隠さない */
     var wantHud = (xr.hudPinned || now < xr.hudUntil)
       && (!xr.keys.open || Date.now() < xr.remindShownUntil);
     /* 隠れている間に時刻などが変わっていたら、出す瞬間に描き直す(05x) */
@@ -7496,13 +7529,14 @@ function xrRenderInner(){
     else xr.hudStale = true; /* 隠れている間の変化。出すときに描き直す */
   }
   if (xr.remindAt && Date.now() >= xr.remindAt) {
-    /* **設定を消さずに次を予約すること(N28)**。以前は1回鳴ると xr.remindMin が 0 に戻り、
-       メニューの選択まで「なし」に見えていた。休憩のお知らせは繰り返すもの */
+    /* **xr.remindMin を消さずに次を予約すること**。消すとメニューの選択が「なし」に見える */
     /* ⚠️ **remindMin が 0 のときは必ず 0 にすること**。now + 0 を入れると
        次のコマでまた発火し、1024x920のキャンバスを毎コマ描き直す羽目になる */
     xr.remindAt = xr.remindMin ? (Date.now() + xr.remindMin * 60000) : 0;
     xr.remindShownUntil = Date.now() + 60000;
-    xr.hudPinned = true;
+    /* **ピン留めには触らないこと**。触ると、利用者が畳んだガイドが鳴るたびに
+       出っぱなしになる(APP.xrNotice と同じ作法)。60秒で☕と一緒に引っ込む */
+    if (now + 60000 > xr.hudUntil) xr.hudUntil = now + 60000;
     xrDrawHud();
     if (xr.menu.open) xrMenuDraw();
   }
