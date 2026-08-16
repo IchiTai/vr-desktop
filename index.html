@@ -1321,8 +1321,11 @@ function videoCodecList(kind){
     if (!caps || !caps.codecs) return '';
     var seen = [];
     caps.codecs.forEach(function(c){
-      var m = String(c.mimeType || '').replace('video/', '');
-      if (!m || m === 'rtx' || m === 'red' || m === 'ulpfec' || m === 'flexfec-03') return;
+      var mt = String(c.mimeType || '');
+      /* **除外は questStatsTickBody の codec 拾い直しと同じ書き方にすること**。大文字小文字を区別する完全一致だと
+         video/RTX や -03 の付かない flexfec を素通しする */
+      if (!/^video\//.test(mt) || /\/(rtx|red|ulpfec|flexfec)/i.test(mt)) return;
+      var m = mt.replace(/^video\//, '');
       if (seen.indexOf(m) < 0) seen.push(m);
     });
     return seen.join(', ');
@@ -2778,6 +2781,25 @@ function questCopyDiag(){
    片方だけ変えると、押した直後の案内が数秒で別の文に化ける(15sで踏んだ) */
 var Q_NO_HOST = 'つながっているパソコンがありません。6桁のコードを入れて接続してください。';
 var Q_NO_VIDEO = 'つながりましたが、映像がまだ届いていません。共有しているパソコンで、このページのウィンドウを見える場所に出してください。';
+/* **ダイヤル中を「つながった」扱いにしないこと**。初回は最大90秒かかるので、
+   その間ずっと「共有側のウィンドウを出して」と、まだつながっていない機械を直させてしまう */
+var Q_DIALING = 'パソコンにつないでいます… そのままお待ちください。';
+
+/* **#qStatus の本文はここだけで決めること**。questUiSync と xrEnter の2人が書くので、
+   片方だけ枝を足すと同じ状態で違う文が出る(15sで踏み、16bでも retry を取りこぼした) */
+function qStatusText(){
+  var anyRetry = false, anyScreen = false, anyDialing = false;
+  qs.hosts.forEach(function(h){
+    if (h.state === 'retry') anyRetry = true;
+    if (h.state === 'connecting') anyDialing = true;
+    if (h.screens.length) anyScreen = true;
+  });
+  return !qs.hosts.length ? Q_NO_HOST
+    : anyRetry ? '接続が切れました。自動で再接続しています…'
+    : (anyDialing && !anyScreen) ? Q_DIALING
+    : !anyScreen ? Q_NO_VIDEO
+    : 'パソコンの画面を受信しています。';
+}
 
 function questUiSync(){
   questStatsTimer(); /* つなぎ先が増減したら計測の要否も見直す(05x) */
@@ -2809,20 +2831,12 @@ function questUiSync(){
     row.appendChild(st);
     box.appendChild(row);
   });
-  var anyRetry = false, anyScreen = false;
-  qs.hosts.forEach(function(h){
-    if (h.state === 'retry') anyRetry = true;
-    if (h.screens.length) anyScreen = true;
-  });
   /* **実際の状態を書くこと**。以前は画面0枚でも0台でも「受信しています」と出ており、
      「VRで見る」が入れない理由(N5)を打ち消していた。0台に至る道は questDropHost
      (qStepBごと閉じる)のほかに questDialGiveUp / questOnPeerError があり、
      そちらは qStepB が出たまま残る */
   var qsEl = $('qStatus');
-  if (qsEl) qsEl.textContent = !qs.hosts.length ? Q_NO_HOST
-    : anyRetry ? '接続が切れました。自動で再接続しています…'
-    : !anyScreen ? Q_NO_VIDEO
-    : 'パソコンの画面を受信しています。';
+  if (qsEl) qsEl.textContent = qStatusText();
   if (APP.xrPadSync) APP.xrPadSync();
 }
 
@@ -2848,7 +2862,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-16a';
+var APP_VER = '2026-08-16c';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -4469,6 +4483,10 @@ var xr = {
   padHL: null, padCustom: false,
   handSel: { right: false, left: false },
   lastClock: '', remindMin: 0, remindAt: 0, remindShownUntil: 0,
+  /* **パネルを開いていても操作ガイドを見せる期限**(Date.now基準)。
+     休憩の知らせと切断の知らせは、ここに期限を入れないと
+     「よく使うキー」を開いている間だけ黙って隠れる */
+  hudForceUntil: 0,
   menuHL: null, menuCustom: false, hudCustom: false,
   camPos: null,
   bg: { grid: null, ring: null, sky: null, spark: null, tex: {} },
@@ -5110,6 +5128,10 @@ APP.xrNotice = function(){
   if (!xr.built) return;
   var t = performance.now() + 20000;
   if (t > xr.hudUntil) xr.hudUntil = t;
+  /* **パネルを開いていても見せること**。ここを忘れると、
+     「よく使うキー」を開いている最中の切断が黙って隠れる(N4が効かなくなる) */
+  var d = Date.now() + 20000;
+  if (d > xr.hudForceUntil) xr.hudForceUntil = d;
   xr.hudStale = false;
   xrDrawHud();
 };
@@ -5474,11 +5496,13 @@ function xrDrawHud(){
     drawParts.push(t);
   }
   /* 落とす順は**後ろから**なので、切り分けに要る情報ほど前に置くこと(14b)。
-     「平面にすると効きます」は案内なので最後 */
+     案内は最後。**「平面にする」は位置で導くこと**: このとき画面上のボタン列の
+     左端は必ず「湾曲」と出ている(いまの状態を出す作り)ので、
+     「平面」という名前のボタンを探させると見つからない */
   if (xr.panoWay) drawParts.push('全天球: ' + xr.panoWay);
   if (S.renderMode !== 'classic' && xr.mediaOk && (!xr.mediaLayers || !xr.mediaLayers.length)) {
     /* 既定は湾曲。「湾曲した画面にも使う」を使っていなければ平面にするしかない */
-    drawParts.push(S.cylLayer ? '湾曲は作れませんでした' : '平面にすると効きます');
+    drawParts.push(S.cylLayer ? '湾曲は作れませんでした' : '左端のボタンで平面にすると効きます');
   }
   ctx.fillStyle = (xr.fps && xr.fps < 55) ? '#ff8f8f' : '#8f89a8';
   ctx.font = 'bold 26px sans-serif';
@@ -5554,7 +5578,7 @@ async function xrEnter(){
     var stEl = $('qStatus');
     /* questUiSync が同じ欄を上書きするので、**本文は共通のものを使い、頭だけ足す**。
        上書きされても案内が残る */
-    if (stEl) stEl.textContent = 'VRに入れません。' + (qs.hosts.length ? Q_NO_VIDEO : Q_NO_HOST);
+    if (stEl) stEl.textContent = 'VRに入れません。' + qStatusText();
     return;
   }
   xrBuildScene();
@@ -5574,6 +5598,9 @@ async function xrEnter(){
     xr.remindMin = S.remindMin;
     xr.remindAt = S.remindMin ? (Date.now() + S.remindMin * 60000) : 0;
     xr.remindShownUntil = 0;
+    /* **前の入室から持ち越した免除は必ず捨てること**。残すと、開いた「よく使うキー」に
+       操作ガイドが重なる(この時点でこのセッションの xrNotice はまだ発火していない) */
+    xr.hudForceUntil = 0;
     /* Media Layers(第1弾・04q): threeがlayers経路(XRProjectionLayer)を使い、かつ
        XRMediaBindingがある環境でだけ有効。無ければ全画面が従来描画のまま(安全側) */
     xr.projLayer = null;
@@ -6962,6 +6989,8 @@ function xrMenuActivate(id){
     var mm = parseInt(p[1], 10) || 0;
     xr.remindMin = mm;
     xr.remindAt = mm ? (Date.now() + mm * 60000) : 0;
+    /* ☕の免除だけを捨てる。値が違うなら切断の知らせが後から伸ばしたものなので残す */
+    if (xr.hudForceUntil === xr.remindShownUntil) xr.hudForceUntil = 0;
     xr.remindShownUntil = 0;
     S.remindMin = mm;
     saveS();
@@ -7541,7 +7570,7 @@ function xrRenderInner(){
     /* 「よく使うキー」のパネルは操作ガイドの上端と同じ高さに出るため、開いている間は隠す。
        ただし休憩の知らせは操作ガイドにしか出ないので、出ている60秒の間だけは隠さない */
     var wantHud = (xr.hudPinned || now < xr.hudUntil)
-      && (!xr.keys.open || Date.now() < xr.remindShownUntil);
+      && (!xr.keys.open || Date.now() < xr.hudForceUntil);
     /* 隠れている間に時刻などが変わっていたら、出す瞬間に描き直す(05x) */
     if (wantHud && !xr.hud.visible && xr.hudStale) { xr.hudStale = false; xrDrawHud(); }
     xr.hud.visible = wantHud;
@@ -7558,6 +7587,15 @@ function xrRenderInner(){
     if (xr.hud && xr.hud.visible) xrDrawHud();
     else xr.hudStale = true; /* 隠れている間の変化。出すときに描き直す */
   }
+  /* **☕の60秒が切れた瞬間に一度だけ描き直すこと**。描き直さないとキャンバスに
+     「☕ 休憩の時間です」が残り、次に出したガイドが終わった休憩を知らせ続ける
+     (次の分の変わり目まで最大60秒)。⚠️ hudForceUntil はここで 0 にしないこと。
+     切断の知らせ(xrNotice)が伸ばした免除まで切ってしまう */
+  if (xr.remindShownUntil && Date.now() >= xr.remindShownUntil) {
+    xr.remindShownUntil = 0;
+    if (xr.hud && xr.hud.visible) xrDrawHud();
+    else xr.hudStale = true;
+  }
   if (xr.remindAt && Date.now() >= xr.remindAt) {
     /* **xr.remindMin を消さずに次を予約すること**。消すとメニューの選択が「なし」に見える */
     /* ⚠️ **remindMin が 0 のときは必ず 0 にすること**。now + 0 を入れると
@@ -7567,6 +7605,7 @@ function xrRenderInner(){
     /* **ピン留めには触らないこと**。触ると、利用者が畳んだガイドが鳴るたびに
        出っぱなしになる(APP.xrNotice と同じ作法)。60秒で☕と一緒に引っ込む */
     if (now + 60000 > xr.hudUntil) xr.hudUntil = now + 60000;
+    xr.hudForceUntil = xr.remindShownUntil;
     xrDrawHud();
     if (xr.menu.open) xrMenuDraw();
   }
