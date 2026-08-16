@@ -171,6 +171,9 @@ video.preview{
 .code-input::placeholder{color:#4a4568;letter-spacing:.35em}
 
 .msg-err{color:var(--err);font-size:14px;min-height:1.6em;margin-bottom:8px}
+/* 待っている間の経過を**エラーの赤で出さないこと**(N20)。初回接続は数十秒かかる作りなので、
+   同じ赤い欄に出すと毎回「もう失敗したのでは」と読ませてしまう */
+.msg-err.msg-wait{color:var(--muted)}
 .notice-warn{
   margin-top:10px;padding:10px 12px;border-radius:10px;
   background:rgba(255,184,107,.10);border:1px solid rgba(255,184,107,.45);
@@ -1980,7 +1983,11 @@ function questAddHost(codeRaw, errEl){
 
 /* 接続ボタン後の経過表示(ボタンは「接続中…」のまま) */
 function questConnectingNote(msg){
-  if (!$('qStepA').classList.contains('hidden')) $('qErr').textContent = msg;
+  if (!$('qStepA').classList.contains('hidden')) {
+    /* 経過は控えめな色で。**失敗を出すときは questShowErr が msg-wait を外す** */
+    $('qErr').className = 'msg-err msg-wait';
+    $('qErr').textContent = msg;
+  }
   if (APP.xrPadMsg) APP.xrPadMsg(msg);
 }
 
@@ -2366,7 +2373,7 @@ function questWireConn(host){
     host.dialTries = 1;
     clearTimeout(host.connWatch);
     clearTimeout(host.retryWatch);
-    if (!$('qStepA').classList.contains('hidden')) $('qErr').textContent = '';
+    if (!$('qStepA').classList.contains('hidden')) { $('qErr').className = 'msg-err'; $('qErr').textContent = ''; }
     hostSend(host, { t: 'q', p: S.q });
     questUiSync();
     if (APP.xrHud) APP.xrHud();
@@ -2674,6 +2681,7 @@ function questOnPeerError(err){
 function questShowErr(msg){
   if (APP.xrPadMsg) APP.xrPadMsg(msg);
   if (!$('qStepA').classList.contains('hidden')) {
+    $('qErr').className = 'msg-err'; /* 経過の色を外して、失敗は赤で出す */
     $('qErr').textContent = msg;
     $('btnConnect').disabled = false;
     $('btnConnect').textContent = '接続する';
@@ -2753,12 +2761,20 @@ function questUiSync(){
     row.appendChild(st);
     box.appendChild(row);
   });
-  var anyRetry = false;
-  qs.hosts.forEach(function(h){ if (h.state === 'retry') anyRetry = true; });
+  var anyRetry = false, anyScreen = false;
+  qs.hosts.forEach(function(h){
+    if (h.state === 'retry') anyRetry = true;
+    if (h.screens.length) anyScreen = true;
+  });
+  /* **画面が0枚のときに「受信しています」と書かないこと**。つながってはいるが映像が
+     1枚も来ていない状態は実際に起きる(第7節(n)のMac)。ここが嘘をつくと、
+     「VRで見る」が無反応な理由(N5)も打ち消してしまう */
   var qsEl = $('qStatus');
   if (qsEl) qsEl.textContent = anyRetry
     ? '接続が切れました。自動で再接続しています…'
-    : 'パソコンの画面を受信しています。';
+    : (qs.hosts.length && !anyScreen)
+      ? 'つながりましたが、映像がまだ届いていません。'
+      : 'パソコンの画面を受信しています。';
   if (APP.xrPadSync) APP.xrPadSync();
 }
 
@@ -2783,7 +2799,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-15r';
+var APP_VER = '2026-08-15s';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2863,6 +2879,9 @@ function loadS(){
   s.panoStereo = (['tb', 'lr'].indexOf(s.panoStereo) >= 0) ? s.panoStereo : 'mono'; /* 全天球映像の立体視の並び */
   if (s.bg === 'photo' || s.bg === 'video') s.bg = 'dark'; /* 写真も映像もこの場かぎり */
   s.stats = !!s.stats;
+  /* 休憩のお知らせ(N28)。同じメニューの他の項目は全部保存しているのに、ここだけ
+     VRのセッション中の変数にしか入っていなかった */
+  s.remindMin = ([0, 30, 60, 90].indexOf(+s.remindMin) >= 0) ? +s.remindMin : 0;
   s.diagOpen = (s.diagOpen !== false); /* 診断欄の開閉は利用者が決める(12e)。既定は開 */
   s.pcDiagOpen = (s.pcDiagOpen !== false); /* PC側の操作の記録の開閉(13c)。既定は開 */
   s.vol = (typeof s.vol === 'number' && s.vol >= 0 && s.vol <= 1) ? s.vol : 1;
@@ -5016,10 +5035,9 @@ APP.xrHandChanged = function(){
     xr.handSel[hand] = false;
     xrActUp('click', hand);
   });
-  /* つかんで動かしている最中なら、それも手放す */
-  ['right', 'left'].forEach(function(hand){
-    if (xr.grab[hand] && xrIsBareHand(hand)) xr.grab[hand] = null;
-  });
+  /* **つかみの解除はここに書かないこと**。xr.grab に入るのは KM_BTNS
+     (コントローラーのボタン)経由だけで、素手のつまみは xr.handSel の側で扱う。
+     つまり「素手のつかみ」は存在せず、条件を書いても成立しない(15sで撤去) */
   /* **「いまの手」が素手のままだと、OFFの間ずっと何もできなくなる(15q)**。
      xr.activeHand が動くのはコントローラーのボタンを押したときだけ(xrPollInput)で、
      素手側を指したまま切ると xrActiveHover が永久にnullを返してスティック調整が死に、
@@ -5467,7 +5485,16 @@ function xrDrawHud(){
 async function xrEnter(){
   var has = false;
   qs.hosts.forEach(function(h){ if (h.screens.length) has = true; });
-  if (!has) return;
+  /* **黙って戻らないこと(N5)**。このボタンが出る条件は「この機器がVRに対応しているか」
+     だけで、いま映像が届いているかは見ていない。一度でも映像が来れば出て、そのあと
+     途切れても出っぱなしなので、押しても何も起きない場面が実際に起きる(第7節(n)のMac) */
+  if (!has) {
+    var stEl = $('qStatus');
+    if (stEl) stEl.textContent = qs.hosts.length
+      ? '映像がまだ届いていないので、VRに入れません。共有しているパソコンで、このページのウィンドウを見える場所に出してください。'
+      : 'まだどのパソコンにもつながっていません。6桁のコードを入れて接続してください。';
+    return;
+  }
   xrBuildScene();
   xrApplyBackground();
   xrSyncScreens();
@@ -5481,6 +5508,10 @@ async function xrEnter(){
     var session = await navigator.xr.requestSession(mode, { optionalFeatures: ['local-floor', 'hand-tracking', 'layers'] });
     xr.mode = mode;
     xr.session = session;
+    /* 休憩のお知らせは**入るたびに数え直す**(ページを開いた時刻からではない) */
+    xr.remindMin = S.remindMin;
+    xr.remindAt = S.remindMin ? (Date.now() + S.remindMin * 60000) : 0;
+    xr.remindShownUntil = 0;
     /* Media Layers(第1弾・04q): threeがlayers経路(XRProjectionLayer)を使い、かつ
        XRMediaBindingがある環境でだけ有効。無ければ全画面が従来描画のまま(安全側) */
     xr.projLayer = null;
@@ -6708,8 +6739,11 @@ function xrMenuDraw(){
   ctx.fillText('設定', 36, 58);
 
   btn('close', W - 166, 20, 130, 48, '閉じる');
-  btn('pad', W - 320, 20, 140, 48, 'パソコン追加', false, false, true);
-  btn('rc', W - 474, 20, 140, 48, '正面に戻す', false, false, true);
+  /* 「パソコン追加」は22pxで132px。**箱140pxだと左右4pxしか残らない**ので160pxにし、
+     そのぶん「正面に戻す」を左へ寄せた(左は「設定」の題まで400px以上空いている)。
+     間隔はどちらも14pxで、以前と同じ */
+  btn('pad', W - 340, 20, 160, 48, 'パソコン追加', false, false, true);
+  btn('rc', W - 494, 20, 140, 48, '正面に戻す', false, false, true);
 
   /* **項目を足すときは、下の要素との縦の間隔を必ず数えること**。
      1ページに詰め込んでいた頃は、背景が8種=3行になった時点で
@@ -6866,6 +6900,8 @@ function xrMenuActivate(id){
     xr.remindMin = mm;
     xr.remindAt = mm ? (Date.now() + mm * 60000) : 0;
     xr.remindShownUntil = 0;
+    S.remindMin = mm;
+    saveS();
   } else if (p[0] === 'sv') {
     S.slots[parseInt(p[1], 10) || 0] = xrSnapshotLayout();
     saveS();
@@ -7460,8 +7496,11 @@ function xrRenderInner(){
     else xr.hudStale = true; /* 隠れている間の変化。出すときに描き直す */
   }
   if (xr.remindAt && Date.now() >= xr.remindAt) {
-    xr.remindAt = 0;
-    xr.remindMin = 0;
+    /* **設定を消さずに次を予約すること(N28)**。以前は1回鳴ると xr.remindMin が 0 に戻り、
+       メニューの選択まで「なし」に見えていた。休憩のお知らせは繰り返すもの */
+    /* ⚠️ **remindMin が 0 のときは必ず 0 にすること**。now + 0 を入れると
+       次のコマでまた発火し、1024x920のキャンバスを毎コマ描き直す羽目になる */
+    xr.remindAt = xr.remindMin ? (Date.now() + xr.remindMin * 60000) : 0;
     xr.remindShownUntil = Date.now() + 60000;
     xr.hudPinned = true;
     xrDrawHud();
