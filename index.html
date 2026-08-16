@@ -434,6 +434,7 @@ footer.site a{color:var(--muted);text-decoration:underline}
     </div>
     <div class="panel" id="vrCtlPanel">
       <h2>VRの中での操作(標準設定)</h2>
+      <p class="msg-info hidden" id="kmChangedNote" style="margin:0 0 10px">この表は<b>標準の割り当て</b>です。あなたはボタンの割り当てを変えているので、いまの割り当ては「⚙ 設定 → 操作」か、VRの中の操作ガイドで確認してください。</p>
       <table class="ctl-table">
         <tr><td>レーザー(両手)</td><td>当てた画面のカーソルを動かす(操作ON時)</td></tr>
         <tr><td>トリガー(左右) / 右Aボタン(下)</td><td>クリック。すぐ動かす=ドラッグ、長押しして動かす=スクロール</td></tr>
@@ -2203,6 +2204,8 @@ function questArmVideoWatch(host, conn){
    見張りを張り直して同じ8秒の手順を繰り返す */
 function questNoteScreenGone(host, slot, why){
   questLog('画面' + slot + 'が消えました(' + why + ')');
+  /* 画面が消えるのはVRの中でいちばん驚く出来事(板が黙って消える)。見せること */
+  if (APP.xrNotice) APP.xrNotice();
   if (!host.gone && host.state === 'open' && host.conn && host.screens.length === 0) {
     /* 開通→即切断が続くと張り直しの依頼が際限なく出る。連発のときは間隔を1分へ
        広げるだけにして、**止めてしまわないこと**。12aで入れた「画面がゼロに
@@ -2425,6 +2428,7 @@ function questWireConn(host){
   conn.on('data', function(m){
     if (!m || host.conn !== conn) return;
     if (m.t === 'helper') {
+      var wasOn = host.helperOn;
       host.helperOn = !!m.on;
       host.helperOs = m.os || host.helperOs || '';
       /* noctl を送らない旧版のPCでは null のまま=全画面が操作できる扱い(従来動作)。
@@ -2436,7 +2440,11 @@ function questWireConn(host){
       }
       questUiSync();
       if (APP.tvStats) APP.tvStats();
-      if (APP.xrHud) APP.xrHud();
+      /* **操作の可否が変わったときは「見せる」こと**。OFFになった瞬間から
+         クリックもキーも黙って捨てられるので、描き直すだけでは気づけない。
+         ⚠️ **変わったときだけ**。毎回呼ぶと生存確認のたびにガイドが出る */
+      if (wasOn !== host.helperOn && APP.xrNotice) APP.xrNotice();
+      else if (APP.xrHud) APP.xrHud();
     } else if (m.t === 'del') {
       var had = false;
       host.screens.forEach(function(x){ if (x.slot === m.s) had = true; });
@@ -2742,6 +2750,8 @@ function questConnectedUi(){
   show($('qStepB'), true);
   show($('btnEnterVR'), qs.xrOk);
   show($('vrCtlPanel'), qs.xrOk); /* 「VRで見る」を出さない機器には操作一覧も出さない */
+  /* 割り当てを変えている人には、この表が嘘になる。そのときだけ断る */
+  show($('kmChangedNote'), qs.xrOk && !kmIsDefault(S.km2));
   $('btnConnect').disabled = false;
   $('btnConnect').textContent = '接続する';
 }
@@ -2862,7 +2872,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-16d';
+var APP_VER = '2026-08-16e';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2892,6 +2902,13 @@ var KM_ACT_SHORT = {
   click: 'クリック', rclick: '右クリック', grab: 'つかむ', ptr: 'レーザー',
   recenter: '正面に戻す', menu: 'メニュー', keys: 'よく使うキー', hud: '操作ガイド', '': 'なし'
 };
+
+/* いまの割り当てが標準と同じか。**標準の表を見せてよいかの判断にだけ使う** */
+function kmIsDefault(km){
+  var d = kmDefault();
+  for (var k in d) { if ((km && km[k]) !== d[k]) return false; }
+  return true;
+}
 
 function kmDefault(){
   return { r0: 'click', r1: 'grab', r3: 'keys', r4: 'click', r5: 'rclick',
@@ -2942,6 +2959,9 @@ function loadS(){
   s.panoStereo = (['tb', 'lr'].indexOf(s.panoStereo) >= 0) ? s.panoStereo : 'mono'; /* 全天球映像の立体視の並び */
   if (s.bg === 'photo' || s.bg === 'video') s.bg = 'dark'; /* 写真も映像もこの場かぎり */
   s.stats = !!s.stats;
+  /* 操作ガイドを出しっぱなしにするか。**入り直しても覚えていること**(N: 12秒で消えると、
+     戻し方が「何もない所をクリック」だけになり、その説明は消えたガイドの中にしかない) */
+  s.hudPin = (s.hudPin === true);
   /* 休憩のお知らせ。**この並びは xrMenuDraw の rm: ボタンと必ず一致させること**
      (合わないと、選べるのに保存されない値ができる) */
   s.remindMin = ([0, 30, 60, 90].indexOf(+s.remindMin) >= 0) ? +s.remindMin : 0;
@@ -5468,6 +5488,11 @@ function xrHelperStatusText(){
   var n = qs.hosts.length;
   var on = 0;
   qs.hosts.forEach(function(h){ if (h.helperOn) on++; });
+  /* **画面が0枚のときは、操作の可否より先にそれを言うこと**。板が消えた理由が
+     分からないまま取り残されるのがいちばん困る */
+  /* ⚠️ **この行は40px太字で、右の時計(x=891から)まで827pxしか無い**。長い文を入れない。
+     何をすべきかは操作ガイドの本文に譲る */
+  if (!xr.screens.length) return ['● 画面が届いていません', '#ffb86b'];
   if (n === 0 || on === 0) return ['● 操作 OFF(見るだけ)', '#ffb86b'];
   if (on === n) return ['● 操作 ON', '#3ddc97'];
   return ['● 操作 ON(' + on + '/' + n + '台)', '#3ddc97'];
@@ -5654,7 +5679,7 @@ async function xrEnter(){
     xr.fps = 0; xr.frameCount = 0; xr.fpsAt = 0; xr.hudFps = undefined; xr.hudLayN = -1; xr.hudLayOk = -1; /* 計測を初期化 */
     xr.mediaTrash = []; /* 破棄待ちのレイヤー((d)③対策) */
     xr.needsRecenter = true;
-    xr.hudPinned = false;
+    xr.hudPinned = !!S.hudPin;
     xr.hudUntil = performance.now() + 12000;
     xr.geoDirty = true;
     xrDrawHud();
@@ -5913,7 +5938,10 @@ function xrPressFinish(byUp){
     xr.pressed.click = null;
     return;
   }
-  if (pr.mode === '' && byUp && performance.now() - pr.t < 420) {
+  /* ⚠️ **この窓を狭めないこと**。動かさずに押したまま離したのにクリックが出ないと、
+     利用者からは「押しても無反応」にしか見えない(エラーも出ない)。
+     420ms では「落ち着いて狙って押す」が普通に超えていた(16eで 900 へ) */
+  if (pr.mode === '' && byUp && performance.now() - pr.t < 900) {
     hostSend(pr.hostObj, { t: 'mv', x: xrR4(pr.x0), y: xrR4(pr.y0), s: pr.slot });
     hostSend(pr.hostObj, { t: 'dn', b: 0, s: pr.slot });
     hostSend(pr.hostObj, { t: 'up', b: 0 });
@@ -5999,8 +6027,12 @@ function xrActDown(action, hand){
       }
     } else {
       /* 何もない所をクリック → 操作ガイドの表示/非表示 */
-      xr.hudPinned = !(xr.hudPinned || performance.now() < xr.hudUntil);
-      xr.hudUntil = 0;
+      /* **自動表示の12秒の間に押したら、消すのではなく留めること**。
+         「消えかけたので押して止める」が自然な反応なのに、以前はその場で消えていた */
+      if (performance.now() < xr.hudUntil) { xr.hudPinned = true; xr.hudUntil = 0; }
+      else { xr.hudPinned = !xr.hudPinned; xr.hudUntil = 0; }
+      S.hudPin = xr.hudPinned;
+      saveS();
       if (xr.hudPinned) xr.hudCustom = false; /* 出し直しは定位置に */
     }
   } else if (action === 'rclick') {
@@ -6022,8 +6054,10 @@ function xrActDown(action, hand){
   } else if (action === 'recenter') {
     xr.needsRecenter = true;
   } else if (action === 'hud') {
-    xr.hudPinned = !(xr.hudPinned || performance.now() < xr.hudUntil);
-    xr.hudUntil = 0;
+    if (performance.now() < xr.hudUntil) { xr.hudPinned = true; xr.hudUntil = 0; }
+    else { xr.hudPinned = !xr.hudPinned; xr.hudUntil = 0; }
+    S.hudPin = xr.hudPinned;
+    saveS();
   }
 }
 
