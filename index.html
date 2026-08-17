@@ -622,6 +622,11 @@ footer.site a{color:var(--muted);text-decoration:underline}
           <input type="range" id="rangeMaxW" min="3" max="40" step="1">
         </div>
         <div class="set-row">
+          <label>湾曲の強さ <span id="valCurve" style="color:var(--muted)"></span></label>
+          <input type="range" id="rangeCurve" min="0" max="5" step="1">
+        </div>
+        <p class="set-note">湾曲にした画面の<b>曲がり具合</b>です。<b>すべての画面にまとめて効きます</b>。<b>100%</b>がこれまでと同じ見え方で、数字を上げるほど深く抱え込みます。<b>130%</b>あたりで画面の丸みが目までの距離とほぼ一致し、画面の左右の端がいちばん正面を向きます。まっすぐにしたい画面は、いままでどおり<b>その画面の上のボタンで平面に切り替えて</b>ください。</p>
+        <div class="set-row">
           <label>VRの描画解像度</label>
           <select class="monsel" id="selRScale">
             <option value="1">低め(電池が長持ち)</option>
@@ -2866,7 +2871,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-17b';
+var APP_VER = '2026-08-17c';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -2949,7 +2954,10 @@ function kmHas(action){
    `QUALITY_VR` はVR内メニュー用で、4つ横並びの座標が決め打ちなので増やせない */
 var QUALITY_ORDER = ['sharp', 'balance', 'smooth', 'auto'];
 var QUALITY_VR = ['sharp', 'balance', 'smooth', 'auto'];
-/* **この2つは loadS より前に置くこと(15j)**。var は巻き上がるが代入は実行順で、
+/* 湾曲の強さの段階(17c)。1.0 がこれまでと同じ見え方。
+   **これも loadS より前に置くこと**(理由は上と同じ) */
+var CURVE_STEPS = [0.5, 0.75, 1, 1.15, 1.3, 1.45];
+/* **この3つは loadS より前に置くこと(15j)**。var は巻き上がるが代入は実行順で、
    loadS はページ読み込みの早い段階で走るため、後ろに置くと undefined を読む */
 function loadS(){
   var s = {};
@@ -2993,6 +3001,10 @@ function loadS(){
   s.ptrMode = (s.ptrMode === 'rel') ? 'rel' : 'abs'; /* カーソルの移動方法(スマホ・タブレット) */
   s.rscale = ([1, 1.15, 1.3].indexOf(+s.rscale) >= 0) ? +s.rscale : 1.15; /* VR描画解像度 */
   s.aniso = (s.aniso !== false); /* 文字のちらつき低減: 初期ON */
+  /* ⚠️ **0 を通さないこと(17c)**。中心角が0だと、湾曲ONのまま円柱レイヤーが
+     作られるのに xrSyncMediaLayers 側が ang<=0.001 で抜けるため、位置も形も
+     入らないまま板に穴だけ開く=第10節の「真っ黒」が再発する */
+  s.curveK = (CURVE_STEPS.indexOf(+s.curveK) >= 0) ? +s.curveK : 1; /* 湾曲の強さ */
   if (!Array.isArray(s.slots) || s.slots.length !== 3) s.slots = [null, null, null];
   s.slots = s.slots.map(function(x){
     return (x && typeof x === 'object' && Array.isArray(x.scr)) ? x : null;
@@ -3407,6 +3419,8 @@ function syncSetControls(){
   $('valMaxD').textContent = S.maxDist + 'm';
   $('rangeMaxW').value = String(S.maxW);
   $('valMaxW').textContent = S.maxW + 'm';
+  $('rangeCurve').value = String(CURVE_STEPS.indexOf(S.curveK));
+  $('valCurve').textContent = Math.round(S.curveK * 100) + '%';
   $('volRange').value = String(volPct);
   $('volVal').textContent = volPct + '%';
 }
@@ -3667,6 +3681,14 @@ function initSettingsUi(){
     }
   });
   wireLimit('rangeMaxW', 'valMaxW', 'maxW', 3, 40);
+  /* wireLimit は表示が `S[key] + 'm'` の決め打ちなので使えない。音量と同じ書き方にする */
+  $('rangeCurve').addEventListener('input', function(){
+    var i = clamp(parseInt($('rangeCurve').value, 10) || 0, 0, CURVE_STEPS.length - 1);
+    S.curveK = CURVE_STEPS[i];
+    $('valCurve').textContent = Math.round(S.curveK * 100) + '%';
+    saveS();
+    if (APP.xrCurveChanged) APP.xrCurveChanged();
+  });
   $('volRange').addEventListener('input', function(){
     S.vol = clamp(parseInt($('volRange').value, 10) / 100, 0, 1);
     $('volVal').textContent = Math.round(S.vol * 100) + '%';
@@ -5100,6 +5122,16 @@ APP.xrAnisoChanged = function(){
   });
 };
 
+/* 湾曲の強さを変えたときの反映(17c)。
+   ⚠️ **xrDropScreenLayer を呼ばないこと**。外すと作り直しのあいだ数コマ絵が出ず、
+      つまみを動かすたびに点滅する。円柱レイヤーは毎コマ角度を署名に含めて見ているので、
+      radius と centralAngle は勝手に入り直す。
+   幾何は xrRebuildGeos が userData.ang ごと作り直す(100ミリ秒に1回まで間引かれる) */
+APP.xrCurveChanged = function(){
+  if (!xr.built) return;
+  xr.geoDirty = true;
+};
+
 /* 「湾曲した画面にも使う」を切り替えたときの反映(15b)。
    いま出ている湾曲のレイヤーを一度外すだけでよい(次の同期が判定し直す) */
 APP.xrCylChanged = function(){
@@ -5175,9 +5207,23 @@ function xrScreenW(s){
 }
 
 /* 湾曲の中心角。**円柱レイヤーの radius と centralAngle もこの値から決まる**ので、
-   式を変えるときは xrSyncMediaLayers の円柱の分岐も一緒に確かめること(15b) */
+   式を変えるときは xrSyncMediaLayers の円柱の分岐も一緒に確かめること(15b)。
+   この式は R = width/angle = xr.params.width/(0.85k) となり、**半径が全画面で同じ**に
+   なるよう作ってある。強さ(17c)はその半径を変える係数。
+   ⚠️ **頭打ちの 1.5 にも k を掛けること**。掛けないと、幅を 4.76m 以上に広げた画面は
+      どの段階でも同じ角度に張り付き、つまみが効かなくなる */
 function xrCurveAngle(width, curved){
-  return curved ? Math.min(1.5, 0.85 * (width / Math.max(0.8, xr.params.width))) : 0;
+  var k = S.curveK || 1;
+  return curved ? k * Math.min(1.5, 0.85 * (width / Math.max(0.8, xr.params.width))) : 0;
+}
+
+/* 画面を正面から見たときの実幅。湾曲の板は弧の長さ(xrScreenW)で作られるが、
+   ⚠️ **正面から見た横幅は弦(弧より短い)**。平たい物を画面の幅に合わせるときは
+      こちらを使うこと(弧で合わせると必ずはみ出す) */
+function xrScreenSpan(s){
+  var w = xrScreenW(s);
+  var ang = xrCurveAngle(w, s.curved);
+  return ang > 0.001 ? 2 * (w / ang) * Math.sin(ang / 2) : w;
 }
 
 function xrMakeScreenGeo(width, aspect, curved){
@@ -5310,7 +5356,12 @@ function xrBarScale(s){
   if (!s.bar || !s.mesh) return 1;
   var d = s.mesh.position.distanceTo(xr.camPos);
   if (!(d > 0)) return 1;
-  return clamp(d / BAR_REF_D, 1, Math.max(1, xrScreenW(s) / BAR_M));
+  /* ⚠️ **画面の幅に合わせる基準は弧ではなく弦**(正面から見た実幅)。
+     弧で頭打ちにすると、湾曲の画面では帯が必ず片側 3.9cm(強さ145%で8.3cm)はみ出す。
+     ⚠️ **下限も画面の幅で抑えること**。1 のままだと、画面の実幅が 1.166m を下回ったとき
+        帯(1.35m)が画面より広くなり、隣の画面のボタンとして反応する(縦向きの窓で24.1%) */
+  var hi = xrScreenSpan(s) / BAR_M;
+  return clamp(d / BAR_REF_D, Math.min(1, hi), hi);
 }
 
 function xrDrawBar(s, hoverIdx, shown){
@@ -6931,15 +6982,23 @@ function xrMenuDraw(){
           S.bg === item[0], bgUnavailable(item[0]), true);
     });
 
+    /* この行は3組(17c)。1組は 70+8+140+8+70 = 296px で、左右の余白36を引いた
+       952px にちょうど3組と隙間32pxずつが収まる。**組の幅を変えると入らなくなる**
+       (見出しは bold 24px で最長「画面の最大距離」が168px、隙間は160px残る) */
     label('画面の最大距離', 36, 476);
     btn('md:-', 36, 490, 70, 54, '−');
     valbox(S.maxDist + ' m', 114, 490, 140, 54);
     btn('md:+', 262, 490, 70, 54, '+');
 
-    label('画面の最大幅', 540, 476);
-    btn('mw:-', 540, 490, 70, 54, '−');
-    valbox(S.maxW + ' m', 618, 490, 140, 54);
-    btn('mw:+', 766, 490, 70, 54, '+');
+    label('画面の最大幅', 364, 476);
+    btn('mw:-', 364, 490, 70, 54, '−');
+    valbox(S.maxW + ' m', 442, 490, 140, 54);
+    btn('mw:+', 590, 490, 70, 54, '+');
+
+    label('湾曲の強さ', 692, 476);
+    btn('cv:-', 692, 490, 70, 54, '−', false, S.curveK <= CURVE_STEPS[0]);
+    valbox(Math.round(S.curveK * 100) + '%', 770, 490, 140, 54);
+    btn('cv:+', 918, 490, 70, 54, '+', false, S.curveK >= CURVE_STEPS[CURVE_STEPS.length - 1]);
 
     label('接続品質の表示', 36, 594);
     btn('st', 36, 608, 140, 54, S.stats ? 'ON' : 'OFF', S.stats);
@@ -7045,6 +7104,11 @@ function xrMenuActivate(id){
   } else if (id === 'mw:-' || id === 'mw:+') {
     S.maxW = clamp(S.maxW + (id === 'mw:+' ? 2 : -2), 3, 40);
     if (xr.params.width > S.maxW) { xr.params.width = S.maxW; xr.geoDirty = true; }
+    saveS();
+  } else if (id === 'cv:-' || id === 'cv:+') {
+    var ci = clamp(CURVE_STEPS.indexOf(S.curveK) + (id === 'cv:+' ? 1 : -1), 0, CURVE_STEPS.length - 1);
+    S.curveK = CURVE_STEPS[ci];
+    xr.geoDirty = true; /* レイヤーは外さない(APP.xrCurveChanged と同じ理由) */
     saveS();
   } else if (id === 'st') {
     S.stats = !S.stats;
