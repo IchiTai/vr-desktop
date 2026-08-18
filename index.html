@@ -2871,7 +2871,7 @@ function questReset(){
          接続品質の計測 / 音量
    ================================================================ */
 
-var APP_VER = '2026-08-17c';
+var APP_VER = '2026-08-18a';
 
 /* ---------- 保存(この端末のブラウザ内。使えない環境では保存なしで動く) ---------- */
 var KM_BTNS = ['r0', 'r1', 'r3', 'r4', 'r5', 'l0', 'l1', 'l3', 'l4', 'l5'];
@@ -4570,6 +4570,11 @@ function xrBuildScene(){
   xr.tmpMat = new THREE.Matrix4();
   xr.tmpV1 = new THREE.Vector3();
   xr.tmpV2 = new THREE.Vector3();
+  /* ⚠️ **tmpV1/tmpV2 を借りないための3本目**(18a)。xrUpdateGrabs は同じコマの中で
+     tmpV1(レーザーの元)と tmpV2(向き)を生かしたまま使い続けるので、
+     置き場所の覚え直しで踏むと、レーザーの線が飛ぶ */
+  xr.tmpV3 = new THREE.Vector3();
+  xr.tmpQ2 = new THREE.Quaternion();
   xr.camPos = new THREE.Vector3();
   xr.anchorPos = new THREE.Vector3(0, 0, 0);
   xr.forward = new THREE.Vector3(0, 0, -1);
@@ -5291,7 +5296,7 @@ function xrCreateScreen(d){
   var s = {
     key: d.key, host: d.host, slot: d.slot, video: null,
     tex: null, mat: mat, mesh: null, aspect: 16 / 9, wScale: 1,
-    curved: xr.params.curved, locked: false, custom: false, follow: false, dim: 1, prevScale: 0,
+    curved: xr.params.curved, locked: false, custom: false, follow: false, followAt: null, dim: 1, prevScale: 0,
     bar: null, barSig: ''
   };
   xrAttachVideo(s, d.video);
@@ -5439,18 +5444,21 @@ function xrBarActivate(s, idx){
         if (xr.grab[hand] && xr.grab[hand].scr === s) xr.grab[hand] = null;
       });
       s.follow = false;
+      s.followAt = null; /* 追従をやめるので置き場所も捨てる(18a) */
       s.custom = true; /* いまの位置のまま留める */
     }
   } else if (idx === 3) {
     if (!s.follow) {
       if (s.locked) return;
       s.follow = true;
+      s.followAt = null; /* 入れ直したら自動の並びから始める(18a) */
       s.custom = true;
       s.prevScale = s.wScale;
       if (s.wScale > 0.5) { s.wScale = 0.45; xr.geoDirty = true; }
       s.followScale = s.wScale;
     } else {
       s.follow = false;
+      s.followAt = null; /* 追従をやめるので置き場所も捨てる(18a) */
       /* 追従中に変えた大きさを捨てないため、書き戻すのは自分で縮めた値のままのときだけ */
       if (s.prevScale && s.wScale === s.followScale) { s.wScale = s.prevScale; xr.geoDirty = true; }
     }
@@ -5535,7 +5543,16 @@ function xrPlaceHud(){
   if (!xr.hud || xr.hudCustom) return;
   var p = xr.params;
   var h = p.width * 9 / 16;
-  var hd = Math.min(p.dist * 0.9, 2.4);
+  /* ⚠️ **画面より必ず手前に置くこと(18a)**。ガイドの板は rotateX(-0.5) で後ろへ倒して
+     あるので、**上端は中心より 30.15cm 奥**にある。`p.dist - 0.45` を入れないと、
+     既定(画面2.4m・ガイド2.16m)でも上端が 2.46m = 画面より奥に来て、
+     画面の下端に裏から食われる(拡大1.15倍で上から23行、1.5倍で204行が消えた)。
+     必要な余裕は 41.64cm なので 0.45 で 3.4cm の余裕がある。
+     ⚠️ **下の clamp を緩めても直らない**。既定でもう下限 -1.6 に張り付いており、
+        拡大時に必要な高さは -5.32m(俯角68°)で、手が届かない。
+     ⚠️ すぐ上の `h` は **s.wScale を見ていない**(画面を拡大しても値が変わらない)。
+        これは事実として嘘だが、上のとおり直しても1mmも動かないので触っていない。 */
+  var hd = Math.max(0.9, Math.min(p.dist * 0.9, 2.4, p.dist - 0.45));
   var y = xr.anchorPos.y + clamp(p.yOff - h / 2 - 0.7, -1.6, -1.05);
   var pos = xr.tmpV1.copy(xr.anchorPos).addScaledVector(xr.forward, hd);
   xr.hud.position.set(pos.x, y, pos.z);
@@ -5646,14 +5663,31 @@ function xrDrawHud(){
   lines.push(['操作ガイド', (kmHas('hud') ? kmButtonsFor('hud') + ' / ' : '') + '何もない所をクリック']);
   lines.push(['画面ごとのボタン', '画面のすぐ上にレーザーを当てると表示']);
 
+  /* 値の列は x=440 から左詰めなので、使える幅は W-440-40 = 544px しかない。
+     ⚠️ **文字数で決め打ちにしないこと**。実際の物差しで測って詰める。
+        設定でボタンを1つ「クリック」に回すだけで枠を割り(右端1010px)、
+        10個全部を回すと 2808px になる。畳んだあとは「ほかN個」と出す。
+     ⚠️ **測るときの字の大きさを、描くときと必ず揃えること**。この位置には
+        直前の描画が残した 26px 太字が入っており、そのまま測ると約4%小さく見積もる */
+  var valMax = W - 440 - 40;
+  function fitVal(t){
+    if (ctx.measureText(t).width <= valMax) return t;
+    var ps = String(t).split(' / ');
+    for (var vn = 1; vn < ps.length; vn++) {
+      var vs = ps.slice(0, ps.length - vn).join(' / ') + ' / ほか' + vn + '個';
+      if (ctx.measureText(vs).width <= valMax) return vs;
+    }
+    return ps[0]; /* 1つでも入らないときはこれ以上詰められない */
+  }
+
   var y = 150; /* 138 だと、すぐ上の状態行(y=112・26px)と縦がぶつかっていた(14b) */
   for (var i = 0; i < lines.length; i++) {
     ctx.fillStyle = '#b8a9ff';
     ctx.font = 'bold 29px sans-serif';
     ctx.fillText(lines[i][0], 40, y);
     ctx.fillStyle = '#d8d5ea';
-    ctx.font = '27px sans-serif';
-    ctx.fillText(lines[i][1], 440, y);
+    ctx.font = '27px sans-serif';   /* fitVal はこの大きさで測るので、順番を変えないこと */
+    ctx.fillText(fitVal(lines[i][1]), 440, y);
     y += 54;
   }
 
@@ -5858,6 +5892,10 @@ function xrApplyRecenter(){
   xr.anchorPos.copy(camPos);
   xr.forward.copy(dir);
   xr.screens.forEach(function(s){ if (!s.locked && !s.follow) s.custom = false; });
+  /* ⚠️ **手で置いた追従画面は、ここで置き場所を捨てること(18a)**。捨てないと
+     「変な所に置いた画面を二度と直せない」状態になる(この関数はもともと
+     追従画面を対象外にしているので、追従だけは別に面倒を見る必要がある) */
+  xr.screens.forEach(function(s){ if (s.follow) s.followAt = null; });
   xr.hudCustom = false;
   xr.menuCustom = false;
   xr.keysCustom = false;
@@ -5895,7 +5933,9 @@ function xrGrabStart(hand){
   if (scr) {
     if (scr.locked) return;
     scr.custom = true;
-    scr.follow = false;
+    /* ⚠️ **ここで follow を切らないこと(18a)**。切ると「離した場所で追従し続ける」が
+       成り立たない。掴んでいる最中は xrUpdateGrabs が置き場所を覚え直し、
+       xrUpdateFollows はその場所へ寄せるだけなので、綱引きにならない */
   }
   /* つかんだ瞬間のレーザー先端と中心のずれを保つ */
   var delta = new THREE.Vector3().copy(mesh.position);
@@ -5934,6 +5974,22 @@ function xrControllerFor(hand){
   return null;
 }
 
+/* 追従画面の「置き場所」を、**頭から見た相対位置**として覚える(18a)。
+   ⚠️ **世界座標で覚えないこと**。追従は頭に付いてくるので、世界座標だと
+      振り向いたときにその場へ取り残される。
+   ⚠️ **カメラの向きを直に反転しないこと**。使い回しの入れ物へ複製してから逆にする。
+   ⚠️ **three 0.149 に `.inverse()` は無い**。`.invert()` を使うこと。 */
+var FOLLOW_MIN = 0.9;
+function xrRememberFollow(s){
+  var q = xr.tmpQ2.copy(xr.camera.quaternion).invert();
+  var v = xr.tmpV3.copy(s.mesh.position).sub(xr.camPos).applyQuaternion(q);
+  /* 顔に寄せすぎさせない。追従の板(実幅1.215m)は0.9mで見込み角68°あり、
+     これ以上寄せると左右の端が視野から外れる */
+  var d = v.length();
+  if (d > 1e-4 && d < FOLLOW_MIN) v.multiplyScalar(FOLLOW_MIN / d);
+  s.followAt = { x: v.x, y: v.y, z: v.z };
+}
+
 function xrUpdateGrabs(){
   ['right', 'left'].forEach(function(hand){
     var g = xr.grab[hand];
@@ -5946,6 +6002,10 @@ function xrUpdateGrabs(){
     var point = origin.clone().addScaledVector(dir, g.dist);
     g.mesh.position.copy(point).add(g.delta);
     g.mesh.lookAt(xr.camPos); /* 上下の傾きも含めて、自分の顔の方を向く */
+    /* ⚠️ **毎コマ覚え直すこと(18a)**。「離した瞬間」を捕まえる作りにすると、
+       掴みが消える経路(離す・コントローラーが消える・固定にする・追従を切る・
+       VRを出る)のうち正規の離し口以外を取りこぼす。毎コマなら取りこぼしが無い */
+    if (g.kind === 'scr' && g.scr && g.scr.follow) xrRememberFollow(g.scr);
     var L = xr.lasers[hand];
     L.line.visible = true;
     L.line.position.copy(origin);
@@ -6408,7 +6468,10 @@ function xrUpdatePointers(){
     var kl = xr.ph[actH].keysBtn || xr.ph[othH].keysBtn;
     var hi = 0;
     for (var qi = 0; qi < qs.hosts.length; qi++) { if (qs.hosts[qi] === xr.lastHost) hi = qi; }
-    var ksig = String(kl) + '|' + hi + '|' + (xr.lastHost && xr.lastHost.helperOn ? 1 : 0);
+    /* 知らせの行も署名に入れること(18a)。入れないと、出たり消えたりが板に反映されない */
+    var kNow = Date.now();
+    var kNote = (kNow < xr.remindShownUntil) ? 'r' : ((kNow < xr.noticeUntil) ? xrHelperStatusText()[0] : '');
+    var ksig = String(kl) + '|' + hi + '|' + (xr.lastHost && xr.lastHost.helperOn ? 1 : 0) + '|' + kNote;
     if (kl !== xr.keysHL || ksig !== xr.keysSig) {
       xr.keysHL = kl;
       xr.keysSig = ksig;
@@ -6447,15 +6510,28 @@ function xrMaybeSendMove(){
 }
 
 /* ---------- 追従画面: 視界の隅に付いてくる ---------- */
+/* 追従画面1枚が縦に占める高さ。**板の高さだけでなく、上に乗るボタン列も数えること**(18a)。
+   数え忘れると、下の段の帯が上の段の板の裏に入る(0.87m ではなく 0.75m を使うと起きる)。
+   ⚠️ **ここから xrBarScale を呼ばないこと**。この値は位置を決める前に要るので、
+      位置に依存させると段の間隔が毎コマ揺れる。追従の距離(1.15m)では帯の倍率は
+      必ず1以下になる(下限が画面の実幅で抑えられるため)ので、1で見積もれば足りる */
+function xrFollowStack(s){
+  var h = xrScreenW(s) / s.aspect;
+  return h + 0.12 + (BAR_M * BAR_H / BAR_W) / 2;
+}
+
 function xrUpdateFollows(){
   var aside = (xr.menu.open || xr.keys.open || xr.pad.open) ? 0.65 : 0;
   /* 列の間隔は、いちばん幅の広い追従画面の実寸から決めること。
      固定値にすると設定「最大の幅」を上げたときに、また同じ1点に重なる */
-  var step = 0, cnt = 0;
+  var step = 0, cnt = 0, vstep = 0;
   for (var i = 0; i < xr.screens.length; i++) {
     if (!xr.screens[i].follow) continue;
     var w = xrScreenW(xr.screens[i]) + 0.06;
     if (w > step) step = w;
+    /* 段の間隔も同じ考えで実寸から。固定値 0.80 は「最大の幅」を4mにすると必ず破綻する */
+    var vh = xrFollowStack(xr.screens[i]) + 0.06;
+    if (vh > vstep) vstep = vh;
     cnt++;
   }
   var base = (cnt > 1) ? Math.max(0.55, step / 2) : 0.55;
@@ -6463,9 +6539,26 @@ function xrUpdateFollows(){
   for (var k = 0; k < xr.screens.length; k++) {
     var s = xr.screens[k];
     if (!s.follow) continue;
+    if (s.followAt) {
+      /* 手で置いた画面は覚えた場所へ。⚠️ **自動の枠を使わない(n を増やさない)こと**。
+         使うと空いた枠が残り、残りの画面が詰め直されず 34.6% 隠れたままになる */
+      var offC = xr.tmpV1.set(s.followAt.x, s.followAt.y, s.followAt.z)
+        .applyQuaternion(xr.camera.quaternion).add(xr.camPos);
+      s.mesh.position.lerp(offC, 0.18);
+      s.mesh.lookAt(xr.camPos);
+      continue;
+    }
     var side = (n % 2) ? -1 : 1;
-    var lane = base + aside + Math.floor(n / 2) * step;
-    var off = xr.tmpV1.set(side * lane, -0.32, -1.15).applyQuaternion(xr.camera.quaternion).add(xr.camPos);
+    /* **上下2段に積むこと(18a)**。同じ z の平面に横一列で並べると、外側ほど遠くなって
+       見込み角が縮み、**3枚目から手前の画面の裏に入る**(既定で 34.6%、パネルを
+       開くと 58.4%、5枚なら 70.6%)。段を分ければ 3〜4枚で 0% になり、
+       左右の首の振り幅は横一列のときと変わらない。
+       ⚠️ **弧に並べ替えないこと**。追従どうしは0%になるが、操作ガイド +14.3pt /
+          設定メニュー +18.3pt / 主画面 +19.9pt と三方を壊し、しかも画面を拡大すると
+          60.1% 隠れて 0% を保てない(3枚目の方位も 88°=真横より後ろになる) */
+    var tier = Math.floor(n / 2) % 2;
+    var lane = base + aside + Math.floor(n / 4) * step;
+    var off = xr.tmpV1.set(side * lane, -0.32 + tier * vstep, -1.15).applyQuaternion(xr.camera.quaternion).add(xr.camPos);
     s.mesh.position.lerp(off, 0.18);
     s.mesh.lookAt(xr.camPos);
     n++;
@@ -6550,6 +6643,19 @@ function xrKeysDraw(){
     /* 題名「よく使うキー」(30px太字・x=32)が212pxまで伸びるので、ここは232より左へ置かないこと(15r) */
     232, 50
   );
+  /* この板を開いている間はガイドを出さないので(18a)、ガイドに出るはずだった知らせを
+     ここに1行出す。**これが無いと、キーを開いている間の知らせはどこにも出ない**。
+     ⚠️ **x=578〜864 に収めること**。左は送信先の行が554pxまで伸び(「送信先: パソコン1(操作 OFF)」)、
+        右は「閉じる」ボタンが x=874 から始まる。24pxでいちばん長い
+        「● 画面が届いていません」が259pxで、余りは27px。**長い文を入れない**。 */
+  var note = '';
+  if (Date.now() < xr.remindShownUntil) note = '☕ 休憩の時間です';
+  else if (Date.now() < xr.noticeUntil) note = xrHelperStatusText()[0];
+  if (note) {
+    ctx.fillStyle = '#ffb86b';
+    ctx.font = '24px sans-serif';
+    ctx.fillText(note, 578, 50);
+  }
 
   function kbtn(id, x, y, w, h, text){
     var hover = xr.keysHL === id;
@@ -7194,6 +7300,14 @@ function xrSnapshotLayout(){
       c: s.custom ? 1 : 0, l: s.locked ? 1 : 0, f: s.follow ? 1 : 0,
       w: Math.round(s.wScale * 100) / 100, cv: s.curved ? 1 : 0,
       dm: Math.round(s.dim * 100) / 100,
+      /* 手で置いた追従画面の置き場所(18a)。**頭から見た相対位置をそのまま**入れる
+         (p は再センタリングの向きを基準にした座標で、意味が違うので混ぜないこと)。
+         置いていなければ入れない=古い保存を読んだときと同じ状態になる */
+      fa: s.followAt ? [
+        Math.round(s.followAt.x * 100) / 100,
+        Math.round(s.followAt.y * 100) / 100,
+        Math.round(s.followAt.z * 100) / 100
+      ] : null,
       p: [
         Math.round(d.dot(b.r) * 100) / 100,
         Math.round(d.y * 100) / 100,
@@ -7221,6 +7335,19 @@ function xrApplyLayoutSlot(sl){
     s.dim = clamp(+e.dm || 1, 0.2, 1);
     s.mat.color.setScalar(s.dim);
     xrApplyDim(s);
+    /* 置き場所を戻す(18a)。⚠️ **`if (s.custom && e.p)` の前に置くこと**
+       (7218行を動かすと test_15b.js:237 が落ちる)。
+       ⚠️ **壊れた値と古い保存を必ず落とすこと**。古い保存に fa は無いので null になり、
+          自動の並びから始まる(= 17c までと同じ見え方)。 */
+    s.followAt = null;
+    if (s.follow && e.fa && e.fa.length === 3) {
+      var fx = +e.fa[0], fy = +e.fa[1], fz = +e.fa[2];
+      var fd = Math.sqrt(fx * fx + fy * fy + fz * fz);
+      /* 顔に寄せすぎた値・遠すぎる値は捨てる(下限は xrRememberFollow と同じ FOLLOW_MIN)。
+         ⚠️ **この向きの比較を保つこと**。NaN(文字や壊れた保存)はどちらの比較も false に
+            なるのでここで落ちる。`!(fd < FOLLOW_MIN)` の形に書き換えると NaN が通る */
+      if (fd >= FOLLOW_MIN && fd <= S.maxDist) s.followAt = { x: fx, y: fy, z: fz };
+    }
     s.custom = !!e.c;
     if (s.custom && e.p) {
       s.mesh.position.copy(xr.anchorPos)
@@ -7713,8 +7840,12 @@ function xrRenderInner(){
   if (xr.hud) {
     /* 「よく使うキー」のパネルは操作ガイドの上端と同じ高さに出るため、開いている間は隠す。
        ただし休憩の知らせは操作ガイドにしか出ないので、出ている60秒の間だけは隠さない */
-    var wantHud = (xr.hudPinned || now < xr.hudUntil)
-      && (!xr.keys.open || Date.now() < xr.remindShownUntil || Date.now() < xr.noticeUntil);
+    /* ⚠️ **「知らせの間だけ免除する」を書かないこと(18a)**。
+       「よく使うキー」の板はガイドの**上から180px**を覆い、そこに描かれているのは
+       状態行(y=72)・時計(y=72)・☕(y=112)——**まさにその知らせ本人**。
+       免除で読めるようになる情報は 0% で、ガイドが欠けるだけだった。
+       キーを開いている間の知らせは xrKeysDraw が板の見出し行に1行出す。 */
+    var wantHud = (xr.hudPinned || now < xr.hudUntil) && !xr.keys.open;
     /* 印が立っていれば描く。**1コマに何本 xrNotice が来ても描画は1回**に畳まれる */
     if (wantHud && xr.hudStale) { xr.hudStale = false; xrDrawHud(); }
     xr.hud.visible = wantHud;
